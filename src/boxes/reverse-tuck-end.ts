@@ -14,7 +14,7 @@ import { PathBuilder } from '@/core/path';
 import type { BoxInvariant, BoxModule, BoxParamDef, DielinePath, DielineText, GenerateResult, LineType, ResolvedParams } from '@/core/types';
 import { registerBox } from '@/core/registry';
 import { hasNaN, segmentsBounds } from '@/core/geometry';
-import { GLUE_CHAMFER, frictionLock, reliefSlot, dimensionLine } from '@/core/primitives';
+import { GLUE_CHAMFER, LOCK_CHAMFER, frictionLock, reliefSlot, dimensionLine } from '@/core/primitives';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 參數宣告
@@ -476,18 +476,70 @@ const invariants: BoxInvariant[] = [
   {
     id: 'lid-equals-w',
     description: {
-      zh: '上蓋／下蓋沿摺線方向的高度必須等於盒寬 W——蓋板需要完全覆蓋開口，而開口的深度就是 W，蓋板矮了會露餡、高了會多餘的材料浪費。',
+      zh: '上蓋／下蓋沿摺線方向的高度必須等於盒寬 W——蓋板需要完全覆蓋開口，而開口的深度就是 W，蓋板矮了會露餡、高了會多餘的材料浪費。上蓋、下蓋各自的兩側邊都要驗到，缺一側也算不通過。',
     },
     check(params, result) {
       const w = params.W as number;
-      const lidCuts = result.paths.filter((p) => p.type === 'cut' && p.tags?.includes('W'));
-      const lengths = lidCuts
+      // 位置特徵鎖定「數的是哪四條」：perimeter('top') 的 lid.start/lid.end 各一條、
+      // perimeter('bottom') 的 lid.start/lid.end 各一條，四條都是「鉛直線」（起訖點 x
+      // 座標相同——見 generate() 內 `push('cut','W', moveTo(lid.start,edgeY).lineTo(lid.start,yFold))`
+      // 這類呼叫，起訖 x 恆為同一個變數）且長度＝hLid＝W。只用「長度＝W」篩選會被任何巧合
+      // 等長但方向不對的線段魚目混珠（見測試「4 條斜線」案例），也無法分辨「少畫一側蓋板」
+      // 這種缺漏（舊版 .some() 只要 1 條符合就整體判定通過）——因此除了長度還要求鉛直，
+      // 且要求數量 ≥4（上蓋 2＋下蓋 2）。
+      const VERTICAL_EPS = 0.01;
+      const lidSideCuts = result.paths
+        .filter((p) => p.type === 'cut' && p.tags?.includes('W'))
         .flatMap((p) => p.segments)
         .filter((s): s is Extract<Segment, { kind: 'line' }> => s.kind === 'line')
-        .map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
-      const ok = lengths.some((len) => Math.abs(len - w) < 0.01);
-      if (!ok) {
-        return { ok: false, message: { zh: `找不到長度等於 W(${w}mm) 的蓋板側邊 cut 線段` }, tags: ['W'] };
+        .filter((s) => Math.abs(s.x1 - s.x2) < VERTICAL_EPS)
+        .filter((s) => Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1) - w) < 0.01);
+      if (lidSideCuts.length < 4) {
+        return {
+          ok: false,
+          message: {
+            zh: `蓋板側邊鉛直 cut 線應有 4 條（上蓋 2＋下蓋 2，長度皆＝W=${w}mm），實際只找到 ${lidSideCuts.length} 條`,
+          },
+          tags: ['W'],
+        };
+      }
+      return { ok: true };
+    },
+  },
+  {
+    id: 'tuck-lock-fits',
+    description: {
+      zh: '摩擦扣寬度必須能放進蓋板所在面板的可用寬度內、且不能窄到讓卡榫梯形反折自撞——寬度失控時刀模會切出面板外或產生無法摺疊的自交幾何。',
+    },
+    check(params, _result) {
+      const L = params.L as number;
+      const tuckLock = params.tuckLock as number;
+      // 本不變式純參數驗算（跟其餘 4 條不同，不需要從 result 反推——tuckLock 是否放得下
+      // 由宣告的 L 與 tuckLock 兩個參數就能算完，不必等 generate() 真的跑出幾何才知道）。
+      // 上限用 L：摩擦扣座落在 perimeter() 的 lid.start~lid.end 跨距（top＝wP3、bottom＝
+      // wP1，兩者皆＝L——見「移植對照表」的 x 座標鏈，P1/P3 用 L 當寬度、P2/P4 才用 W；
+      // W 決定的是「蓋板高」hLid＝摺線到插舌尖端的垂直距離，跟蓋板攤平後的水平跨距是
+      // 兩個不同的量）。已用 L≠W 的區分性參數（L=40,W=90）實測：frictionLock 產生的
+      // cut x 範圍精確等於 [lid.start, lid.end]（寬度 40＝L，與 W=90 無關），
+      // tuckLock=50>40=L 時 cut 範圍確實溢出 lid 跨距——證實正確上限是 L。
+      if (tuckLock > 0 && tuckLock > L) {
+        return {
+          ok: false,
+          message: { zh: `摩擦扣寬 ${tuckLock}mm 超過蓋板可容納寬度 ${L}mm，會切出面板外` },
+          tags: ['tuckLock', 'L'],
+        };
+      }
+      // 下限：LOCK_CHAMFER（兩側導角，各 2mm）總和＝4mm。frictionLock 的梯形頂邊兩端點
+      // 是 xLeft+LOCK_CHAMFER 與 xRight-LOCK_CHAMFER；當 lockWidth<2×LOCK_CHAMFER 時
+      // 這兩點會交叉（左端點跑到右端點右邊），畫出來的頂邊方向反轉，梯形變成自交的
+      // 「反折」蝴蝶結形狀而非正常梯形（已實測 tuckLock=2/3.9 時頂邊 x1>x2 反轉，
+      // tuckLock=4 剛好退化成頂點重合的三角形、tuckLock=5 起才是正常梯形）。
+      if (tuckLock > 0 && tuckLock < 2 * LOCK_CHAMFER) {
+        return {
+          ok: false,
+          message: { zh: `摩擦扣寬 ${tuckLock}mm 小於兩側導角總和 ${2 * LOCK_CHAMFER}mm，卡榫梯形會反折自撞` },
+          tags: ['tuckLock'],
+        };
       }
       return { ok: true };
     },
@@ -542,7 +594,7 @@ export const reverseTuckEnd: BoxModule = {
     id: 'rte',
     name: { zh: '反插式尾封盒 (Reverse Tuck End, RTE)' },
     intro: {
-      zh: '業界標準代號 ECMA A10.20，前後左右四片面板一字排開展開的盒型；上下蓋板各以插舌卡入摩擦扣固定開口，兩側防塵翼摺入遮擋縫隙，免膠帶封口。',
+      zh: '前後左右四片面板一字排開展開的盒型；上下蓋板各以插舌卡入摩擦扣固定開口，兩側防塵翼摺入遮擋縫隙，免膠帶封口。',
     },
     topology: 'linear',
   },
