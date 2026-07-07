@@ -231,3 +231,107 @@ export function hasNaN(list: Segment[]): boolean {
   }
   return false;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 自撞（self-intersection）偵測（T9 樣張 gate 第二輪維護者反饋，修復 2A）
+// ─────────────────────────────────────────────────────────────────────────
+
+type Point = { x: number; y: number };
+
+/** arc 折線化的取樣間隔（度）——每 5° 取樣一個端點，串成折線參與自撞判定。 */
+const ARC_FLATTEN_STEP_DEG = 5;
+
+/** 把單一 arc segment 依 startAngle→endAngle 掃過的弧，每 ARC_FLATTEN_STEP_DEG° 取樣，串成折線。 */
+function flattenArc(s: ArcSegment): LineSegment[] {
+  const rawSweep = s.ccw ? s.startAngle - s.endAngle : s.endAngle - s.startAngle;
+  let sweep = normalizeAngle(rawSweep);
+  if (sweep < 1e-9 && Math.abs(rawSweep) > 1e-9) {
+    sweep = TWO_PI; // start/end 差為 2π 整數倍 → 完整圓（同 angleInArc 的判斷邏輯）
+  }
+  const stepRad = (ARC_FLATTEN_STEP_DEG * Math.PI) / 180;
+  const steps = Math.max(1, Math.ceil(sweep / stepRad));
+  const dir = s.ccw ? -1 : 1;
+
+  const points: Point[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const theta = s.startAngle + dir * sweep * (i / steps);
+    points.push({ x: s.cx + s.r * Math.cos(theta), y: s.cy + s.r * Math.sin(theta) });
+  }
+
+  const lines: LineSegment[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]!;
+    const b = points[i + 1]!;
+    lines.push({ kind: 'line', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+  }
+  return lines;
+}
+
+/** 任意 Segment 轉為折線：line 原樣、arc 每 5° 取樣、bezier 沿用既有 flattenBezier。 */
+function flattenToLines(s: Segment): LineSegment[] {
+  if (s.kind === 'line') return [s];
+  if (s.kind === 'arc') return flattenArc(s);
+  return flattenBezier(s);
+}
+
+// 排除自撞判定的容差——遠高於浮點捨入雜訊量級（arc 端點由三角函數重算、bezier 端點由
+// de Casteljau 對半分割產生，兩者跟「理論上重合」的目標值最多差在 1e-10~1e-12 級），
+// 用來把「共享端點／T 型觸碰／共線重疊」這些理論叉積應為 0 的正常銜接，從「真交叉」篩掉。
+const CROSS_EPS = 1e-7;
+
+function sign(v: number): -1 | 0 | 1 {
+  if (v > CROSS_EPS) return 1;
+  if (v < -CROSS_EPS) return -1;
+  return 0;
+}
+
+/** (a-o) 與 (k-o) 的外積——標準線段相交測試的方向判斷式（direction(o,a,k) 沿用 CLRS 命名）。 */
+function direction(o: Point, a: Point, k: Point): number {
+  return (a.x - o.x) * (k.y - o.y) - (a.y - o.y) * (k.x - o.x);
+}
+
+/**
+ * 兩線段是否「真交叉」（內部交點）。
+ *
+ * 只有 p1/p2 分居直線 p3-p4 兩側、且 p3/p4 也分居直線 p1-p2 兩側（四個方向判斷式都非 0
+ * 且兩兩異號）才算真交叉。刻意不採用教科書版的「含邊界」相交測試——那個版本會把共享端點、
+ * T 型觸碰、共線重疊都判定為相交，這裡任一方向判斷式落在 [-EPS,EPS] 內都視為 0（點在線上／
+ * 共點），直接排除在「真交叉」之外：這些是刀模路徑轉角處正常的銜接方式，不是幾何錯誤。
+ */
+function properCross(p1: Point, p2: Point, p3: Point, p4: Point): boolean {
+  const d1 = sign(direction(p3, p4, p1));
+  const d2 = sign(direction(p3, p4, p2));
+  const d3 = sign(direction(p1, p2, p3));
+  const d4 = sign(direction(p1, p2, p4));
+  return d1 !== 0 && d2 !== 0 && d1 !== d2 && d3 !== 0 && d4 !== 0 && d3 !== d4;
+}
+
+/**
+ * 偵測一組 Segment 是否存在自撞——任兩條線段（arc/bezier 先折線化）內部真交叉。
+ *
+ * 排除共享端點的鄰接（含 T 型觸碰、共線重疊）：刀模路徑在轉角處大量共用端點是正常銜接，
+ * 不是幾何錯誤；只有兩條線段「真的穿過彼此內部」才算自撞——例如插舌圓角鉗制前，tuckRadius
+ * 超過幾何上限時反向翻出的垂直邊會貫穿原本該相連的圓弧（見 boxes/reverse-tuck-end.ts 的
+ * tuck-radius-clamped 不變式）。零長度線段（鉗制邊界情形，如 effectiveR 恰等於 tuckDepth
+ * 時退化出的 0 長度線）沒有「內部」可言，略過不參與判定。
+ * O(n²) 全對比對：刀模單一盒型的線段數量級在數十到一兩百條，足夠便宜。
+ */
+export function hasSelfIntersection(segments: Segment[]): boolean {
+  const lines = segments.flatMap(flattenToLines);
+  for (let i = 0; i < lines.length; i++) {
+    const a = lines[i]!;
+    if (a.x1 === a.x2 && a.y1 === a.y2) continue; // 零長度：無「內部」，跳過
+    const p1: Point = { x: a.x1, y: a.y1 };
+    const p2: Point = { x: a.x2, y: a.y2 };
+    for (let j = i + 1; j < lines.length; j++) {
+      const b = lines[j]!;
+      if (b.x1 === b.x2 && b.y1 === b.y2) continue;
+      const p3: Point = { x: b.x1, y: b.y1 };
+      const p4: Point = { x: b.x2, y: b.y2 };
+      if (properCross(p1, p2, p3, p4)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
