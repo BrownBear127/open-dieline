@@ -10,10 +10,59 @@ import type { BoxModule, BoxParamDef, ResolvedParams } from '@/core/types';
 
 const registry = new Map<string, BoxModule>();
 
+/**
+ * 驗證單一參數宣告的 unit/default/options/derivedDefault 組合是否合法。
+ *
+ * `BoxParamDef` 是非 discriminated union 的公開型別（型別重構留給 Slice 2），型別檢查
+ * 本身放行「unit='enum' 卻沒宣告 options」「unit='bool' 卻配字串 default」這類無效組合——
+ * 錯的插件過去要等 UI 消費時才會壞（ParamPanel 讀到 undefined 的 options、或顯示格式
+ * 錯亂），這裡在 registerBox 當下就擋下，擲錯訊息含盒型 id 與參數 key 方便定位。
+ */
+function validateBoxParamDef(paramDef: BoxParamDef, boxId: string): void {
+  const { key, unit, default: def } = paramDef;
+  const where = `盒型「${boxId}」的參數「${key}」`;
+
+  if (unit === 'enum') {
+    if (!paramDef.options || paramDef.options.length === 0) {
+      throw new Error(`registerBox: ${where} unit 為 enum，但未宣告 options（或 options 為空陣列）`);
+    }
+    const validValues = paramDef.options.map((o) => o.value);
+    if (!validValues.includes(def as string)) {
+      throw new Error(
+        `registerBox: ${where} default「${String(def)}」不在 options 值域內（合法值：${validValues.join('、')}）`,
+      );
+    }
+  } else if (unit === 'bool') {
+    if (typeof def !== 'boolean') {
+      throw new Error(`registerBox: ${where} unit 為 bool，但 default 不是 boolean（實際型別：${typeof def}）`);
+    }
+  } else {
+    // unit === 'mm' | 'deg'
+    if (typeof def !== 'number') {
+      throw new Error(`registerBox: ${where} unit 為「${unit}」，但 default 不是 number（實際型別：${typeof def}）`);
+    }
+    if (paramDef.min !== undefined && def < paramDef.min) {
+      throw new Error(`registerBox: ${where} default(${def}) 小於 min(${paramDef.min})`);
+    }
+    if (paramDef.max !== undefined && def > paramDef.max) {
+      throw new Error(`registerBox: ${where} default(${def}) 大於 max(${paramDef.max})`);
+    }
+  }
+
+  if (paramDef.derivedDefault && unit !== 'mm' && unit !== 'deg') {
+    throw new Error(
+      `registerBox: ${where} unit 為「${unit}」，但宣告了 derivedDefault（derivedDefault 只允許用在 mm/deg 這類 number 參數上）`,
+    );
+  }
+}
+
 /** 註冊一個盒型模組；id 重複視為程式錯誤（同一 id 兩個盒型會讓 UI/測試無法區分），直接擲錯。 */
 export function registerBox(m: BoxModule): void {
   if (registry.has(m.meta.id)) {
     throw new Error(`registerBox: 盒型 id「${m.meta.id}」已經註冊過，不可重複註冊（id 需全域唯一）`);
+  }
+  for (const paramDef of m.params) {
+    validateBoxParamDef(paramDef, m.meta.id);
   }
   registry.set(m.meta.id, m);
 }

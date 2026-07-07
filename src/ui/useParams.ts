@@ -35,10 +35,18 @@ export function useParams(boxId: string): UseParamsResult {
   const mod = getBox(boxId);
 
   // 切換 boxId 時同步清空 overrides：在渲染期間（而非 useEffect）呼叫 setOverrides，
-  // 讓 React 在同一輪 commit 前用新 state 重新渲染，避免舊盒型的 overrides key
-  // 在新 mod 身上因未宣告而讓 resolveParams 於這一輪渲染內就先擲錯
-  // （若改用 useEffect 清空，會慢一拍：舊 overrides 先跟新 mod 一起送進
-  // resolveParams，若剛好撞到同名但語意不同的 key 或根本沒宣告的 key 就會炸）。
+  // 讓 React 排入「這一輪 render 結束後、commit 前」用新 state 重新渲染一次
+  // （React 的 render-phase state update：偵測到渲染中呼叫了 setState 就丟棄本次
+  // render 結果、立即用新 state 重跑，但這個「重跑」是下一輪，不是本輪——本輪
+  // 呼叫 setOverrides({}) 之後，本輪剩下的程式碼仍讀到呼叫前的舊 `overrides`
+  // 閉包值，不會就地變成 {}）。若改用 useEffect 清空會更慢一拍（commit 後才排
+  // 下一輪），但即使是 render-phase，本輪自己還是會先用「新 mod＋舊 overrides」
+  // 跑一次——舊 overrides 若剛好含新 mod 沒宣告的 key（例如殘留 {L: 80} 切到
+  // 沒有 L 的盒型），下面的 useMemo 會在這一輪就把它送進 resolveParams 而擲錯、
+  // 且沒有 error boundary 接住 → 白屏。下面 values 的 useMemo 用
+  // `boxId === trackedBoxId ? overrides : {}` guard 這一輪的殘留 overrides，
+  // 下一輪 trackedBoxId 同步後 overrides 也已重置為 {}，guard 條件自然恆真、不影響
+  // 正常路徑。
   const [trackedBoxId, setTrackedBoxId] = useState(boxId);
   const [overrides, setOverrides] = useState<OverrideMap>({});
   if (boxId !== trackedBoxId) {
@@ -46,7 +54,10 @@ export function useParams(boxId: string): UseParamsResult {
     setOverrides({});
   }
 
-  const values = useMemo(() => resolveParams(mod, overrides), [mod, overrides]);
+  const values = useMemo(
+    () => resolveParams(mod, boxId === trackedBoxId ? overrides : {}),
+    [mod, overrides, boxId, trackedBoxId],
+  );
 
   const setValue = useCallback((key: string, value: ParamValue) => {
     setOverrides((prev) => ({ ...prev, [key]: value }));
