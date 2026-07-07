@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { BoxModule } from '@/core/types';
-import { registerBox } from '@/core/registry';
+import { registerBox, _clearRegistry } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
+import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 
 // ── 測試專用 fake 盒型 1：不變式恆失敗，驗證警告條渲染（spec Step 1 第二案例指定的手法）──
 const failingBox: BoxModule = {
@@ -219,5 +220,60 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(capturedFilename).toBe('rte-55x55x117.svg');
     clickSpy.mockRestore();
+  });
+});
+
+describe('useParams：切換盒型時不因殘留 overrides 而 crash（final review 雙 reviewer 獨立重現）', () => {
+  // 第二個測試盒型：故意只宣告 x 一個參數（不含 L/W/D），確保從 RTE 切過來時，
+  // RTE 殘留的 overrides（如 {L: 80}）一定踩到「新盒型未宣告該 key」分支——
+  // 逼出 useParams.ts 的 useMemo 在切盒當輪、trackedBoxId 尚未同步前，
+  // 用「新 mod ＋ 舊 overrides」呼叫 resolveParams 而擲錯的 bug（render-phase reset
+  // 要下一輪才生效，這一輪本身需要 guard，見 useParams.ts 內對應註解）。
+  const tinyBox: BoxModule = {
+    meta: { id: 'test-tiny-box', name: { zh: '測試極簡盒' }, intro: { zh: '' }, topology: 'linear' },
+    params: [
+      {
+        key: 'x',
+        label: { zh: 'X 值' },
+        unit: 'mm',
+        default: 1,
+        min: 0,
+        max: 100,
+        step: 1,
+        group: { zh: '測試群組' },
+        description: { zh: '測試參數：故意只宣告 x，不含 L/W/D，用來踩到「切盒後 overrides 殘留」分支' },
+      },
+    ],
+    invariants: [],
+    generate: () => ({
+      paths: [{ id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      texts: [],
+      bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+    }),
+  };
+
+  registerBox(tinyBox);
+
+  afterEach(() => {
+    // registry 是模組層級全域 Map；本 describe 額外註冊了 tinyBox，用完清空避免殘留。
+    // 清空後 RTE 不會因為重新 import 就恢復註冊（ES module cache——reverseTuckEnd.ts
+    // 頂層的 registerBox(reverseTuckEnd) 只在模組第一次載入時執行過一次），這裡直接用
+    // 已在記憶體中的 reverseTuckEnd 物件手動呼叫 registerBox() 補回。本 describe 是
+    // 檔案最後一個 block，此後沒有測試依賴 registry 狀態，此舉純粹是測試衛生。
+    _clearRegistry();
+    registerBox(reverseTuckEnd);
+  });
+
+  it('改 override 後切換盒型不 crash：新盒型正常渲染其自身參數', async () => {
+    render(<App />);
+    const input = screen.getByLabelText(/長.*L/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '80' } }); // 製造 RTE 的殘留 override {L: 80}
+
+    const select = screen.getByLabelText(/盒型/);
+    expect(() => {
+      fireEvent.change(select, { target: { value: 'test-tiny-box' } });
+    }).not.toThrow();
+
+    expect(await screen.findByLabelText(/X 值/)).toBeInTheDocument();
   });
 });

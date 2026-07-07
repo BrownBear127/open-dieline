@@ -136,3 +136,93 @@ describe('registerBox / getBox / listBoxes', () => {
     expect(ids).toEqual(['box-a', 'box-b']);
   });
 });
+
+describe('registerBox：插件參數定義驗證（Slice 2 地基防撞）', () => {
+  // BoxParamDef 型別（discriminated union 重構留給 Slice 2，這裡不動公開型別）允許
+  // unit 與 default/options 的無效組合通過型別檢查（例如 unit:'enum' 沒宣告 options、
+  // bool 配字串 default）——錯的插件過去要等 UI 消費時才會壞（ParamPanel 讀 undefined
+  // 的 options、或畫面顯示格式錯亂），這裡在 registerBox 當下就擋下、擲錯訊息含
+  // 盒型 id 與參數 key 方便定位。
+
+  it('unit=enum 缺 options 時擲錯，訊息含盒型 id 與參數 key', () => {
+    const mod = fakeBox([{ key: 'color', unit: 'enum', default: 'red' }], 'bad-enum-no-options');
+    expect(() => registerBox(mod)).toThrow(/bad-enum-no-options/);
+    expect(() => registerBox(mod)).toThrow(/color/);
+  });
+
+  it('unit=enum options 為空陣列時擲錯', () => {
+    const mod = fakeBox([{ key: 'color', unit: 'enum', default: 'red', options: [] }], 'bad-enum-empty-options');
+    expect(() => registerBox(mod)).toThrow(/bad-enum-empty-options/);
+  });
+
+  it('unit=enum default 不在 options 值域時擲錯', () => {
+    const mod = fakeBox(
+      [{ key: 'color', unit: 'enum', default: 'blue', options: [{ value: 'red', label: { zh: '紅' } }] }],
+      'bad-enum-default-mismatch',
+    );
+    expect(() => registerBox(mod)).toThrow(/blue/);
+  });
+
+  it('unit=bool default 非 boolean 時擲錯', () => {
+    const mod = fakeBox([{ key: 'lock', unit: 'bool', default: 'yes' }], 'bad-bool-default');
+    expect(() => registerBox(mod)).toThrow(/lock/);
+  });
+
+  it('unit=mm default 非 number 時擲錯', () => {
+    const mod = fakeBox([{ key: 'W', unit: 'mm', default: '50' }], 'bad-mm-default-type');
+    expect(() => registerBox(mod)).toThrow(/W/);
+  });
+
+  it('unit=mm default 小於 min 時擲錯', () => {
+    const mod = fakeBox([{ key: 'W', unit: 'mm', default: 5, min: 10 }], 'bad-mm-below-min');
+    expect(() => registerBox(mod)).toThrow(/W/);
+  });
+
+  it('unit=deg default 大於 max 時擲錯', () => {
+    const mod = fakeBox([{ key: 'angle', unit: 'deg', default: 400, max: 360 }], 'bad-deg-above-max');
+    expect(() => registerBox(mod)).toThrow(/angle/);
+  });
+
+  it('derivedDefault 出現在 bool 參數上時擲錯（只允許 mm/deg 這類 number 參數）', () => {
+    const mod = fakeBox([{ key: 'lock', unit: 'bool', default: true, derivedDefault: () => 1 }], 'bad-derived-on-bool');
+    expect(() => registerBox(mod)).toThrow(/lock/);
+  });
+
+  it('derivedDefault 出現在 enum 參數上時擲錯', () => {
+    const mod = fakeBox(
+      [
+        {
+          key: 'color',
+          unit: 'enum',
+          default: 'red',
+          options: [{ value: 'red', label: { zh: '紅' } }],
+          derivedDefault: () => 1,
+        },
+      ],
+      'bad-derived-on-enum',
+    );
+    expect(() => registerBox(mod)).toThrow(/color/);
+  });
+
+  it('合法組合（各 unit 搭配 min/max/options/derivedDefault）通過 validate，不擲錯', () => {
+    const mod = fakeBox(
+      [
+        { key: 'W', unit: 'mm', default: 50, min: 0, max: 100 },
+        { key: 'angle', unit: 'deg', default: 45, min: 0, max: 360 },
+        { key: 'lock', unit: 'bool', default: true },
+        {
+          key: 'color',
+          unit: 'enum',
+          default: 'red',
+          options: [
+            { value: 'red', label: { zh: '紅' } },
+            { value: 'blue', label: { zh: '藍' } },
+          ],
+        },
+        { key: 'derived', unit: 'mm', default: 0, derivedDefault: (p) => (p.W as number) * 2 },
+      ],
+      'good-box',
+    );
+    expect(() => registerBox(mod)).not.toThrow();
+  });
+});
