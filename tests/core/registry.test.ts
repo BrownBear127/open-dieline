@@ -81,6 +81,33 @@ describe('resolveParams', () => {
     ]);
     expect(resolveParams(mod)).toEqual({ W: 50, lock: true, color: 'red' });
   });
+
+  it('derivedDefault 內對 params 呼叫 JSON.stringify 不應誤判為前向引用', () => {
+    // JSON.stringify 內部會探測 params 上是否有 toJSON；toJSON 從來不是宣告過的參數 key，
+    // 不該被 guard 誤判成「宣告過但尚未解析」而擲錯。
+    const mod = fakeBox([
+      { key: 'D', unit: 'mm', default: 100 },
+      {
+        key: 'lid',
+        unit: 'mm',
+        default: 0,
+        derivedDefault: (p) => {
+          JSON.stringify(p);
+          return (p.D as number) * 0.4;
+        },
+      },
+    ]);
+    expect(() => resolveParams(mod)).not.toThrow();
+    expect(resolveParams(mod)).toMatchObject({ D: 100, lid: 40 });
+  });
+
+  it('override 上游 key 後，下游 derivedDefault 讀到覆寫值（cascade：T8 即時重算依賴此行為）', () => {
+    const mod = fakeBox([
+      { key: 'D', unit: 'mm', default: 100 },
+      { key: 'lid', unit: 'mm', default: 0, derivedDefault: (p) => (p.D as number) * 0.4 },
+    ]);
+    expect(resolveParams(mod, { D: 200 })).toMatchObject({ D: 200, lid: 80 });
+  });
 });
 
 describe('registerBox / getBox / listBoxes', () => {
