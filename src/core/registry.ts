@@ -60,13 +60,17 @@ function validateOverrideKeys(overrides: OverrideMap | undefined, declaredKeys: 
  *   3. paramDef.default 的宣告值
  *
  * derivedDefault 只能讀取「宣告順序中先前」已解析完成的參數——用 Proxy 包一層 resolvedSoFar，
- * 對「尚未寫入」的 key 的讀取直接擲錯（前向引用防範）：讓錯誤在宣告錯誤的當下爆炸，
+ * 對「已宣告、但尚未寫入」的參數 key 的讀取直接擲錯（前向引用防範）：讓錯誤在宣告錯誤的當下爆炸，
  * 而不是讀到 undefined 靜默算出 NaN、流到下游 generate() 才顯露成一個難查的 NaN。
+ * 只有「確實是宣告參數」才受此 guard 限制——toString/toJSON/hasOwnProperty/valueOf 等
+ * Object.prototype 方法（例如 JSON.stringify(params) 內部會探測 toJSON）從來不是宣告的
+ * 參數 key，一律放行走預設 Reflect.get 行為，不可被誤判為前向引用。
  */
 function resolveOneParam(
   paramDef: BoxParamDef,
   resolvedSoFar: Record<string, ParamValue>,
   overrides: OverrideMap | undefined,
+  declaredKeys: Set<string>,
 ): ParamValue {
   const hasOverride = overrides !== undefined && Object.prototype.hasOwnProperty.call(overrides, paramDef.key);
   if (hasOverride) {
@@ -77,7 +81,11 @@ function resolveOneParam(
   if (paramDef.derivedDefault) {
     const guarded = new Proxy(resolvedSoFar, {
       get(target, prop, receiver) {
-        if (typeof prop === 'string' && !Object.prototype.hasOwnProperty.call(target, prop)) {
+        if (
+          typeof prop === 'string' &&
+          declaredKeys.has(prop) &&
+          !Object.prototype.hasOwnProperty.call(target, prop)
+        ) {
           throw new Error(
             `resolveParams: 參數「${paramDef.key}」的 derivedDefault 讀取了尚未解析的參數「${String(prop)}」` +
               `（前向引用——derivedDefault 只能讀取 params 宣告順序中「先前」已解析的參數；` +
@@ -101,7 +109,7 @@ export function resolveParams(m: BoxModule, overrides?: OverrideMap): ResolvedPa
   return m.params.reduce<Record<string, ParamValue>>(
     (resolvedSoFar, paramDef) => ({
       ...resolvedSoFar,
-      [paramDef.key]: resolveOneParam(paramDef, resolvedSoFar, overrides),
+      [paramDef.key]: resolveOneParam(paramDef, resolvedSoFar, overrides, declaredKeys),
     }),
     {},
   );
