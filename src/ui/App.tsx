@@ -6,6 +6,11 @@
  * values 或 result 變動時重新跑全部 `mod.invariants`，not-ok 的收集成
  * `invariantWarnings` 往下傳給 Canvas（畫警告條＋高亮 tags）。
  *
+ * `includeDimensions`（T9 樣張 gate 第二輪維護者反饋修復 3）：state 提升到這裡（原本只活在
+ * ExportBar 內部），同時傳給 Canvas（控制畫布是否畫尺寸標註）與 ExportBar（控制下載內容、
+ * 也是 checkbox 顯示值的來源），兩處視覺才會同步——維護者實測發現取消勾選只影響下載的 SVG，
+ * 畫布仍照樣顯示標註，就是因為這顆 state 原本沒有被畫布看到。
+ *
  * 佈局與配色為淺色工程風（T9 樣張 gate 驗收後改判：spec D8／開發紀錄 當時
  * 明文寫「深色工程風」並刻意不採前身實際配色，但驗收發現深色畫布會讓刀模行業
  * 慣例色 cut=`#000000`〔`core/styles.ts` LINE_STYLES，不可改〕完全隱形——整個
@@ -33,6 +38,7 @@ export function App() {
   const [boxId, setBoxId] = useState<string>(() => boxes[0]!.meta.id);
   const { mod, values, overriddenKeys, setValue, resetOne, reset } = useParams(boxId);
   const [highlightTags, setHighlightTags] = useState<string[] | null>(null);
+  const [includeDimensions, setIncludeDimensions] = useState(true);
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
 
@@ -86,11 +92,22 @@ export function App() {
           onHighlight={setHighlightTags}
         />
 
-        <ExportBar boxId={boxId} values={values} result={result} />
+        <ExportBar
+          boxId={boxId}
+          values={values}
+          result={result}
+          includeDimensions={includeDimensions}
+          onIncludeDimensionsChange={setIncludeDimensions}
+        />
       </aside>
 
       <main className="flex-1 flex">
-        <Canvas result={result} highlightTags={highlightTags} invariantWarnings={invariantWarnings} />
+        <Canvas
+          result={result}
+          highlightTags={highlightTags}
+          invariantWarnings={invariantWarnings}
+          includeDimensions={includeDimensions}
+        />
       </main>
     </div>
   );

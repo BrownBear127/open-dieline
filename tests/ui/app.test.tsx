@@ -1,13 +1,42 @@
+import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import type { BoxModule } from '@/core/types';
+import type { BoxModule, GenerateResult, ResolvedParams } from '@/core/types';
 import { registerBox, _clearRegistry } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+
+// ── 測試專用 harness：ExportBar 的 includeDimensions 改成受控 prop 後（T9 Fix Round 2
+// 修復 3，state 提升到 App.tsx），底下「ExportBar：下載內容與 includeDimensions checkbox
+// 傳遞」這組既有測試不能再靠 ExportBar 自己的 useState 顯示/切換 checkbox——這裡補一個
+// 最小的本地 state 容器，行為等同 App.tsx 實際餵給 ExportBar 的方式，既有測試的互動流程
+// （click checkbox → 觀察下載內容）不必改寫。
+function ExportBarHarness({
+  boxId,
+  values,
+  result,
+  initialIncludeDimensions = true,
+}: {
+  boxId: string;
+  values: ResolvedParams;
+  result: GenerateResult;
+  initialIncludeDimensions?: boolean;
+}) {
+  const [includeDimensions, setIncludeDimensions] = useState(initialIncludeDimensions);
+  return (
+    <ExportBar
+      boxId={boxId}
+      values={values}
+      result={result}
+      includeDimensions={includeDimensions}
+      onIncludeDimensionsChange={setIncludeDimensions}
+    />
+  );
+}
 
 // ── 測試專用 fake 盒型 1：不變式恆失敗，驗證警告條渲染（spec Step 1 第二案例指定的手法）──
 const failingBox: BoxModule = {
@@ -123,6 +152,32 @@ describe('App 冒煙測試', () => {
     fireEvent.click(resetBtn);
     expect(input.value).toBe('55'); // 恢復預設
   });
+
+  // ── T9 Fix Round 2 修復 3：includeDimensions state 提升到 App.tsx，畫布同步 ──
+  //
+  // 根因：ExportBar 原本自己 useState 管這顆 checkbox，只影響下載的 SVG；畫布
+  // （Canvas.tsx）完全不知道這個 state 存在，永遠畫出尺寸標註，取消勾選對畫布無效。
+  it('取消勾選「含尺寸標註」後畫布 dimension path 與文字消失；重新勾選後恢復', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+
+    const checkbox = screen.getByLabelText(/含尺寸標註/) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true); // 預設勾選
+
+    const dimStrokeSelector = `svg path[stroke="${LINE_STYLES.dimension.stroke}"]`;
+    expect(document.querySelectorAll(dimStrokeSelector).length).toBeGreaterThan(0); // 預設畫布有 dimension 線
+    expect(document.querySelectorAll('svg text').length).toBeGreaterThan(0); // 預設畫布有標註文字
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+    expect(document.querySelectorAll(dimStrokeSelector).length).toBe(0); // 取消勾選後 dimension path 消失
+    expect(document.querySelectorAll('svg text').length).toBe(0); // 文字也消失
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+    expect(document.querySelectorAll(dimStrokeSelector).length).toBeGreaterThan(0); // 重新勾選後恢復
+    expect(document.querySelectorAll('svg text').length).toBeGreaterThan(0);
+  });
 });
 
 describe('Canvas 高亮疊加', () => {
@@ -197,7 +252,7 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
   const values = { L: 55, W: 55, D: 117 };
 
   it('預設勾選「含尺寸標註」：下載內容含 dimension 線與文字', async () => {
-    render(<ExportBar boxId="rte" values={values} result={result} />);
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
     const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
@@ -207,7 +262,7 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
   });
 
   it('取消勾選「含尺寸標註」後：下載內容不含 dimension 線與文字', async () => {
-    render(<ExportBar boxId="rte" values={values} result={result} />);
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByLabelText(/含尺寸標註/));
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
@@ -217,7 +272,7 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
   });
 
   it('下載後 revoke 建立的 object URL（避免每次下載都洩漏一個 blob URL）', () => {
-    render(<ExportBar boxId="rte" values={values} result={result} />);
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
     expect(revokeObjectURLMock).toHaveBeenCalledTimes(1);
@@ -231,7 +286,7 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
       .mockImplementation(function (this: HTMLAnchorElement) {
         capturedFilename = this.download;
       });
-    render(<ExportBar boxId="rte" values={values} result={result} />);
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(capturedFilename).toBe('rte-55x55x117.svg');
     clickSpy.mockRestore();
