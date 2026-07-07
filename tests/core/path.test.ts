@@ -73,6 +73,11 @@ describe('PathBuilder', () => {
     expect(() => new PathBuilder().moveTo(0, 0).arcTo(1, 1, 10, 10)).toThrow(/弦長|直徑/);
   });
 
+  it('arcTo 遇 chord===0（起訖點重合）時拋出錯誤', () => {
+    // 起訖點重合：dx=dy=0 → chord=0 → ux=dx/chord=NaN，若不特判會靜默產生 NaN 圓心
+    expect(() => new PathBuilder().moveTo(5, 5).arcTo(3, 1, 5, 5)).toThrow(/起訖點|重合/);
+  });
+
   it('未呼叫 moveTo 就呼叫 lineTo/arcTo/bezierTo 皆拋出錯誤', () => {
     expect(() => new PathBuilder().lineTo(1, 1)).toThrow(/moveTo/);
     expect(() => new PathBuilder().arcTo(1, 1, 1, 1)).toThrow(/moveTo/);
@@ -110,5 +115,26 @@ describe('segmentsToSvgD', () => {
     const segs = new PathBuilder().moveTo(0, 0).bezierTo(1, 2, 3, 4, 5, 6).segments();
     const d = segmentsToSvgD(segs);
     expect(d).toBe('M0.00,0.00 C1.00,2.00 3.00,4.00 5.00,6.00');
+  });
+
+  it('連續段判定用容差比對：line→arc→line 鏈不因 arc 端點重算的浮點誤差多發 M', () => {
+    // 非 90° 對稱的非巧合數值：arc 端點用 cx+r*cos(angle) 重算，與原始輸入不會位元級相等
+    // （已用 Node 腳本驗證 chord=6.505 < 2r=9.2 合法、且 line1.end 與 arc.start 之間確實有
+    // ~2.2e-16 的浮點誤差，嚴格 === 判定下會誤發第二個 M）。
+    const segs = new PathBuilder()
+      .moveTo(3.7, 1.3)
+      .lineTo(12.9, 1.3)
+      .arcTo(4.6, 1, 17.5, 5.9)
+      .lineTo(17.5, 14.2)
+      .segments();
+    const d = segmentsToSvgD(segs);
+    expect(d.match(/M/g)!.length).toBe(1);
+  });
+
+  it('fmt 對近零負值不輸出 -0.00', () => {
+    // -1e-9.toFixed(2) === "-0.00"（JS 原生行為）；segment 座標含此類近零負值時不應外露這個雜訊符號
+    const segs = new PathBuilder().moveTo(0, 0).lineTo(-1e-9, -1e-9).segments();
+    const d = segmentsToSvgD(segs);
+    expect(d).not.toContain('-0.00');
   });
 });
