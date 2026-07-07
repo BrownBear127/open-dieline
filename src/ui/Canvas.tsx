@@ -149,11 +149,12 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
           {result.paths.map((p) => {
             const style = LINE_STYLES[p.type];
             const highlighted = isHighlighted(p.tags);
+            const d = segmentsToSvgD(p.segments);
             return (
               <g key={p.id}>
                 {highlighted && (
                   <path
-                    d={segmentsToSvgD(p.segments)}
+                    d={d}
                     fill="none"
                     stroke={HIGHLIGHT_STROKE}
                     strokeWidth={style.strokeWidth * HIGHLIGHT_WIDTH_FACTOR}
@@ -162,7 +163,7 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
                   />
                 )}
                 <path
-                  d={segmentsToSvgD(p.segments)}
+                  d={d}
                   fill="none"
                   stroke={style.stroke}
                   strokeWidth={style.strokeWidth}

@@ -61,7 +61,7 @@ export function ExportBar({ boxId, values, result }: ExportBarProps) {
       <button
         type="button"
         onClick={handleDownload}
-        className="w-full bg-zinc-100 hover:bg-white text-zinc-900 font-medium text-sm py-2.5 rounded-sm transition-colors"
+        className="w-full bg-orange-600 hover:bg-orange-500 text-zinc-950 font-medium text-sm py-2.5 rounded-sm transition-colors"
       >
         下載 SVG
       </button>

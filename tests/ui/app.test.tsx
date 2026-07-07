@@ -82,9 +82,12 @@ describe('App 冒煙測試', () => {
     render(<App />);
     expect(await screen.findByText('open-dieline')).toBeInTheDocument();
     const before = document.querySelectorAll('svg path').length;
+    const dBefore = Array.from(document.querySelectorAll('svg path')).map((el) => el.getAttribute('d'));
     const input = screen.getByLabelText(/長.*L/);
     fireEvent.change(input, { target: { value: '80' } });
     expect(document.querySelectorAll('svg path').length).toBe(before); // path 數不因 L 改變
+    const dAfter = Array.from(document.querySelectorAll('svg path')).map((el) => el.getAttribute('d'));
+    expect(dAfter).not.toEqual(dBefore); // 幾何隨 L 改變（d 屬性不同於改變前）
   });
 
   it('不變式 not-ok 顯示警告條（fake registry entry 注入必敗 invariant）', async () => {

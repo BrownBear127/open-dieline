@@ -54,8 +54,7 @@ export function useParams(boxId: string): UseParamsResult {
 
   const resetOne = useCallback((key: string) => {
     setOverrides((prev) => {
-      const next = { ...prev };
-      delete next[key];
+      const { [key]: _removed, ...next } = prev;
       return next;
     });
   }, []);
