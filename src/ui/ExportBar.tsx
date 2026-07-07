@@ -48,21 +48,21 @@ export function ExportBar({ boxId, values, result }: ExportBarProps) {
   };
 
   return (
-    <div className="flex flex-col gap-3 pt-4 border-t border-zinc-800">
+    <div className="flex flex-col gap-3 pt-4 border-t border-zinc-200">
       <label htmlFor="include-dimensions" className="flex items-center gap-2 text-xs text-zinc-400">
         <input
           id="include-dimensions"
           type="checkbox"
           checked={includeDimensions}
           onChange={(e) => setIncludeDimensions(e.target.checked)}
-          className="h-4 w-4 accent-orange-500"
+          className="h-4 w-4 accent-blue-600"
         />
         含尺寸標註
       </label>
       <button
         type="button"
         onClick={handleDownload}
-        className="w-full bg-orange-600 hover:bg-orange-500 text-zinc-950 font-medium text-sm py-2.5 rounded-sm transition-colors"
+        className="w-full bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2.5 rounded-sm transition-colors"
       >
         下載 SVG
       </button>

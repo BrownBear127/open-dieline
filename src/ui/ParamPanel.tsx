@@ -20,7 +20,7 @@ export interface ParamPanelProps {
 
 const LABEL_CLASS = 'text-[10px] uppercase tracking-wider text-zinc-400';
 const CONTROL_BASE_CLASS =
-  'w-full bg-zinc-800 border rounded-sm text-sm py-1.5 px-2 text-right font-mono focus:outline-none focus:border-orange-500';
+  'w-full bg-white border-b text-sm py-1.5 px-2 text-right font-mono focus:outline-none focus:border-black transition-colors';
 
 /**
  * 單一參數列：定義在模組層級，不在 ParamPanel render 內宣告——前身 `index.tsx` 的
@@ -44,7 +44,7 @@ function ParamRow({
   onHighlight: (tags: string[] | null) => void;
 }): ReactNode {
   const inputId = `param-${param.key}`;
-  const valueToneClass = isOverridden ? 'border-zinc-700 text-zinc-100' : 'border-zinc-800 text-zinc-500';
+  const valueToneClass = isOverridden ? 'border-zinc-300 text-zinc-900' : 'border-zinc-200 text-zinc-400';
 
   const handleNumberChange = (e: ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
@@ -62,7 +62,7 @@ function ParamRow({
         type="checkbox"
         checked={value as boolean}
         onChange={(e) => onChange(param.key, e.target.checked)}
-        className="h-4 w-4 accent-orange-500"
+        className="h-4 w-4 accent-blue-600"
       />
     );
   } else if (param.unit === 'enum') {
@@ -112,7 +112,7 @@ function ParamRow({
             onClick={() => onResetOne(param.key)}
             title="重設為預設值"
             aria-label={`重設「${param.label.zh}」為預設值`}
-            className="text-zinc-500 hover:text-orange-400 text-xs leading-none shrink-0"
+            className="text-zinc-500 hover:text-blue-600 text-xs leading-none shrink-0"
           >
             ↺
           </button>
@@ -145,7 +145,7 @@ export function ParamPanel({ params, values, overriddenKeys, onChange, onResetOn
   return (
     <div className="flex flex-col gap-6">
       {groups.map((g) => (
-        <div key={g.name}>
+        <div key={g.name} className="p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
           <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">{g.name}</h3>
           <div className="grid grid-cols-2 gap-3">
             {g.items.map((p) => (
