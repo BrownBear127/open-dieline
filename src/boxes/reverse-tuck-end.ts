@@ -13,7 +13,7 @@ import type { Segment } from '@/core/geometry';
 import { PathBuilder } from '@/core/path';
 import type { BoxInvariant, BoxModule, BoxParamDef, DielinePath, DielineText, GenerateResult, LineType, ResolvedParams } from '@/core/types';
 import { registerBox } from '@/core/registry';
-import { hasNaN, segmentsBounds } from '@/core/geometry';
+import { hasNaN, hasSelfIntersection, segmentsBounds } from '@/core/geometry';
 import { GLUE_CHAMFER, LOCK_CHAMFER, frictionLock, reliefSlot, dimensionLine } from '@/core/primitives';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -370,13 +370,22 @@ function generate(p: ResolvedParams): GenerateResult {
     const yTuck = yFold + ySign * hTuck;
     const xt1 = lid.start + tInset;
     const xt2 = lid.end - tInset;
+    // 插舌圓角鉗制（T9 樣張 gate 第二輪法蘭反饋，修復 1）——前身既有 bug，等價移植照搬：
+    // 垂直邊畫到 `yTuck - ySign*r`，r > hTuck 時這個點會越過摺線 yFold 翻到另一側（例如
+    // top 側 ySign=-1 時算出 yTuck+r，r=14>hTuck=10 會得到 yFold 上方的 -51，超出
+    // [yTuck,yFold]=[-65,-55] 的合法區間），垂直邊反向翻出、圓弧從錯位點畫回，自撞退化。
+    // r 也不能超過插舌半寬，否則頂邊 `xt2-r` 會反轉到 `xt1+r` 左邊、兩段圓弧互相咬合。
+    // 鉗制到兩者較小值，讓幾何永遠合法；tuck-radius-clamped 不變式另外示警「設定值未如實
+    // 生效」（見下方 invariants）。預設參數 r=3 遠低於鉗制上限，effectiveR===r，行為不變。
+    const tongueHalfWidth = (xt2 - xt1) / 2;
+    const effectiveR = Math.max(0, Math.min(r, hTuck, tongueHalfWidth));
     const tongue = new PathBuilder().moveTo(lid.start, yFold).lineTo(xt1, yFold);
-    if (r > 0) {
+    if (effectiveR > 0) {
       tongue
-        .lineTo(xt1, yTuck - ySign * r)
-        .arcTo(r, archSweep, xt1 + r, yTuck)
-        .lineTo(xt2 - r, yTuck)
-        .arcTo(r, archSweep, xt2, yTuck - ySign * r)
+        .lineTo(xt1, yTuck - ySign * effectiveR)
+        .arcTo(effectiveR, archSweep, xt1 + effectiveR, yTuck)
+        .lineTo(xt2 - effectiveR, yTuck)
+        .arcTo(effectiveR, archSweep, xt2, yTuck - ySign * effectiveR)
         .lineTo(xt2, yFold);
     } else {
       tongue.lineTo(xt1, yTuck).lineTo(xt2, yTuck).lineTo(xt2, yFold);
@@ -579,6 +588,46 @@ const invariants: BoxInvariant[] = [
         actual.maxY <= result.bounds.maxY + EPS;
       if (!ok) {
         return { ok: false, message: { zh: 'bounds 未完整涵蓋所有路徑的實際範圍' } };
+      }
+      return { ok: true };
+    },
+  },
+  {
+    id: 'tuck-radius-clamped',
+    description: {
+      zh: '插舌圓角半徑不能超過插舌深度、也不能超過插舌開口的半寬，否則轉角垂直邊會在摺線兩側反向翻出、頂邊方向反轉造成自撞（見 generate() 的 effectiveR 鉗制）。generate() 已鉗制實際繪製半徑，幾何永遠合法；這條不變式純粹示警「tuckRadius 設定值沒有如實生效」，讓使用者知道畫出來的圓角比他設的小。',
+    },
+    check(params, _result) {
+      // 純參數驗算（跟 tuck-lock-fits 同類手法）：鉗制上限只由 tuckDepth／L／tuckClearance
+      // 三個宣告參數決定，見 generate() 的 tongueHalfWidth = (xt2-xt1)/2，其中 xt2-xt1 =
+      // 插舌所在面板跨距（P1/P3 皆為 L，見 tuck-lock-fits 註解的移植對照）減去左右各一個
+      // tuckClearance，即 L - 2*tuckClearance。
+      const tuckDepth = params.tuckDepth as number;
+      const tuckRadius = params.tuckRadius as number;
+      const L = params.L as number;
+      const tuckClearance = params.tuckClearance as number;
+      const tongueHalfWidth = (L - 2 * tuckClearance) / 2;
+      const limit = Math.max(0, Math.min(tuckDepth, tongueHalfWidth));
+      const EPS = 0.001;
+      if (tuckRadius > limit + EPS) {
+        return {
+          ok: false,
+          message: { zh: `插舌圓角 ${tuckRadius}mm 超過幾何上限 ${limit}mm（受插舌深度/寬度限制），已鉗制繪製` },
+          tags: ['tuckRadius', 'tuckDepth'],
+        };
+      }
+      return { ok: true };
+    },
+  },
+  {
+    id: 'no-cut-self-intersection',
+    description: {
+      zh: '所有 cut 類路徑的線段兩兩之間不得真交叉（內部交點；共享端點的正常轉角銜接不算）——真交叉代表幾何已退化成自撞的翻折形狀（例如插舌圓角鉗制前，r 過大時垂直邊反向翻出貫穿圓弧），刀模無法沿這種路徑正確裁切。dimension/annotation 不參與這條檢查。',
+    },
+    check(_params, result) {
+      const cutSegments = result.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+      if (hasSelfIntersection(cutSegments)) {
+        return { ok: false, message: { zh: 'cut 路徑偵測到自撞（線段真交叉），幾何已退化成無法裁切的翻折形狀' } };
       }
       return { ok: true };
     },

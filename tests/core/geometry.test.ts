@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Segment } from '@/core/geometry';
-import { segmentBounds, segmentsBounds, flattenBezier, normalizeSegments, hasNaN } from '@/core/geometry';
+import { segmentBounds, segmentsBounds, flattenBezier, normalizeSegments, hasNaN, hasSelfIntersection } from '@/core/geometry';
 
 // ── 測試專用工具：獨立於被測模組的 de Casteljau 求值與點-折線距離 ──
 // （brief 要求弦高誤差驗證要「真的對曲線取樣」，不可依賴被測模組的內部實作）
@@ -180,5 +180,86 @@ describe('hasNaN', () => {
     expect(
       hasNaN([{ kind: 'bezier', x1: 0, y1: 0, c1x: NaN, c1y: 0, c2x: 0, c2y: 0, x2: 0, y2: 0 }]),
     ).toBe(true);
+  });
+});
+
+// ── hasSelfIntersection（T9 Fix Round 2 修復 2A）──
+//
+// 這裡只測幾何原語本身（不依賴任何盒型），RTE 不變式層面的整合測試在
+// tests/boxes/reverse-tuck-end.test.ts（no-cut-self-intersection 不變式）。
+describe('hasSelfIntersection', () => {
+  it('兩條完全分開、互不相交的線段 → false', () => {
+    const segs: Segment[] = [
+      { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
+      { kind: 'line', x1: 0, y1: 100, x2: 10, y2: 100 },
+    ];
+    expect(hasSelfIntersection(segs)).toBe(false);
+  });
+
+  it('兩條線段在端點相連成 L 型轉角（共享端點）→ 不算自撞', () => {
+    // 刀模路徑轉角處到處是這種「上一段終點＝下一段起點」的正常銜接（見 reverse-tuck-end.ts
+    // 幾乎每個 PathBuilder 呼叫鏈），這是本函式存在的核心排除規則，不能被誤判。
+    const segs: Segment[] = [
+      { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
+      { kind: 'line', x1: 10, y1: 0, x2: 10, y2: 10 },
+    ];
+    expect(hasSelfIntersection(segs)).toBe(false);
+  });
+
+  it('兩條不同路徑但共用同一個角點（非同一 PathBuilder 鏈）→ 不算自撞', () => {
+    // 對應 reverse-tuck-end.ts 常見模式：relief slot 的 bezier 起點與 lid 側邊 cut 的起點
+    // 是同一個座標變數（例如 (x2, edgeY)），兩個不同的 DielinePath 物件在此共點。
+    const segs: Segment[] = [
+      { kind: 'line', x1: 5, y1: 5, x2: 5, y2: 55 }, // 第一條路徑（垂直線）
+      { kind: 'bezier', x1: 5, y1: 5, c1x: 5, c1y: 3, c2x: 3, c2y: 2, x2: 0, y2: 0 }, // 第二條路徑，起點共用 (5,5)
+    ];
+    expect(hasSelfIntersection(segs)).toBe(false);
+  });
+
+  it('兩條線段真交叉（X 型，交點在雙方線段內部）→ true', () => {
+    const segs: Segment[] = [
+      { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 10 },
+      { kind: 'line', x1: 0, y1: 10, x2: 10, y2: 0 },
+    ];
+    expect(hasSelfIntersection(segs)).toBe(true);
+  });
+
+  it('T 型觸碰（一線端點落在另一線內部，非交叉）→ 不算自撞', () => {
+    const segs: Segment[] = [
+      { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
+      { kind: 'line', x1: 5, y1: 0, x2: 5, y2: 10 },
+    ];
+    expect(hasSelfIntersection(segs)).toBe(false);
+  });
+
+  it('共線重疊（同一直線上首尾相接的兩段）→ 不算自撞', () => {
+    const segs: Segment[] = [
+      { kind: 'line', x1: 0, y1: 0, x2: 5, y2: 0 },
+      { kind: 'line', x1: 5, y1: 0, x2: 10, y2: 0 },
+    ];
+    expect(hasSelfIntersection(segs)).toBe(false);
+  });
+
+  it('arc 折線化後真的被檢查到：一條線段貫穿四分之一圓弧內部 → true', () => {
+    // 半徑 10、圓心原點、0°→90° 的四分之一圓弧；用 x=5.2（非 5° 整數倍角度對應值，避開
+    // 剛好落在取樣頂點上的巧合）的鉛直線貫穿弧內部，驗證 arc 有被折線化並參與相交判定，
+    // 不是被整條忽略。
+    const arc: Segment = { kind: 'arc', cx: 0, cy: 0, r: 10, startAngle: 0, endAngle: Math.PI / 2, ccw: false };
+    const piercingLine: Segment = { kind: 'line', x1: 5.2, y1: -5, x2: 5.2, y2: 15 };
+    expect(hasSelfIntersection([arc, piercingLine])).toBe(true);
+  });
+
+  it('arc 本身（完整攤平後頭尾相連）不會自己誤判成自撞', () => {
+    const arc: Segment = { kind: 'arc', cx: 0, cy: 0, r: 10, startAngle: 0, endAngle: Math.PI / 2, ccw: false };
+    expect(hasSelfIntersection([arc])).toBe(false);
+  });
+
+  it('零長度線段不參與判定（不因退化的 0 長度線誤判 true，也不因它跳過了真正的相交而漏判）', () => {
+    const segs: Segment[] = [
+      { kind: 'line', x1: 5, y1: 5, x2: 5, y2: 5 }, // 零長度
+      { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 10 },
+      { kind: 'line', x1: 0, y1: 10, x2: 10, y2: 0 },
+    ];
+    expect(hasSelfIntersection(segs)).toBe(true); // 後兩條仍真交叉，零長度線不影響判定
   });
 });

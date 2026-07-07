@@ -234,6 +234,60 @@ describe('reverseTuckEnd', () => {
     expect(check.ok, '只有 2 條蓋板側邊 cut 時應判定不通過').toBe(false);
   });
 
+  // ── T9 Fix Round 2 修復 1：插舌圓角鉗制（tuckRadius > tuckDepth 時垂直邊翻折伸出）──
+  //
+  // 根因（已對照前身 ReverseTuckEnd.ts 逐行核對，等價移植的既有 bug）：插舌輪廓的垂直邊
+  // 畫到 `yTuck - ySign*r`（前身寫死 `y_tuck ± r`）。當 r（tuckRadius）大於 hTuck（tuckDepth）
+  // 時，這個點會越過摺線 yFold 翻到另一側，垂直邊反向翻出、圓弧從錯位點畫回，圖形自撞。
+  // 修法：generate() 內鉗制 `effectiveR = min(tuckRadius, tuckDepth, 插舌半寬)`，圓弧與頂邊
+  // 全部改用 effectiveR；並加不變式 tuck-radius-clamped 示警「設定值未如實生效」。
+
+  it('修復 1：tuckRadius=14 > tuckDepth=10 時，插舌 cut path 的 y 範圍應鉗制在 [yFold,yTuck] 合法區間內（不翻折出界）', () => {
+    const params = resolveParams(reverseTuckEnd, { tuckRadius: 14, tuckDepth: 10 });
+    const result = reverseTuckEnd.generate(params);
+    const w = params.W as number;
+    const d = params.D as number;
+    const hLid = w;
+    const hTuck = params.tuckDepth as number;
+
+    const tuckPaths = result.paths.filter((p) => p.type === 'cut' && p.tags?.includes('tuckDepth'));
+    expect(tuckPaths, '應有上蓋／下蓋各一條插舌 cut path').toHaveLength(2);
+
+    for (const path of tuckPaths) {
+      const bounds = segmentsBounds(path.segments);
+      const isTop = bounds.maxY <= 0; // top 插舌全在 y<=0；bottom 插舌全在 y>=D
+      const legalMin = isTop ? -hLid - hTuck : d + hLid;
+      const legalMax = isTop ? -hLid : d + hLid + hTuck;
+      expect(bounds.minY, `${isTop ? 'top' : 'bottom'} 插舌 minY 不得超出合法區間`).toBeGreaterThanOrEqual(
+        legalMin - 0.01,
+      );
+      expect(bounds.maxY, `${isTop ? 'top' : 'bottom'} 插舌 maxY 不得超出合法區間`).toBeLessThanOrEqual(
+        legalMax + 0.01,
+      );
+    }
+  });
+
+  it('修復 1：tuckRadius=14 > tuckDepth=10 時 tuck-radius-clamped 不變式回報 not-ok（示警設定值未如實生效）', () => {
+    const params = resolveParams(reverseTuckEnd, { tuckRadius: 14, tuckDepth: 10 });
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-radius-clamped')!;
+    expect(inv, '不變式 tuck-radius-clamped 應已存在').toBeDefined();
+    const check = inv.check(params, result);
+    expect(check.ok, 'tuckRadius(14) > 幾何上限(=tuckDepth=10) 應觸發警告').toBe(false);
+    if (!check.ok) {
+      expect(check.tags).toEqual(expect.arrayContaining(['tuckRadius', 'tuckDepth']));
+    }
+  });
+
+  it('修復 1：預設參數（tuckRadius=3）不觸發鉗制，effectiveR=r，幾何與鉗制前完全一致', () => {
+    // 這條測試存在的意義：證明鉗制邏輯只在超界時改變行為，預設路徑（含等價測試與 golden
+    // 快照所依賴的預設參數）完全不受影響——鉗制前後 normalizeSegments 輸出必須逐位元相同。
+    const params = resolveParams(reverseTuckEnd);
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-radius-clamped')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: true });
+  });
+
   it('lid-equals-w：4 條長度巧合＝W 但方向是斜線（非鉛直）的 cut 不應算數（位置特徵而非只看長度）', () => {
     const params = resolveParams(reverseTuckEnd);
     const w = params.W as number; // 預設 55 → 3-4-5 直角三角形縮放 11 倍：33-44-55，斜邊長度剛好＝W
@@ -252,5 +306,39 @@ describe('reverseTuckEnd', () => {
     expect(w).toBeCloseTo(55, 5);
     const check = inv.check(params, fakeResult);
     expect(check.ok, '4 條斜線即使長度都＝W 也不該被算成蓋板側邊 cut').toBe(false);
+  });
+
+  // ── T9 Fix Round 2 修復 2A：no-cut-self-intersection 不變式 ──
+  // 預設參數下的 ok 已由「全部不變式在預設參數下通過」涵蓋（false positive 檢查一次到位，
+  // 過程與結論記於 .superpowers/sdd/final-fix-report.md），這裡只補「已知自撞案例應 not-ok」。
+
+  it('no-cut-self-intersection：手工造兩條真交叉的 cut 線段，應判定不通過', () => {
+    const params = resolveParams(reverseTuckEnd);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'no-cut-self-intersection')!;
+    expect(inv, '不變式 no-cut-self-intersection 應已存在').toBeDefined();
+    const fakeResult: GenerateResult = {
+      paths: [
+        { id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 10 }] },
+        { id: 'p-1', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 10, x2: 10, y2: 0 }] }, // 與 p-0 在 (5,5) 真交叉
+      ],
+      texts: [],
+      bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+    };
+    const check = inv.check(params, fakeResult);
+    expect(check.ok, '兩條真交叉的 cut 線段應觸發自撞警告').toBe(false);
+  });
+
+  it('no-cut-self-intersection：cut 線段只是端點相連（正常轉角），不應誤判為自撞', () => {
+    const params = resolveParams(reverseTuckEnd);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'no-cut-self-intersection')!;
+    const fakeResult: GenerateResult = {
+      paths: [
+        { id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+        { id: 'p-1', type: 'cut', segments: [{ kind: 'line', x1: 10, y1: 0, x2: 10, y2: 10 }] }, // 端點 (10,0) 共用
+      ],
+      texts: [],
+      bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+    };
+    expect(inv.check(params, fakeResult)).toMatchObject({ ok: true });
   });
 });
