@@ -18,7 +18,11 @@ import { segmentsToSvgD } from '@/core/path';
 // 沒有中間地帶——這與「v1 texts 全部來自標註」的事實剛好一致，不是缺陷。若未來出現非標註
 // 文字（例如面板名稱標籤），需要先幫 DielineText 加分類欄位才談得上細分，現在加是沒有消費者
 // 的臆測性欄位（YAGNI）。
-const DIMENSION_LINE_TYPES: ReadonlySet<LineType> = new Set(['dimension', 'annotation']);
+//
+// export（供 ui/Canvas.tsx 共用，T9 Fix Round 2 修復 3）：畫布顯示與下載內容必須用同一份
+// 「哪些線型算尺寸標註」定義，避免兩處各自維護一份字面量集合而在未來悄悄漂移（spec §3.2
+// 樣式單一來源的同一種精神，此處套用在「過濾規則」而非「樣式數值」）。
+export const DIMENSION_LINE_TYPES: ReadonlySet<LineType> = new Set(['dimension', 'annotation']);
 
 const DEFAULT_FONT_SIZE = 3;
 

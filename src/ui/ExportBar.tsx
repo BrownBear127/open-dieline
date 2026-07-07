@@ -5,8 +5,13 @@
  * `Packaging/index.tsx` 的 `handleDownload`。與前身不同：SVG 內容改由
  * `export/svg.ts` 的 `toSvgDocument()` 產生（與畫布共用 LINE_STYLES 同一來源，
  * 不再是第二條手刻序列化路徑——這正是 spec §3.2 要修正的前身「漂移」問題）。
+ *
+ * `includeDimensions` 是受控 prop（T9 樣張 gate 第二輪法蘭反饋修復 3）：這裡原本自己
+ * `useState` 管這顆 checkbox，只影響下載內容、跟畫布顯示脫鉤（法蘭實測發現：取消勾選只
+ * 影響下載的 SVG，畫布還是照樣畫出尺寸標註）。state 提升到 App.tsx 後同時餵給 Canvas，
+ * 兩處視覺才會同步；ExportBar 改成純受控元件，checkbox 的顯示值＝`includeDimensions`
+ * prop，onChange 呼叫 `onIncludeDimensionsChange` 把新值交回父層。
  */
-import { useState } from 'react';
 import type { GenerateResult, ResolvedParams } from '@/core/types';
 import { toSvgDocument } from '@/export/svg';
 
@@ -14,6 +19,8 @@ export interface ExportBarProps {
   boxId: string;
   values: ResolvedParams;
   result: GenerateResult;
+  includeDimensions: boolean;
+  onIncludeDimensionsChange: (value: boolean) => void;
 }
 
 /**
@@ -31,9 +38,7 @@ function buildFilename(boxId: string, values: ResolvedParams): string {
   return `${boxId}-${dim('L')}x${dim('W')}x${dim('D')}.svg`;
 }
 
-export function ExportBar({ boxId, values, result }: ExportBarProps) {
-  const [includeDimensions, setIncludeDimensions] = useState(true);
-
+export function ExportBar({ boxId, values, result, includeDimensions, onIncludeDimensionsChange }: ExportBarProps) {
   const handleDownload = () => {
     const svg = toSvgDocument(result, { includeDimensions });
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -54,7 +59,7 @@ export function ExportBar({ boxId, values, result }: ExportBarProps) {
           id="include-dimensions"
           type="checkbox"
           checked={includeDimensions}
-          onChange={(e) => setIncludeDimensions(e.target.checked)}
+          onChange={(e) => onIncludeDimensionsChange(e.target.checked)}
           className="h-4 w-4 accent-blue-600"
         />
         含尺寸標註

@@ -19,11 +19,20 @@ import type { MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } fro
 import type { GenerateResult, LocalizedText } from '@/core/types';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
+import { DIMENSION_LINE_TYPES } from '@/export/svg';
 
 export interface CanvasProps {
   result: GenerateResult;
   highlightTags: string[] | null;
   invariantWarnings: { message: LocalizedText; tags?: string[] }[];
+  /**
+   * 是否顯示尺寸標註線與文字；預設 true。T9 樣張 gate 第二輪法蘭反饋修復 3：ExportBar 的
+   * 「含尺寸標註」checkbox 原本只控制下載 SVG、畫布永遠顯示標註——這裡改成畫布也接受同一個
+   * （已提升到 App.tsx 的）state，false 時比照 export/svg.ts 的 toSvgDocument 過濾規則
+   * （剔除 DIMENSION_LINE_TYPES 線型路徑與全部 texts），讓畫布與下載內容視覺同步。
+   * 選填＋預設 true：既有只關注幾何/高亮的 Canvas 單元測試不需要跟著改。
+   */
+  includeDimensions?: boolean;
 }
 
 const HIGHLIGHT_STROKE = '#FF6B00';
@@ -45,7 +54,7 @@ function computeFitScale(containerW: number, containerH: number, bounds: Generat
   return Math.min(Math.max(newScale, MIN_SCALE), MAX_SCALE);
 }
 
-export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps) {
+export function Canvas({ result, highlightTags, invariantWarnings, includeDimensions = true }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -92,6 +101,11 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
   const { minX, minY, maxX, maxY } = result.bounds;
   const viewW = maxX - minX || 100;
   const viewH = maxY - minY || 100;
+
+  // 只過濾「畫什麼」，不動 bounds/viewBox——bounds 是 generate() 保證涵蓋全部路徑的權威範圍
+  // （見 core/types.ts 的 bounds-cover 不變式），隱藏標註不應該連帶讓視窗跟著縮放/位移。
+  const visiblePaths = includeDimensions ? result.paths : result.paths.filter((p) => !DIMENSION_LINE_TYPES.has(p.type));
+  const visibleTexts = includeDimensions ? result.texts : [];
 
   return (
     <div className="relative flex-1 h-full bg-white overflow-hidden">
@@ -149,7 +163,7 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
           }}
           className="overflow-visible"
         >
-          {result.paths.map((p) => {
+          {visiblePaths.map((p) => {
             const style = LINE_STYLES[p.type];
             const highlighted = isHighlighted(p.tags);
             const d = segmentsToSvgD(p.segments);
@@ -176,7 +190,7 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
               </g>
             );
           })}
-          {result.texts.map((t) => (
+          {visibleTexts.map((t) => (
             <text
               key={t.id}
               x={t.x}
