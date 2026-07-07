@@ -9,7 +9,10 @@
  * generate() 保證涵蓋全部路徑的權威範圍，見 core/types.ts 的 BoxInvariant「bounds-cover」）。
  *
  * 線段樣式一律查 `LINE_STYLES[p.type]`（唯一來源，見 core/styles.ts）；highlight 疊加色
- * #FF6B00 是 spec 明文的例外——UI 互動色，不是線型樣式，不放進 LINE_STYLES。
+ * #FF6B00 是 spec 明文的例外——UI 互動色，不是線型樣式，不放進 LINE_STYLES。T9 樣張 gate
+ * 反饋後畫布底色由深轉淺（見 App.tsx 開頭註解），#FF6B00 維持原值不變：它不再是「深色調亮
+ * 亮色」，而是白底畫布上與黑 cut／綠 crease／黃 halfcut／藍 dimension 四色仍保持清楚對比的
+ * 高對比互動色，換底色後對比關係不受影響。
  */
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from 'react';
@@ -91,9 +94,9 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
   const viewH = maxY - minY || 100;
 
   return (
-    <div className="relative flex-1 h-full bg-zinc-950 overflow-hidden">
+    <div className="relative flex-1 h-full bg-white overflow-hidden">
       {invariantWarnings.length > 0 && (
-        <div className="absolute top-0 left-0 right-0 z-20 bg-red-900/95 text-red-100 text-sm px-4 py-2 space-y-0.5 border-b border-red-700">
+        <div className="absolute top-0 left-0 right-0 z-20 bg-red-50 text-red-700 text-sm px-4 py-2 space-y-0.5 border-b border-red-300">
           {invariantWarnings.map((w, i) => (
             <div key={i}>{w.message.zh}</div>
           ))}
@@ -104,24 +107,24 @@ export function Canvas({ result, highlightTags, invariantWarnings }: CanvasProps
         <button
           type="button"
           onClick={() => setScale((s) => Math.max(MIN_SCALE, s * 0.9))}
-          className="px-2 py-1 bg-zinc-900 border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
+          className="px-2 py-1 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-sm text-xs"
         >
           －
         </button>
-        <div className="px-2 py-1 bg-zinc-900 border-y border-zinc-700 text-xs font-mono text-zinc-400 min-w-[48px] text-center">
+        <div className="px-2 py-1 bg-white border-y border-zinc-200 text-xs font-mono text-zinc-600 min-w-[48px] text-center">
           {Math.round(scale * 100)}%
         </div>
         <button
           type="button"
           onClick={() => setScale((s) => Math.min(MAX_SCALE, s * 1.1))}
-          className="px-2 py-1 bg-zinc-900 border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
+          className="px-2 py-1 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-sm text-xs"
         >
           ＋
         </button>
         <button
           type="button"
           onClick={handleFit}
-          className="ml-1 px-2 py-1 bg-zinc-900 border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
+          className="ml-1 px-2 py-1 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-sm text-xs"
         >
           Fit
         </button>

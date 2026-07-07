@@ -1,15 +1,17 @@
 /**
- * App：整體佈局（左 320px 深色參數欄＋右畫布）與資料流拼接。
+ * App：整體佈局（左 320px 淺色參數欄＋右畫布）與資料流拼接。
  *
  * 資料流（spec §3.2）：ParamPanel（schema 生成）→ useParams 的 values →
  * mod.generate(values) → GenerateResult → Canvas 渲染 + ExportBar 匯出；
  * values 或 result 變動時重新跑全部 `mod.invariants`，not-ok 的收集成
  * `invariantWarnings` 往下傳給 Canvas（畫警告條＋高亮 tags）。
  *
- * 佈局與配色為深色工程風（見 spec D8／開發紀錄 Context 段——這點與前身
- * `Packaging/index.tsx` 實際的淺色 zinc-50/white 主題不同：前身程式碼本身是淺色，
- * 但 spec 與本輪 的書面指示都明確寫「深色工程風」，此處遵照書面指示而非前身
- * 實際配色；前身移植的是流程/互動手感〔pan/zoom、分組、hover 高亮〕，不是色票）。
+ * 佈局與配色為淺色工程風（T9 樣張 gate 驗收後改判：spec D8／開發紀錄 當時
+ * 明文寫「深色工程風」並刻意不採前身實際配色，但驗收發現深色畫布會讓刀模行業
+ * 慣例色 cut=`#000000`〔`core/styles.ts` LINE_STYLES，不可改〕完全隱形——整個
+ * 盒型輪廓在深色底上消失。改回前身 `Packaging/index.tsx` 實際使用的淺色
+ * zinc-50/white 主題，讓黑色 cut 線在白底畫布上清楚可見；前身移植的流程/互動
+ * 手感〔pan/zoom、分組、hover 高亮〕不受影響，僅呈現層色票改動）。
  */
 import { useMemo, useState } from 'react';
 import { listBoxes } from '@/core/registry';
@@ -43,21 +45,21 @@ export function App() {
   );
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
-      <aside className="w-[320px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto p-5 border-r border-zinc-800">
+    <div className="flex h-screen bg-white text-zinc-900 overflow-hidden">
+      <aside className="w-[320px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto p-5 border-r border-zinc-200">
         <div className="flex items-center justify-between">
-          <h1 className="text-sm font-bold uppercase tracking-widest text-zinc-100">open-dieline</h1>
+          <h1 className="text-sm font-bold uppercase tracking-widest text-zinc-900">open-dieline</h1>
           <button
             type="button"
             onClick={reset}
             title="清除全部參數覆寫，回到預設值"
-            className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-orange-400"
+            className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-blue-600"
           >
             重設全部
           </button>
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5 p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
           <label htmlFor="box-select" className="text-[10px] uppercase tracking-wider text-zinc-400">
             盒型
           </label>
@@ -65,7 +67,7 @@ export function App() {
             id="box-select"
             value={boxId}
             onChange={(e) => setBoxId(e.target.value)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-sm text-sm py-1.5 px-2 text-zinc-100 focus:outline-none focus:border-orange-500"
+            className="w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors"
           >
             {boxes.map((b) => (
               <option key={b.meta.id} value={b.meta.id}>
