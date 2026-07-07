@@ -169,14 +169,21 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
   // 明確標註參數型別為 Blob（即使實作忽略它）：讓 `.mock.calls[0][0]` 型別正確推斷成 Blob，
   // 而不是從「忽略參數」的箭頭函式推斷出空 tuple `[]`（那樣下面讀 `calls[0]![0]` 會型別錯誤）。
   const createObjectURLMock = vi.fn((_blob: Blob) => 'blob:mock-url');
+  // revokeObjectURL 同步 stub 成 mock：即使目前這個 jsdom 版本原生就有 revokeObjectURL
+  // （不像 createObjectURL 那樣完全未實作），也要換成 vi.fn() 才能斷言「確實被呼叫、
+  // 且參數等於 createObjectURL 回傳的同一個 url」——這是驗證 blob URL 洩漏修復本身，
+  // 不只是「呼叫時不會炸」。
+  const revokeObjectURLMock = vi.fn((_url: string) => undefined);
 
   beforeEach(() => {
     // jsdom 未原生實作 createObjectURL；直接賦值提供 mock（vi.spyOn 對「原生不存在的方法」無法攔截）。
     (URL as unknown as { createObjectURL: typeof createObjectURLMock }).createObjectURL = createObjectURLMock;
+    (URL as unknown as { revokeObjectURL: typeof revokeObjectURLMock }).revokeObjectURL = revokeObjectURLMock;
   });
 
   afterEach(() => {
     createObjectURLMock.mockClear();
+    revokeObjectURLMock.mockClear();
   });
 
   const result = {
@@ -207,6 +214,14 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
     const text = await blob.text();
     expect(text).not.toContain(`stroke="${LINE_STYLES.dimension.stroke}"`);
     expect(text).not.toContain('10mm');
+  });
+
+  it('下載後 revoke 建立的 object URL（避免每次下載都洩漏一個 blob URL）', () => {
+    render(<ExportBar boxId="rte" values={values} result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURLMock).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-url'); // revoke 的必須是同一個 createObjectURL 回傳的 url
   });
 
   it('觸發下載時 <a> 的 download 檔名為 rte-{L}x{W}x{D}.svg（spec §6.2 命名慣例，boxId 前綴泛化）', () => {

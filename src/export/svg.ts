@@ -44,7 +44,13 @@ function pathToSvg(p: DielinePath): string {
   return `<path d="${d}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}"${dasharrayAttr} fill="none" />`;
 }
 
-/** 單一 DielineText → 一個 `<text>` 元素。 */
+/**
+ * 單一 DielineText → 一個 `<text>` 元素。
+ *
+ * `fill` 一律讀 `LINE_STYLES.dimension.stroke`（與 Canvas.tsx 的 `DIMENSION_TEXT_FILL`
+ * 同一來源——v1 texts 全部來自標註線，見上方 `DIMENSION_LINE_TYPES` 註解）：沒有明示
+ * `fill` 時瀏覽器預設黑，會跟畫布顯示的藍色不一致（漂移，spec §3.2 要修正的問題）。
+ */
 function textToSvg(t: DielineText): string {
   const x = fmt(t.x);
   const y = fmt(t.y);
@@ -53,7 +59,7 @@ function textToSvg(t: DielineText): string {
   // rotation 用 truthy 檢查：0 與 undefined 都是 falsy，剛好等價於「有值且非 0 才輸出」，
   // 不需要另外寫 `!== undefined && !== 0`。旋轉中心固定為文字自身的錨點座標 (x,y)。
   const transformAttr = t.rotation ? ` transform="rotate(${fmt(t.rotation)} ${x} ${y})"` : '';
-  return `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="sans-serif"${anchorAttr}${transformAttr}>${escapeXmlText(t.text)}</text>`;
+  return `<text x="${x}" y="${y}" font-size="${fontSize}" font-family="sans-serif" fill="${LINE_STYLES.dimension.stroke}"${anchorAttr}${transformAttr}>${escapeXmlText(t.text)}</text>`;
 }
 
 /**

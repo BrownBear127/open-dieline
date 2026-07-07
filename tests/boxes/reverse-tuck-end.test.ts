@@ -103,6 +103,17 @@ describe('reverseTuckEnd', () => {
     const referenceCrease = normalizeSegments(parseReferenceSegmentsByType(referenceRaw, 'crease'));
     expect(oursCut, 'cut 分組').toEqual(referenceCut);
     expect(oursCrease, 'crease 分組').toEqual(referenceCrease);
+
+    // dimension 分組數量獨立檢查（上面兩個 expect 只驗 cut/crease，契約排除 dimension——
+    // 見檔頭註解「dimension 線永遠被排除在外」，dimension 分組本身過去沒有任何斷言）。
+    // 這裡數的是攤平後的線段數，不是 result.paths 裡 type==='dimension' 的 DielinePath
+    // 物件數：3 次 addDim 呼叫（P2 寬度／P3 長度／盒身高度）各自把 dimensionLine() 產生的
+    // 3 條線段（兩條引出線＋一條主標註線）bundle 成 1 個 DielinePath，所以 result.paths
+    // 層級只有 3 筆 type=dimension 的物件；攤平 segments 後才是 9 條，與 fixture（前身
+    // 逐段展開、一段一個 JSON path 的計數口徑）的 dimension 數一致——見
+    // docs/plans/2026-07-07-v1-slice1-core-rte.md:347「前身實測值：cut 19/crease 14/dimension 9」。
+    const dimensionSegments = result.paths.filter((p) => p.type === 'dimension').flatMap((p) => p.segments);
+    expect(dimensionSegments, 'dimension 分組（flatten 後線段數，fixture 實測值 9）').toHaveLength(9);
   });
 
   it('parseReferenceSegmentsByType 對 A 指令的 rx/ry/rotation/largeArc 顯式斷言（Fix Round 1 #4）', () => {
