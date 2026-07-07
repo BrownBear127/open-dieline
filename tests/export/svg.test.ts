@@ -88,6 +88,12 @@ describe('toSvgDocument', () => {
     expect(svg).toContain('>55mm</text>');
   });
 
+  it('text 輸出含 fill，值從 LINE_STYLES.dimension.stroke 讀（與畫布 Canvas.tsx 的 DIMENSION_TEXT_FILL 同源，不寫死色碼；沒有 fill 時瀏覽器預設黑，跟畫布藍不一致）', () => {
+    const result = makeResult({ texts: [{ id: 't-0', x: 0, y: 0, text: 'D' }] });
+    const svg = toSvgDocument(result);
+    expect(svg).toContain(`fill="${LINE_STYLES.dimension.stroke}"`);
+  });
+
   it('text 有 fontSize 時使用該值，不套用預設值 3', () => {
     const result = makeResult({ texts: [{ id: 't-0', x: 0, y: 0, text: 'D', fontSize: 3.5 }] });
     const svg = toSvgDocument(result);

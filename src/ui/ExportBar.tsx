@@ -43,6 +43,7 @@ export function ExportBar({ boxId, values, result }: ExportBarProps) {
     link.download = buildFilename(boxId, values);
     document.body.appendChild(link);
     link.click();
+    URL.revokeObjectURL(url); // 每次下載都會 createObjectURL 一個新 blob URL，不 revoke 會持續洩漏
     document.body.removeChild(link);
   };
 
