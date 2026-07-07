@@ -29,9 +29,13 @@ function arcFromEndpoints(from: Point, r: number, sweep: 0 | 1, to: Point): ArcS
   const half = chord / 2;
   const discriminant = r * r - half * half;
 
+  if (chord === 0) {
+    throw new Error('arcTo: 起訖點重合（弦長為 0），無法定義圓弧（圓心方向不確定）');
+  }
+
   if (discriminant < 0) {
     throw new Error(
-      `arcTo: 弦長 ${chord.toFixed(3)}mm 超過半徑 ${r}mm 的直徑 ${(2 * r).toFixed(3)}mm，無法求出圓弧圓心（幾何不可能）`,
+      `arcTo: 弦長 ${chord.toFixed(2)}mm 超過半徑 ${r}mm 的直徑 ${(2 * r).toFixed(2)}mm，無法求出圓弧圓心（幾何不可能）`,
     );
   }
 
@@ -104,7 +108,17 @@ export class PathBuilder {
 }
 
 const decimals = 2;
-const fmt = (v: number): string => v.toFixed(decimals);
+
+/** toFixed(2) 對近零負值（如 -1e-9）會印出 "-0.00"；收斂為 "0.00" 避免這個跟正確性無關的雜訊符號外露。 */
+const fmt = (v: number): string => {
+  const s = v.toFixed(decimals);
+  return s === '-0.00' ? '0.00' : s;
+};
+
+// 連續性判定容差：遠低於輸出解析度（toFixed(2) → 0.01mm）與刀模物理精度，
+// 只用來吸收「arc 端點座標由 cx + r·cos(angle) 三角函數重算」帶來的浮點捨入雜訊
+// （重算值與原始輸入位元級相等只是巧合，不能保證，見 segmentStart/segmentEnd）。
+const CONTINUITY_EPS = 1e-6;
 
 function segmentStart(s: Segment): Point {
   if (s.kind === 'arc') {
@@ -137,8 +151,13 @@ function segmentToCommand(s: Segment): string {
 }
 
 /**
- * 把 Segment[] 投影成單一 SVG `d` 字串：連續段（前段終點與後段起點完全相等）合併，
- * 不連續處重新發出 `M`。精度固定 toFixed(2)。
+ * 把 Segment[] 投影成單一 SVG `d` 字串：連續段（前段終點與後段起點在 CONTINUITY_EPS 容差內相等）
+ * 合併，不連續處重新發出 `M`。精度固定 toFixed(2)。
+ *
+ * 用容差而非 `===` 比對：line/bezier 的起訖點是使用者輸入的原始數值，但 arc 的起訖點
+ * 是由 cx + r·cos(angle) 三角函數反算回來的，與原始輸入位元級相等只是偶然（實測機率
+ * 僅約 36-58%）。嚴格 `===` 會把幾乎所有涉及 arc 的相鄰段誤判為不連續，多發 `M`（下游
+ * 切割機會誤以為要抬筆），是正確性問題不是風格問題。
  */
 export function segmentsToSvgD(segs: Segment[]): string {
   const parts: string[] = [];
@@ -146,7 +165,11 @@ export function segmentsToSvgD(segs: Segment[]): string {
 
   for (const s of segs) {
     const start = segmentStart(s);
-    if (prevEnd === null || start.x !== prevEnd.x || start.y !== prevEnd.y) {
+    const isContinuous =
+      prevEnd !== null &&
+      Math.abs(start.x - prevEnd.x) < CONTINUITY_EPS &&
+      Math.abs(start.y - prevEnd.y) < CONTINUITY_EPS;
+    if (!isContinuous) {
       parts.push(`M${fmt(start.x)},${fmt(start.y)}`);
     }
     parts.push(segmentToCommand(s));
