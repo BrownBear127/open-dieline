@@ -164,26 +164,27 @@ function downloadBlob(content: string, mimeType: string, filename: string): void
   document.body.removeChild(link);
 }
 
+/** 單片／全版檔名的分流本身也是 SVG／DXF 共用邏輯，只有 ext 不同——收斂成一個函式，兩個下載 handler 各呼叫一次。 */
+function exportFilename(boxId: string, values: ResolvedParams, result: GenerateResult, activePiece: DielinePiece | undefined, ext: string): string {
+  return activePiece
+    ? buildPieceFilename(boxId, activePiece.id, pieceManufacturingBounds(result, activePiece), ext)
+    : buildFilename(boxId, values, result.bounds, ext);
+}
+
 export function ExportBar({ boxId, values, result, includeDimensions, onIncludeDimensionsChange, activePiece }: ExportBarProps) {
   const hasPieces = result.pieces !== undefined;
   const exportResult = activePiece ? scopeResultToPiece(result, activePiece) : result;
 
   const handleSvgDownload = () => {
     const svg = toSvgDocument(exportResult, { includeDimensions });
-    const filename = activePiece
-      ? buildPieceFilename(boxId, activePiece.id, pieceManufacturingBounds(result, activePiece), 'svg')
-      : buildFilename(boxId, values, result.bounds, 'svg');
-    downloadBlob(svg, 'image/svg+xml;charset=utf-8', filename);
+    downloadBlob(svg, 'image/svg+xml;charset=utf-8', exportFilename(boxId, values, result, activePiece, 'svg'));
   };
 
   // includeDimensions 對 DXF 無效：toDxfDocument 恆排除 dimension/annotation 線型與全部
   // texts（生產檔裁決，見 export/dxf.ts 檔頭），這裡故意不把這個 flag 傳進去。
   const handleDxfDownload = () => {
     const dxf = toDxfDocument(exportResult);
-    const filename = activePiece
-      ? buildPieceFilename(boxId, activePiece.id, pieceManufacturingBounds(result, activePiece), 'dxf')
-      : buildFilename(boxId, values, result.bounds, 'dxf');
-    downloadBlob(dxf, 'application/dxf', filename);
+    downloadBlob(dxf, 'application/dxf', exportFilename(boxId, values, result, activePiece, 'dxf'));
   };
 
   return (
