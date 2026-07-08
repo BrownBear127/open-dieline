@@ -279,6 +279,45 @@ describe('Canvas 高亮疊加', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// T7 樣張 gate 第一輪法蘭反饋修 3（2026-07-09）：多片盒型（天地盒）auto-fit 預設縮放 130%，
+// RTE（單片）維持 1.0×fit 不變。jsdom 沒有真實 layout，containerRef 的 clientWidth/
+// clientHeight 恆為 0——`computeFitScale` 因此對任何 bounds 都會被 MIN_SCALE 夾住（見
+// Canvas.tsx computeFitScale：availableW/H 用 Math.max(0-FIT_PADDING,1)=1，newScale 遠小於
+// MIN_SCALE），兩個盒型的「原始 fit scale」在這個測試環境下都收斂到同一個 MIN_SCALE 值，
+// 剛好適合拿來驗證「倍率」本身：telescope 最終 scale ÷ RTE 最終 scale 應恰為 1.3。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Canvas：多片盒型初始縮放 130%（T7 gate 反饋修 3）', () => {
+  /** 從 svg 的 inline style.transform（"translate(...) scale(N)"）讀出目前的 scale 值。 */
+  function readScale(svg: Element): number {
+    const transform = (svg as HTMLElement).style.transform;
+    const match = /scale\(([-\d.]+)\)/.exec(transform);
+    if (!match) throw new Error(`readScale: 找不到 svg transform 裡的 scale(...)（實際值：${transform}）`);
+    return parseFloat(match[1]!);
+  }
+
+  it('telescope（多片盒型，pieces 存在）掛載後初始 zoom＝RTE（單片，pieces undefined）的 1.3 倍', async () => {
+    const rteResult = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
+    const telescopeResult = telescope.generate(resolveParams(telescope));
+    expect(telescopeResult.pieces, 'sanity：telescope 應為多片盒型').toBeDefined();
+    expect(rteResult.pieces, 'sanity：RTE 應為單片盒型').toBeUndefined();
+
+    const { container: rteContainer } = render(<Canvas result={rteResult} highlightTags={null} invariantWarnings={[]} />);
+    const { container: telescopeContainer } = render(<Canvas result={telescopeResult} highlightTags={null} invariantWarnings={[]} />);
+
+    // mount 的 auto-fit 走 setTimeout(100ms)；等到 scale 從初始值 1 變動後再讀值。
+    await waitFor(() => expect(readScale(rteContainer.querySelector('svg')!)).not.toBe(1));
+    await waitFor(() => expect(readScale(telescopeContainer.querySelector('svg')!)).not.toBe(1));
+
+    const rteScale = readScale(rteContainer.querySelector('svg')!);
+    const telescopeScale = readScale(telescopeContainer.querySelector('svg')!);
+
+    expect(rteScale, 'RTE 仍是 1.0×fit（不受 T7 修 3 影響）').toBeCloseTo(0.05, 6); // jsdom 下 fit 恆被夾在 MIN_SCALE=0.05
+    expect(telescopeScale / rteScale, 'telescope＝RTE 的 1.3 倍（同一份 computeFitScale，只差 multiplier）').toBeCloseTo(1.3, 5);
+  });
+});
+
 describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => {
   // 明確標註參數型別為 Blob（即使實作忽略它）：讓 `.mock.calls[0][0]` 型別正確推斷成 Blob，
   // 而不是從「忽略參數」的箭頭函式推斷出空 tuple `[]`（那樣下面讀 `calls[0]![0]` 會型別錯誤）。
