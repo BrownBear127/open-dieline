@@ -484,6 +484,27 @@ function generate(p: ResolvedParams): GenerateResult {
   return { paths, texts, bounds: { minX, maxX, minY, maxY } };
 }
 
+/**
+ * FX2（whole-branch review）：girth 補償後的蓋板可用寬度——與 generate() 內 wP1/wP3 用
+ * 同一份 comp 表重算，取兩者較小值。
+ *
+ * 背景：`tuck-lock-fits`／`tuck-radius-clamped` 兩條不變式原本直接拿宣告的 L 當蓋板寬度
+ * 上限，這在 Slice 1（尚無 girth 補償）時是對的——當時 wP1===wP3===L 恆成立。Slice 2 加入
+ * thickness 驅動的 girth 補償後，wP1／wP3（見 generate() 的 comp 表）在 glueOnRight 時不再
+ * 相等（wP1=L+2t、wP3=L+t），兩條不變式卻仍用名義 L 當上限，導致 tuckLock／tuckRadius
+ * 落在「名義 L 之上、實際補償後寬度之下」的窄區間時發假警告。
+ * 摩擦扣／插舌都座落在 perimeter() 的 lid.start~lid.end 跨距——top＝wP3、bottom＝wP1，
+ * 兩者只有 t=0 或 glueSide=left（comp[0]=0）時才恆等於 L；取較小值當保守上限：只要放得
+ * 進較窄的那片，兩片都放得下，且仍能抓到「其中一片真的放不下」的情形（不會把真超限吃掉，
+ * 只消除假警告）。
+ */
+function compensatedLidWidth(L: number, thickness: number, glueOnRight: boolean): number {
+  const comp = glueOnRight ? [...GIRTH_COMP_FROM_GLUE].reverse() : GIRTH_COMP_FROM_GLUE;
+  const wP1 = L + comp[0]! * thickness;
+  const wP3 = L + comp[2]! * thickness;
+  return Math.min(wP1, wP3);
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // 不變式
 // ─────────────────────────────────────────────────────────────────────────
@@ -551,19 +572,22 @@ const invariants: BoxInvariant[] = [
     },
     check(params, _result) {
       const L = params.L as number;
+      const thickness = params.thickness as number;
+      const glueOnRight = params.glueSide === 'right';
       const tuckLock = params.tuckLock as number;
       // 本不變式純參數驗算（跟其餘 4 條不同，不需要從 result 反推——tuckLock 是否放得下
-      // 由宣告的 L 與 tuckLock 兩個參數就能算完，不必等 generate() 真的跑出幾何才知道）。
-      // 上限用 L：摩擦扣座落在 perimeter() 的 lid.start~lid.end 跨距（top＝wP3、bottom＝
-      // wP1，兩者皆＝L——見「移植對照表」的 x 座標鏈，P1/P3 用 L 當寬度、P2/P4 才用 W；
-      // W 決定的是「蓋板高」hLid＝摺線到插舌尖端的垂直距離，跟蓋板攤平後的水平跨距是
-      // 兩個不同的量）。已用 L≠W 的區分性參數（L=40,W=90）實測：frictionLock 產生的
-      // cut x 範圍精確等於 [lid.start, lid.end]（寬度 40＝L，與 W=90 無關），
-      // tuckLock=50>40=L 時 cut 範圍確實溢出 lid 跨距——證實正確上限是 L。
-      if (tuckLock > 0 && tuckLock > L) {
+      // 由宣告的參數就能算完，不必等 generate() 真的跑出幾何才知道）。
+      // 上限＝girth 補償後的蓋板寬度（FX2 修正，見 compensatedLidWidth 註解）：摩擦扣座落
+      // 在 perimeter() 的 lid.start~lid.end 跨距（top＝wP3、bottom＝wP1），t=0 或
+      // glueSide=left 時兩者皆退化＝L（與 Slice 1 行為逐位元相同——已用 L≠W 的區分性參數
+      // L=40,W=90 實測：frictionLock 產生的 cut x 範圍精確等於 [lid.start, lid.end]，
+      // 寬度 40＝L 與 W=90 無關），glueSide=right 且 t>0 時改用實際補償後寬度，避免把
+      // 「名義 L 之上、實際補償後寬度之下」的合法值誤判超限。
+      const lidWidth = compensatedLidWidth(L, thickness, glueOnRight);
+      if (tuckLock > 0 && tuckLock > lidWidth) {
         return {
           ok: false,
-          message: { zh: `摩擦扣寬 ${tuckLock}mm 超過蓋板可容納寬度 ${L}mm，會切出面板外` },
+          message: { zh: `摩擦扣寬 ${tuckLock}mm 超過蓋板可容納寬度 ${lidWidth.toFixed(2)}mm（已計入 girth 補償），會切出面板外` },
           tags: ['tuckLock', 'L'],
         };
       }
@@ -627,21 +651,25 @@ const invariants: BoxInvariant[] = [
       zh: '插舌圓角半徑不能超過插舌深度、也不能超過插舌開口的半寬，否則轉角垂直邊會在摺線兩側反向翻出、頂邊方向反轉造成自撞（見 generate() 的 effectiveR 鉗制）。generate() 已鉗制實際繪製半徑，幾何永遠合法；這條不變式純粹示警「tuckRadius 設定值沒有如實生效」，讓使用者知道畫出來的圓角比他設的小。',
     },
     check(params, _result) {
-      // 純參數驗算（跟 tuck-lock-fits 同類手法）：鉗制上限只由 tuckDepth／L／tuckClearance
-      // 三個宣告參數決定，見 generate() 的 tongueHalfWidth = (xt2-xt1)/2，其中 xt2-xt1 =
-      // 插舌所在面板跨距（P1/P3 皆為 L，見 tuck-lock-fits 註解的移植對照）減去左右各一個
-      // tuckClearance，即 L - 2*tuckClearance。
+      // 純參數驗算（跟 tuck-lock-fits 同類手法）：鉗制上限由 tuckDepth／girth 補償後蓋板
+      // 寬度／tuckClearance 決定，見 generate() 的 tongueHalfWidth = (xt2-xt1)/2，其中
+      // xt2-xt1 = 插舌所在面板跨距（top＝wP3、bottom＝wP1，FX2 修正——只有 t=0 或
+      // glueSide=left 時兩者才恆等於 L，見 compensatedLidWidth 與 tuck-lock-fits 註解）
+      // 減去左右各一個 tuckClearance。
       const tuckDepth = params.tuckDepth as number;
       const tuckRadius = params.tuckRadius as number;
       const L = params.L as number;
+      const thickness = params.thickness as number;
+      const glueOnRight = params.glueSide === 'right';
       const tuckClearance = params.tuckClearance as number;
-      const tongueHalfWidth = (L - 2 * tuckClearance) / 2;
+      const lidWidth = compensatedLidWidth(L, thickness, glueOnRight);
+      const tongueHalfWidth = (lidWidth - 2 * tuckClearance) / 2;
       const limit = Math.max(0, Math.min(tuckDepth, tongueHalfWidth));
       const EPS = 0.001;
       if (tuckRadius > limit + EPS) {
         return {
           ok: false,
-          message: { zh: `插舌圓角 ${tuckRadius}mm 超過幾何上限 ${limit}mm（受插舌深度/寬度限制），已鉗制繪製` },
+          message: { zh: `插舌圓角 ${tuckRadius}mm 超過幾何上限 ${limit.toFixed(2)}mm（受插舌深度/寬度限制，已計入 girth 補償），已鉗制繪製` },
           tags: ['tuckRadius', 'tuckDepth'],
         };
       }
