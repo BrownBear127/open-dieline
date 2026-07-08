@@ -30,6 +30,8 @@ import type { DielinePiece, GenerateResult, LocalizedText } from '@/core/types';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
 import { DIMENSION_LINE_TYPES } from '@/export/svg';
+import { OVERLAY_STROKE } from '@/overlay/state';
+import type { OverlayState } from '@/overlay/state';
 
 export interface CanvasProps {
   result: GenerateResult;
@@ -57,6 +59,16 @@ export interface CanvasProps {
    * 直接對 Canvas 傳入單片 result（不含 pieces）的單元測試不必跟著補這個 prop。
    */
   onSelectPiece?: (pieceId: string | null) => void;
+  /**
+   * 匯入的生產刀模疊圖狀態（Slice 3 Task 4，spec §5）；undefined／null／`visible:false`／
+   * 空 segments 皆不渲染。畫在生成層（paths/texts）之後＝視覺最上層，且刻意獨立於本檔其餘
+   * 邏輯：不併入 `activeBounds`/`computeFitScale`（bounds/fit 只認生成層幾何，overlay 只是
+   * 對照參考，不應該讓匯入的檔案把畫布 fit/viewBox 拉走）、不併入 `highlightSet`/`isHighlighted`
+   * （overlay 沒有 tags，也不是 hover 高亮的對象）、不掛任何 pointer 事件（不參與 hit-test；
+   * T5 校準模式會在 Canvas 另外加點選邏輯，此處不預先攔截，留給 T5 接手）。選填：既有只組
+   * `result`/`highlightTags`/`invariantWarnings` 的 Canvas 單元測試不需要跟著改。
+   */
+  overlay?: OverlayState | null;
 }
 
 const HIGHLIGHT_STROKE = '#FF6B00';
@@ -112,6 +124,7 @@ export function Canvas({
   includeDimensions = true,
   activePiece,
   onSelectPiece,
+  overlay,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -307,6 +320,22 @@ export function Canvas({
               {t.text}
             </text>
           ))}
+          {overlay && overlay.visible && overlay.segments.length > 0 && (
+            // 疊圖獨立圖層：一個 <g transform> 套 scale+offset（不逐段換算，見 overlay/state.ts
+            // docblock 的座標套用順序：先 scale 再平移）。全段固定 OVERLAY_STROKE，線寬沿用
+            // LINE_STYLES.cut（生成層最常見的結構線寬，brief「線寬同生成層」的具體取值——
+            // overlay 的原始 Segment[] 沒有 LineType 可對應，取單一代表值而非逐段猜測型別）。
+            <g transform={`translate(${overlay.offsetX} ${overlay.offsetY}) scale(${overlay.scale})`}>
+              <path
+                d={segmentsToSvgD(overlay.segments)}
+                fill="none"
+                stroke={OVERLAY_STROKE}
+                strokeWidth={LINE_STYLES.cut.strokeWidth}
+                strokeOpacity={overlay.opacity}
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          )}
         </svg>
       </div>
     </div>

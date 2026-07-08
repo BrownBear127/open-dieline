@@ -25,6 +25,15 @@
  * 盒型輪廓在深色底上消失。改回前身 `Packaging/index.tsx` 實際使用的淺色
  * zinc-50/white 主題，讓黑色 cut 線在白底畫布上清楚可見；前身移植的流程/互動
  * 手感〔pan/zoom、分組、hover 高亮〕不受影響，僅呈現層色票改動）。
+ *
+ * `overlayState`（Slice 3 Task 4，spec §5）：匯入生產刀模 SVG 疊圖的顯示/校準狀態，跟
+ * `includeDimensions`/`selectedPieceId` 同一個提升理由——OverlayPanel（控制項）與 Canvas
+ * （疊繪）是平行兄弟元件，只有共同父層的 state 才能同步。刻意不隨 `boxId` 切換而重置：
+ * overlay 的 segments 是使用者匯入檔案的自包含資料（不像 `selectedPieceId` 指向
+ * `result.pieces` 的 id，換盒型後可能找不到對應片），沒有殘留失效參照的風險，讓使用者可以
+ * 邊切換盒型邊比對同一份疊圖。`overlayTargetBounds`（見下方 `activePiece` 之後定義）是快速
+ * 對齊三鈕的對齊目標，用「目前畫布實際顯示的視圖範圍」（單片視圖用該片 bounds、全版用
+ * `result.bounds`），跟 Canvas 看到的是同一份資料。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { listBoxes } from '@/core/registry';
@@ -36,10 +45,12 @@ import { listBoxes } from '@/core/registry';
 import '@/boxes/reverse-tuck-end';
 import '@/boxes/telescope';
 import type { LocalizedText } from '@/core/types';
+import type { OverlayState } from '@/overlay/state';
 import { useParams } from '@/ui/useParams';
 import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
+import { OverlayPanel } from '@/ui/OverlayPanel';
 import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
 
 export function App() {
@@ -50,6 +61,7 @@ export function App() {
   const [highlightTags, setHighlightTags] = useState<string[] | null>(null);
   const [includeDimensions, setIncludeDimensions] = useState(true);
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
+  const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
   // v0.2.0 宣告視窗：跟 includeDimensions/selectedPieceId 同一個提升理由——header 的
   // 「關於」鈕與 modal 本體是平行的兄弟位置（一個在 aside 頂部，一個要蓋在整個畫面上），
   // 只能靠共同父層的 state 同步開關。惰性初始值只在掛載當下讀一次 localStorage：
@@ -66,6 +78,12 @@ export function App() {
     () => (selectedPieceId ? result.pieces?.find((p) => p.id === selectedPieceId) : undefined),
     [result, selectedPieceId],
   );
+
+  // 疊圖快速對齊三鈕的目標 bounds：跟 Canvas 目前實際顯示的視圖範圍一致（單片視圖用該片
+  // bounds、全版用 result.bounds），不是 Canvas 的 activeBounds（那個為單片視圖額外烘了
+  // PIECE_VIEW_PADDING 顯示邊距，是「畫布留白多少」的呈現層決定，不是「刀模實際幾何範圍」——
+  // 對齊疊圖要對齊到真實幾何，不該把留白邊距也算進對齊目標）。
+  const overlayTargetBounds = activePiece?.bounds ?? result.bounds;
 
   // FX5（whole-branch review）：selectedPieceId 復活 snap-back——上面的 activePiece 只是
   // 「這一輪渲染要顯示什麼」的防呆，selectedPieceId 這顆 state 本身若不清掉，之後只要
@@ -152,6 +170,8 @@ export function App() {
           onHighlight={setHighlightTags}
         />
 
+        <OverlayPanel overlayState={overlayState} onOverlayStateChange={setOverlayState} targetBounds={overlayTargetBounds} />
+
         <ExportBar
           boxId={boxId}
           values={values}
@@ -170,6 +190,7 @@ export function App() {
           includeDimensions={includeDimensions}
           activePiece={activePiece}
           onSelectPiece={setSelectedPieceId}
+          overlay={overlayState}
         />
       </main>
 
