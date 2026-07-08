@@ -84,6 +84,27 @@ function parseReferenceSegmentsByType(raw: ReferenceFixture, type: 'cut' | 'crea
 const gen = (overrides?: Partial<Record<string, number | boolean | string>>) =>
   reverseTuckEnd.generate(resolveParams(reverseTuckEnd, overrides));
 
+/**
+ * 從 'D' 標籤的縱向分隔線反推 4 個面板寬（girth 補償測試專用）。
+ *
+ * 見 generate() 的「Main Body Creases」區塊：無論 glueSide 為何，恆有 5 條 'D' 標籤
+ * 縱向線標出 x0..x4 五個面板邊界——差別只在 cut/crease 身分互換（glueOnRight 時 x0
+ * 是 cut、x4 是 crease；反之亦然），但兩種身分都帶 'D' tag，合併 cut+crease 兩種線型
+ * 取 x 座標即可還原完整的 5 點邊界、排序後取相鄰差就是 4 段面板寬，不需要在意
+ * 個別是 cut 還是 crease。
+ */
+function panelWidthsFromBoundaryLines(result: GenerateResult): number[] {
+  const xs = result.paths
+    .filter((p) => (p.type === 'cut' || p.type === 'crease') && p.tags?.includes('D'))
+    .flatMap((p) => p.segments)
+    .filter((s): s is Extract<Segment, { kind: 'line' }> => s.kind === 'line')
+    .map((s) => s.x1)
+    .sort((a, b) => a - b);
+  const widths: number[] = [];
+  for (let i = 1; i < xs.length; i++) widths.push(xs[i]! - xs[i - 1]!);
+  return widths;
+}
+
 describe('reverseTuckEnd', () => {
   it('模組載入時已透過 registerBox 自行註冊（id=rte）', () => {
     expect(getBox('rte')).toBe(reverseTuckEnd);
@@ -96,7 +117,9 @@ describe('reverseTuckEnd', () => {
     // 分組後 cut 跟 crease 各自必須跟 reference 對應分組逐一相等，線型標籤本身變成
     // 比對的一部分：標錯線型會讓其中一組多一條、另一組少一條，兩組都會比對失敗。
     // （已用一次性變造腳本驗證此嚴格性差異，證據見 開發紀錄「Fix Round 1」。）
-    const result = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
+    // thickness: 0 是 t=0 錨定的核心——fixture 由不吃補償的前身函式產生，只有 t=0 時
+    // 我們的補償公式全部歸零、幾何才會與 fixture 逐位元等價（spec Step 1）。
+    const result = reverseTuckEnd.generate(resolveParams(reverseTuckEnd, { thickness: 0 }));
     const oursCut = normalizeSegments(result.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments));
     const oursCrease = normalizeSegments(result.paths.filter((p) => p.type === 'crease').flatMap((p) => p.segments));
     const referenceCut = normalizeSegments(parseReferenceSegmentsByType(referenceRaw, 'cut'));
@@ -154,7 +177,10 @@ describe('reverseTuckEnd', () => {
   //  原本的「>0」分支，glueSide 雖然真的切到 'right' 但只斷言「有變化」不驗「變得對不對」）
 
   it('glueSide=right：糊邊移到最右側，仍通過全部不變式（覆蓋等價測試從未觸及的 glueOnRight 分支）', () => {
-    const params = resolveParams(reverseTuckEnd, { glueSide: 'right' });
+    // thickness: 0 是刻意釘住的——這條測試的責任是「glueOnRight 鏡像本身」，跟 girth
+    // 補償是兩個獨立關注點；釘 t=0 讓下面這行的手算（x4=220 等）繼續成立，補償與
+    // 鏡像的組合改由「girth 補償鏡像」測試（Slice 2）專責涵蓋，見該測試註解。
+    const params = resolveParams(reverseTuckEnd, { glueSide: 'right', thickness: 0 });
     const result = reverseTuckEnd.generate(params);
     for (const inv of reverseTuckEnd.invariants) {
       expect(inv.check(params, result), inv.id).toMatchObject({ ok: true });
@@ -340,5 +366,68 @@ describe('reverseTuckEnd', () => {
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
     };
     expect(inv.check(params, fakeResult)).toMatchObject({ ok: true });
+  });
+
+  // ── Slice 2（v1.2 spec §4.1）：thickness 標準補償集測試 ──
+  //
+  // girth／tuckClearance derivedDefault／unfold-width／t 假旋鈕，四項對應 plan Task 2
+  // Step 2。上面「glueSide=right」測試（T9 既有）已改釘 thickness:0，讓它繼續只測
+  // glueOnRight 鏡像本身；補償與鏡像的組合由這裡的「girth 補償鏡像」測試專責涵蓋。
+
+  it('girth 補償：t=0.4、glueSide=left 時面板寬依序為 [L, W+0.4, L+0.4, W+0.8]（由 D 標籤縱向分隔線的 x 座標反推）', () => {
+    const params = resolveParams(reverseTuckEnd, { thickness: 0.4, glueSide: 'left' });
+    const result = reverseTuckEnd.generate(params);
+    const L = params.L as number;
+    const W = params.W as number;
+    const widths = panelWidthsFromBoundaryLines(result);
+    expect(widths, '5 條邊界線的相鄰差＝4 個面板寬').toHaveLength(4);
+    expect(widths[0]!, 'P1 貼糊邊，不補償').toBeCloseTo(L, 5);
+    expect(widths[1]!, 'P2 補 +t').toBeCloseTo(W + 0.4, 5);
+    expect(widths[2]!, 'P3 補 +t').toBeCloseTo(L + 0.4, 5);
+    expect(widths[3]!, 'P4 離糊邊最遠，補 +2t').toBeCloseTo(W + 0.8, 5);
+  });
+
+  it('girth 補償鏡像：t=0.4、glueSide=right 時面板寬依序反轉為 [L+0.8, W+0.4, L+0.4, W]', () => {
+    const params = resolveParams(reverseTuckEnd, { thickness: 0.4, glueSide: 'right' });
+    const result = reverseTuckEnd.generate(params);
+    const L = params.L as number;
+    const W = params.W as number;
+    const widths = panelWidthsFromBoundaryLines(result);
+    expect(widths, '5 條邊界線的相鄰差＝4 個面板寬').toHaveLength(4);
+    expect(widths[0]!, 'P1 離糊邊最遠（貼 P4 的糊邊在右），補 +2t').toBeCloseTo(L + 0.8, 5);
+    expect(widths[1]!, 'P2 補 +t').toBeCloseTo(W + 0.4, 5);
+    expect(widths[2]!, 'P3 補 +t').toBeCloseTo(L + 0.4, 5);
+    expect(widths[3]!, 'P4 貼糊邊，不補償').toBeCloseTo(W, 5);
+  });
+
+  it('tuckClearance derivedDefault：t=0.4 未覆寫時生效值為 0.9（0.5+t）；手動覆寫 2 後維持 2 不被洗掉', () => {
+    const derived = resolveParams(reverseTuckEnd, { thickness: 0.4 });
+    expect(derived.tuckClearance, '未覆寫時應跟著 thickness 即時重算').toBeCloseTo(0.9, 5);
+
+    const overridden = resolveParams(reverseTuckEnd, { thickness: 0.4, tuckClearance: 2 });
+    expect(overridden.tuckClearance, '手動覆寫值優先序高於 derivedDefault，不被洗掉').toBe(2);
+  });
+
+  it('unfold-width 補償：t=0.4 時展開總寬＝L+W+L+W+4t+glueSize+40（girth 補償總量與 glueSide 無關，因係數表加總恆為 4）', () => {
+    const params = resolveParams(reverseTuckEnd, { thickness: 0.4 });
+    const result = reverseTuckEnd.generate(params);
+    const L = params.L as number;
+    const W = params.W as number;
+    const glueSize = params.glueSize as number;
+    const t = params.thickness as number;
+    const expected = L + W + L + W + 4 * t + glueSize + 40;
+    const actual = result.bounds.maxX - result.bounds.minX;
+    // 直接量 bounds（不透過 invariant.check）：確保這條測試在補償未接線的中間態必為 RED，
+    // 不會因為「不變式公式」跟「測試期望」剛好用同一套舊公式而假綠。
+    expect(actual, '展開總寬應反映 girth 補償總量 4t').toBeCloseTo(expected, 2);
+
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'unfold-width')!;
+    expect(inv.check(params, result), '不變式本身的公式也要同步更新為 +4t').toMatchObject({ ok: true });
+  });
+
+  it('t 假旋鈕：thickness=0 與 thickness=0.4 的輸出必不同（自動迴圈已涵蓋此參數，這裡另外釘一條顯式回歸）', () => {
+    const zero = normalizeSegments(gen({ thickness: 0 }).paths.flatMap((p) => p.segments));
+    const withT = normalizeSegments(gen({ thickness: 0.4 }).paths.flatMap((p) => p.segments));
+    expect(withT, 'thickness 從 0 改到 0.4 應改變幾何輸出').not.toEqual(zero);
   });
 });

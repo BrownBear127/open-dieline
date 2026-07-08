@@ -24,18 +24,15 @@ import { GLUE_CHAMFER, LOCK_CHAMFER, frictionLock, reliefSlot, dimensionLine } f
 // 為跨盒型參數聯集大袋子，RTE 專用欄位共 13 個：L/W/D/thickness/tuckDepth/tuckRadius/
 // tuckClearance/tuckLock/dustFlapDepth/flapNotch/creaseRelief/glueSize/glueOnRight。
 //
-// 這裡只宣告 12 個，**不含 thickness**——經 grep 驗證，前身 `generateReverseTuckEnd`
-// 的解構賦值（該檔 3-11 行）完全不含 thickness，全檔 357 行也無任何一處讀取它；
-// thickness 在前身只用於「舊 UI 的 auto-link 便利功能」（React 元件狀態，index.tsx
-// 121-150 行：thickness 改變時「建議」creaseRelief=thickness*2、flapNotch=relief+1），
-// 不屬於這個純幾何函式的移植範圍，spec 也未要求移植 UI 狀態邏輯。
+// Slice 1 曾只宣告 12 個、不含 thickness——前身 `generateReverseTuckEnd` 的幾何從未
+// 讀取它（前身只用於舊 UI 的 auto-link 便利功能，不屬純幾何函式的移植範圍），若照單
+// 全收會直接牴觸 spec §3.3「參數宣告即接線」（§8 假旋鈕測試正是為了強制這條規則；
+// 詳細取捨記錄見 開發紀錄）。
 //
-// 若把 thickness 也宣告進來，會直接牴觸 spec §3.3 的明文規則「參數宣告即接線——
-// 盒型不得宣告 generate 未使用的參數」（§8 假旋鈕測試正是為了強制這條規則存在），
-// 且無法在不破壞等價驗收（fixture 由不吃 thickness 的前身函式產生）的前提下，
-// 賦予它任何真實幾何效果——兩個目標無法同時滿足時，spec 的明文架構規則優先於
-// spec 表格的字面列舉（spec 表格很可能是機械抄錄 BoxDimensions 聯集型別時，
-// 沒有逐一核對 generate() 是否真的用到每個欄位）。詳細取捨記錄見 開發紀錄。
+// Slice 2（v1.2 spec §4.1）補上正式幾何意義：thickness 現在驅動一套具名的標準補償集
+// （girth 面板遞增、插舌內縮 derivedDefault、防塵翼讓位——見下方 GIRTH_COMP_FROM_GLUE
+// 與 generate() 對應段落），t=0 時所有補償歸零、與前身輸出等價（既有 fixture 不變、
+// 只錨定 thickness=0 的組合）。至此 13 個欄位全數宣告，取捨記錄見 開發紀錄。
 const params: BoxParamDef[] = [
   {
     key: 'L',
@@ -76,6 +73,20 @@ const params: BoxParamDef[] = [
     highlightTags: ['D'],
   },
   {
+    key: 'thickness',
+    label: { zh: '紙厚' },
+    unit: 'mm',
+    default: 0.3,
+    min: 0,
+    max: 0.8,
+    step: 0.1,
+    group: { zh: '材質' },
+    description: {
+      zh: '紙張厚度（caliper）。盒身面板依摺次遞增補償、插舌與讓位間隙隨之調整；設 0 可還原無補償的幾何。',
+    },
+    highlightTags: ['D', 'tuckDepth', 'flapNotch'],
+  },
+  {
     key: 'tuckDepth',
     label: { zh: '插舌深度' },
     unit: 'mm',
@@ -112,6 +123,9 @@ const params: BoxParamDef[] = [
     group: { zh: '插舌與鎖扣' },
     description: { zh: '插舌左右兩側相對蓋板邊緣往內縮的量，讓插舌略窄於開口寬度，插入時才不會卡死。' },
     highlightTags: ['tuckDepth'],
+    // 未手動覆寫時隨紙厚即時重算（插舌插入處內空因紙厚縮小，見 spec §4.1）；
+    // auto/manual 機制由 core/registry.ts 的 resolveParams 既有支援，這裡只宣告公式。
+    derivedDefault: (p) => 0.5 + (p.thickness as number),
   },
   {
     key: 'tuckLock',
@@ -201,10 +215,21 @@ function addPath(paths: DielinePath[], type: LineType, tag: string | undefined, 
   paths.push({ id: `p-${paths.length}`, type, segments, tags: tag ? [tag] : undefined });
 }
 
+/**
+ * girth 補償係數（審核條款：改動幾何行為只需修改這個表，不觸其餘程式碼——spec §4.1）。
+ *
+ * 索引依攤平圖「從糊邊側起算」的面板序 P1..P4：貼糊邊的面板不補償（+0），往外每過一道
+ * 摺線多補一個紙厚（+t、+t），離糊邊最遠的面板累積 +2t——紙繞盒身一圈，外層每摺一次要
+ * 多走約一個紙厚，離黏合基準面愈遠累積愈多。無前身 ground truth，數值為業界常規，
+ * 定案依據＝獨立 review＋維護者生產經驗＋樣張 gate 實摺驗證。
+ */
+const GIRTH_COMP_FROM_GLUE = [0, 1, 1, 2] as const;
+
 function generate(p: ResolvedParams): GenerateResult {
   const L = p.L as number;
   const W = p.W as number;
   const D = p.D as number;
+  const t = p.thickness as number;
   const tuckDepth = p.tuckDepth as number;
   const tuckRadius = p.tuckRadius as number;
   const tuckClearance = p.tuckClearance as number;
@@ -215,23 +240,26 @@ function generate(p: ResolvedParams): GenerateResult {
   const glueSize = p.glueSize as number;
   const glueOnRight = p.glueSide === 'right';
 
-  // --- Dimensions Setup（前身 13-36 行）---
+  // --- Dimensions Setup（前身 13-36 行；v1.2 girth 補償見 GIRTH_COMP_FROM_GLUE）---
   const wGlue = glueSize;
-  const wP1 = L;
-  const wP2 = W;
-  const wP3 = L;
-  const wP4 = W;
+  // girth 補償：面板序依攤平圖「從糊邊側起算」，glueOnRight 時貼糊邊的面板換成 P4，
+  // 整表反轉套用（reverse 不改變總和，t=0.4 校驗值見 spec §4.1）。
+  const comp = glueOnRight ? [...GIRTH_COMP_FROM_GLUE].reverse() : GIRTH_COMP_FROM_GLUE;
+  const wP1 = L + comp[0]! * t;
+  const wP2 = W + comp[1]! * t;
+  const wP3 = L + comp[2]! * t;
+  const wP4 = W + comp[3]! * t;
   const hBody = D;
-  const hLid = W; // 蓋板高＝W（開口深度），見不變式 lid-equals-w
+  const hLid = W; // 蓋板高＝W（開口深度）——不吃 girth 補償，開口配合改由 tuckClearance 吃 t，見不變式 lid-equals-w
   const hTuck = tuckDepth;
   const hDust = dustFlapDepth;
   const r = tuckRadius;
 
   // --- Relief / Slot Logic（前身 38-42 行：呼叫端算好 gap/notchHeight 再交給 primitives）---
   const xGapVal = Math.max(flapNotch > 0 ? flapNotch : 0, creaseRelief > 0 ? creaseRelief : 0);
-  const reliefGap = xGapVal > 0 ? xGapVal : 3;
+  const reliefGap = (xGapVal > 0 ? xGapVal : 3) + t; // 防塵翼讓位：+t 讓翼片摺入時避開相鄰面板的紙厚干涉
   const notchHeight = Math.max(3, reliefGap * 0.6);
-  const tInset = tuckClearance;
+  const tInset = tuckClearance; // tuckClearance 的 derivedDefault 已把 +t 併入生效值（見參數宣告）
 
   // --- Coordinates (X Axis)（前身 44-65 行）---
   let x0 = 0;
@@ -464,19 +492,20 @@ const invariants: BoxInvariant[] = [
   {
     id: 'unfold-width',
     description: {
-      zh: '展開總寬必須等於四片主面板加糊邊（L+W+L+W+glueSize），外加左右各 20mm 的畫布邊距——這是驗證整條 X 座標鏈沒有算錯的最直接方式。',
+      zh: '展開總寬必須等於四片主面板加糊邊（L+W+L+W+glueSize），再加 girth 補償總量 4×紙厚（面板序遞增係數 [0,1,1,2] 加總＝4，glueOnRight 只改變分配順序、不改變總和），外加左右各 20mm 的畫布邊距——這是驗證整條 X 座標鏈沒有算錯的最直接方式。',
     },
     check(params, result) {
       const L = params.L as number;
       const W = params.W as number;
       const glueSize = params.glueSize as number;
-      const expected = L + W + L + W + glueSize + 40; // 40 = 左右各 20mm 邊距
+      const t = params.thickness as number;
+      const expected = L + W + L + W + 4 * t + glueSize + 40; // 40 = 左右各 20mm 邊距；4t = girth 補償總量
       const actual = result.bounds.maxX - result.bounds.minX;
       if (Math.abs(actual - expected) > 0.01) {
         return {
           ok: false,
           message: { zh: `展開總寬應為 ${expected}mm（含邊距），實際為 ${actual}mm` },
-          tags: ['L', 'W', 'glueSize'],
+          tags: ['L', 'W', 'glueSize', 'thickness'],
         };
       }
       return { ok: true };
