@@ -33,11 +33,26 @@ export interface DielineText {
   anchor?: 'start' | 'middle' | 'end';
 }
 
+/**
+ * 多片盒型（如天地盒三件套：上蓋／下盒／內襯）的「片」（spec §3.3 v1.2）。
+ * 片的「語意身分」（哪片是 lid）型別層不管，由各盒型自己的不變式綁定；
+ * pathIds/textIds 的歸屬完整性規則見 core/pieces.ts 的 validatePieces()。
+ */
+export interface DielinePiece {
+  id: string;
+  label: LocalizedText;
+  pathIds: string[];
+  textIds: string[];
+  bounds: Bounds;
+}
+
 /** 盒型 generate() 的完整輸出——畫布渲染與兩種匯出共用的同一份資料（spec §3.2 幾何單一來源）。 */
 export interface GenerateResult {
   paths: DielinePath[];
   texts: DielineText[];
   bounds: Bounds;
+  /** 省略＝單片盒型（RTE 不變、向後相容）；有值時的完整性規則見 core/pieces.ts。 */
+  pieces?: DielinePiece[];
 }
 
 /** resolveParams() 解析後的參數快照；型別上唯讀。 */
