@@ -1197,3 +1197,152 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     expect(inputAfter).not.toBe(inputBefore); // 不同 DOM 節點＝真的重新掛載，不只是清空 value
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 3 Task 5：點選校準（spec §5「點選一段線、輸入實際 mm」）。fixture 刻意用單一水平線
+// （raw x1=0,y1=0,x2=40,y2=0）：rawLength=40 是可手算的整數，calibrateScale(40mm 校準值) 的
+// 期望值不必依賴浮點誤差容忍以外的猜測。unit 用 OverlayPanel 預設值 'pt'（width="100" 無
+// mm/pt 字尾不觸發自動判定）→ initialScaleGuess=0.352778，跟既有 T4 describe 同一慣例。
+//
+// 座標鏈 mock 手法：Canvas.tsx 的校準點擊用 `getBoundingClientRect()` 換算滑鼠事件座標→SVG
+// viewBox 座標（見 Canvas.tsx 開頭 docblock 對 jsdom 量測限制的說明）——jsdom 預設回傳全 0
+// 的 rect，這裡用 `vi.spyOn` 把「目前渲染的 svg」的 rect mock 成與 viewBox 等寬高、
+// left/top=0，讓 client 像素座標→viewBox 座標的換算變成單位映射（不必額外處理 pan/zoom）。
+// ─────────────────────────────────────────────────────────────────────────
+describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', () => {
+  const overlaySvgText = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><line x1="0" y1="0" x2="40" y2="0" /></svg>';
+
+  function makeOverlayFile(): File {
+    return new File([overlaySvgText], 'calib.svg', { type: 'image/svg+xml' });
+  }
+
+  async function importOverlay(): Promise<void> {
+    const input = screen.getByLabelText(/匯入生產 SVG/) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [makeOverlayFile()] } });
+    await waitFor(() => {
+      expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
+    });
+  }
+
+  /** DOMRect 最小可用 mock：只填測試實際會讀到的欄位＋型別要求的其餘欄位補 0。 */
+  function mockRect(overrides: Partial<DOMRect>): DOMRect {
+    return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON: () => ({}), ...overrides } as DOMRect;
+  }
+
+  /** mock 目前畫布 svg 的 rect＝與 viewBox 同寬高、left/top=0；回傳 viewBox 的 minX/minY 供呼叫端算 clientX/Y。 */
+  function mockSvgRectToViewBox(): { vbMinX: number; vbMinY: number } {
+    const svg = document.querySelector('svg')!;
+    const viewBox = svg.getAttribute('viewBox')!;
+    const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue(mockRect({ width: vbWidth, height: vbHeight }));
+    return { vbMinX: vbMinX!, vbMinY: vbMinY! };
+  }
+
+  /**
+   * 點擊 fixture 線段中點：raw(20,0) → mm (20×0.352778, 0)（offset 尚未對齊，皆為 0）。
+   * mock 的 rect.left/top=0，Canvas.tsx 換算式為 `mmX = minX + (clientX-0)/width*viewW`
+   * （width===viewW 時比例為 1）── 也就是 `mmX = minX + clientX`，要讓 mmX 落在目標值，
+   * clientX 必須是「目標 mm 值 − minX」（不是 minX + 目標值，那樣會把 minX 算兩次）。
+   */
+  function clickFixtureLineMidpoint(): void {
+    const { vbMinX, vbMinY } = mockSvgRectToViewBox();
+    const svg = document.querySelector('svg')!;
+    fireEvent.click(svg, { clientX: 20 * 0.352778 - vbMinX, clientY: 0 - vbMinY });
+  }
+
+  function readOverlayScale(): number {
+    const transform = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!.getAttribute('transform') ?? '';
+    return Number(/scale\(([-\d.]+)\)/.exec(transform)![1]);
+  }
+
+  it('OverlayPanel「校準」鈕進校準模式：Canvas 顯示提示條；鈕變成「取消校準」，再點一次退出', async () => {
+    render(<App />);
+    await importOverlay();
+
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    expect(await screen.findByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '取消校準' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '取消校準' }));
+    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '校準' })).toBeInTheDocument();
+  });
+
+  it('happy path：進模式→點選線段→輸入 100→確認→scale 依 calibrateScale 更新（100/40=2.5）、退出校準模式', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+
+    clickFixtureLineMidpoint();
+
+    const mmInput = await screen.findByLabelText(/該線段實際長度/);
+    fireEvent.change(mmInput, { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+
+    await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
+    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument(); // 模式已退出
+    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '校準' })).toBeInTheDocument(); // 鈕字回「校準」
+  });
+
+  it('Esc 退出校準模式：scale 不變（未套用任何校準結果）', async () => {
+    render(<App />);
+    await importOverlay();
+    const before = readOverlayScale();
+
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
+    expect(readOverlayScale()).toBeCloseTo(before, 6);
+    expect(screen.getByRole('button', { name: '校準' })).toBeInTheDocument();
+  });
+
+  it('輸入 ≤0：不套用＋提示，仍在校準模式（修正後可重新送出成功）', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    clickFixtureLineMidpoint();
+
+    const mmInput = await screen.findByLabelText(/該線段實際長度/);
+    fireEvent.change(mmInput, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+
+    expect(await screen.findByText(/請輸入大於 0 的數字/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/該線段實際長度/)).toBeInTheDocument(); // 未退出校準模式
+
+    fireEvent.change(mmInput, { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
+    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
+  });
+
+  it('單位下拉：校準過後變更單位提示覆蓋（不直接覆蓋）；取消保留校準值，確定覆蓋才重算 scale', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    clickFixtureLineMidpoint();
+    fireEvent.change(await screen.findByLabelText(/該線段實際長度/), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
+
+    const unitSelect = screen.getByLabelText(/單位/);
+    fireEvent.change(unitSelect, { target: { value: 'mm' } });
+
+    expect(await screen.findByText(/切換單位將覆蓋目前校準的比例/)).toBeInTheDocument();
+    expect(readOverlayScale()).toBeCloseTo(2.5, 6); // 尚未確認，scale 不變
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(readOverlayScale()).toBeCloseTo(2.5, 6); // 取消後仍保留校準值
+    expect(screen.queryByText(/切換單位將覆蓋目前校準的比例/)).not.toBeInTheDocument();
+
+    fireEvent.change(unitSelect, { target: { value: 'mm' } });
+    fireEvent.click(screen.getByRole('button', { name: '確定覆蓋' }));
+    expect(readOverlayScale()).toBeCloseTo(1, 6); // mm 的 initialScaleGuess=1，覆蓋生效
+  });
+});
