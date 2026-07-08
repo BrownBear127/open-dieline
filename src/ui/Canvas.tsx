@@ -65,6 +65,15 @@ const HIGHLIGHT_WIDTH_FACTOR = 3;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 10;
 const FIT_PADDING = 120;
+/**
+ * 多片盒型（天地盒等）預設縮放倍率（T7 樣張 gate 第一輪維護者反饋修 3·2026-07-09）：
+ * 維護者實際操作發現多片盒型（全版／各單片視圖皆算）auto-fit 後的預設顯示偏小，要求
+ * 一律再放大 130%。判斷依據用 `result.pieces !== undefined`（是否為多片盒型）而非
+ * boxId 字面比對——理由：pieces 是型別層已有的公開契約（spec §3.3「省略＝單片盒型」），
+ * 未來新增其他多片盒型會自動套用同一預設，不需要在這裡逐一列舉盒型 id；RTE（單片，
+ * pieces undefined）不受影響，維持 1.0×fit 現狀不變。
+ */
+const MULTI_PIECE_FIT_MULTIPLIER = 1.3;
 const DIMENSION_TEXT_FILL = LINE_STYLES.dimension.stroke;
 /**
  * 單片視圖的幾何邊距（mm，viewBox 座標系——不要跟上面 `FIT_PADDING` 的螢幕像素單位搞混，
@@ -111,21 +120,32 @@ export function Canvas({
 
   // 單片視圖：bounds 外加視覺邊距；全版視圖：沿用 result.bounds 原值（既有行為不變，見 docblock）。
   const activeBounds = activePiece ? expandBounds(activePiece.bounds, PIECE_VIEW_PADDING) : result.bounds;
+  // 是否為多片盒型（見上方 MULTI_PIECE_FIT_MULTIPLIER 註解：判斷依據刻意用 pieces 存在
+  // 與否，不用 boxId）。
+  const isMultiPiece = result.pieces !== undefined;
 
   const handleFit = () => {
     const el = containerRef.current;
-    setScale(computeFitScale(el?.clientWidth ?? 0, el?.clientHeight ?? 0, activeBounds));
+    const fitScale = computeFitScale(el?.clientWidth ?? 0, el?.clientHeight ?? 0, activeBounds);
+    const targetScale = isMultiPiece ? fitScale * MULTI_PIECE_FIT_MULTIPLIER : fitScale;
+    setScale(Math.min(Math.max(targetScale, MIN_SCALE), MAX_SCALE));
     setPan({ x: 0, y: 0 });
   };
 
   useEffect(() => {
     // 掛載後延遲一拍再 Fit：容器初次量測時瀏覽器可能還沒完成佈局（前身同一手法，
-    // 100ms timeout 換取 clientWidth/clientHeight 有意義的值）。只在掛載時跑一次；
-    // 之後換盒型/調參數刻意不重新 Fit，維持使用者當下自訂的 scale/pan。
+    // 100ms timeout 換取 clientWidth/clientHeight 有意義的值）。依賴陣列改用
+    // `[isMultiPiece]`（T7 gate 修 3·2026-07-09，原本是 `[]`）：單片↔多片盒型切換時
+    // （isMultiPiece 真假值改變）重新 Fit 一次，讓「進入天地盒畫面」也能拿到 130% 預設
+    // 縮放，不只是首次掛載——React 對任何依賴陣列都保證掛載後至少跑一次，所以這裡沒有
+    // 重複呼叫的風險。isMultiPiece 在「同一盒型內調參數」（含 linerEnabled 開關——pieces
+    // 陣列長度會變，但「是否為 undefined」不變）時恆定不變，因此調參數/切單片視圖仍不會
+    // 觸發重新 Fit，維持使用者當下自訂的 scale/pan（原設計意圖不變，只多了「盒型單↔多片
+    // 切換」這一個額外觸發點）。
     const timer = setTimeout(handleFit, 100);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isMultiPiece]);
 
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.metaKey) {
