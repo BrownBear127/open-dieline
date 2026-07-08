@@ -23,7 +23,7 @@ import type { Segment } from '@/core/geometry';
 import { hasNaN, hasSelfIntersection } from '@/core/geometry';
 import type { DielinePath, GenerateResult, LineType } from '@/core/types';
 import { resolveParams } from '@/core/registry';
-import { telescope } from '@/boxes/telescope';
+import { telescope, MIN_TONGUE_PERP_HALF } from '@/boxes/telescope';
 import { deriveLinerFrame } from '@/boxes/telescope/liner';
 import { validatePieces } from '@/core/pieces';
 import fixtureRaw from './fixtures/telescope-reference.json';
@@ -250,6 +250,46 @@ function checkTuckFoldLineStructure(paths: DielinePath[], side: string): Verdict
   return { ok: true };
 }
 
+/** slot 名尾段 → 該槽 lineType 宣告所落的 landmark（F6；x 向槽查 left、y 向槽查 back，同 EXTRACTORS 慣例）。 */
+const SLOT_LINETYPE_LANDMARKS: Record<string, string> = {
+  panel: 'wallRoot',
+  platform: 'wallTop',
+  doubleCreaseGap: 'wallRoot',
+  tuckFlap: 'tongueFlap',
+  tuckFoldLine: 'tongueFold',
+};
+
+/**
+ * fixture 的 lineType 宣告 vs 生成幾何（fix wave F6）：該槽對應 tag 的 path 線型／數量須與
+ * 宣告一致，讓 lineType 欄位真正參與逐槽判定而非裝飾。「—」＝附錄未對該槽宣告線型
+ * （外壁/內壁這類跨距槽，兩端分屬其他槽位的線），跳過；未知字串一律 fail（防 fixture
+ * 拼錯被靜默跳過）。
+ */
+function judgeLineType(slot: SlotFixture, paths: DielinePath[]): Verdict {
+  if (slot.lineType === '—') return { ok: true };
+  const leaf = slot.name.split('.').pop()!;
+  const landmark = SLOT_LINETYPE_LANDMARKS[leaf];
+  if (!landmark) return { ok: false, reason: `lineType「${slot.lineType}」無對應 landmark 映射（槽名 ${slot.name}）` };
+  const axis: 'x' | 'y' = slot.name.includes('.x.') ? 'x' : 'y';
+  const side = axis === 'x' ? 'left' : 'back';
+
+  if (slot.lineType === 'crease（單）' || slot.lineType === 'crease×2') {
+    const ps = findTagged(paths, landmark, side, 'crease');
+    if (ps.length !== 1) return { ok: false, reason: `${landmark}(${side}) 應恰有 1 條 crease path，實際 ${ps.length}` };
+    const distinct = new Set(ps[0]!.segments.map((s) => alongOf(s, axis))).size;
+    const want = slot.lineType === 'crease（單）' ? 1 : 2;
+    if (distinct !== want) return { ok: false, reason: `${landmark}(${side}) 駐留座標應有 ${want} 個相異值（${slot.lineType}），實際 ${distinct}` };
+    return { ok: true };
+  }
+  if (slot.lineType === 'cut') {
+    const ps = findTagged(paths, landmark, side, 'cut');
+    if (ps.length !== 1) return { ok: false, reason: `${landmark}(${side}) 應恰有 1 條 cut path，實際 ${ps.length}` };
+    return { ok: true };
+  }
+  if (slot.lineType === 'halfcut 中段＋crease 兩端') return checkTuckFoldLineStructure(paths, side);
+  return { ok: false, reason: `未知的 lineType 宣告「${slot.lineType}」` };
+}
+
 /**
  * y 向剖面序列完整性（spec §4.2 規則 3）：外壁→〔平台〕→內壁→halfcut→舌片的序位、線型皆須
  * 正確——用「離內側 root 座標的絕對距離」嚴格遞增來判斷序位（正負號無關，四面牆鏡射對稱通用）。
@@ -293,6 +333,22 @@ function checkYProfileSequence(paths: DielinePath[], side: 'back' | 'front', pla
     }
   }
   return { ok: true };
+}
+
+/**
+ * 合成一組「健康形狀」的 y 向剖面資料（fix wave F4 負類測試用；back 側、platform=5 型）：
+ * 雙 crease 根（gap 0.4）→ 壁頂兩線（60.4/65.4）→ 舌摺線（crease 兩端＋halfcut 中段，
+ * 224.6）→ 插底舌斜線（最深 239.6）。數值只需序位正確，不對應任何真實參數組。
+ */
+function syntheticYProfile(): DielinePath[] {
+  const yLine = (y: number): Segment => ({ kind: 'line', x1: 0, y1: y, x2: 10, y2: y });
+  return [
+    { id: 'r', type: 'crease', tags: ['wallRoot', 'back'], segments: [yLine(100), yLine(100.4)] },
+    { id: 't', type: 'crease', tags: ['wallTop', 'back'], segments: [yLine(160.4), yLine(165.4)] },
+    { id: 'fc', type: 'crease', tags: ['tongueFold', 'back'], segments: [yLine(224.6), yLine(224.6)] },
+    { id: 'fh', type: 'halfcut', tags: ['tongueFold', 'back'], segments: [yLine(224.6)] },
+    { id: 'fl', type: 'cut', tags: ['tongueFlap', 'back'], segments: [{ kind: 'line', x1: 0, y1: 224.6, x2: 5, y2: 239.6 }] },
+  ];
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -342,6 +398,10 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
         // 這裡重新推導的公式函式——本該完全一致，不一致代表 fixture 手誤或公式理解有誤）
         expect(Math.abs(formulaValue - slot.expected!), `${slot.name}: fixture.expected 與公式值不一致`).toBeLessThanOrEqual(1e-9);
 
+        // fixture 宣告的 lineType 也參與判定（fix wave F6）：槽位對應 tag 的線型/數量須一致
+        const ltVerdict = judgeLineType(slot, paths);
+        expect(ltVerdict.ok, `${slot.name}: lineType 宣告不符——${ltVerdict.reason ?? ''}`).toBe(true);
+
         const verdict = judgeNumericSlot(slot, generated, formulaValue);
         expect(verdict.ok, `${slot.name}: ${verdict.reason ?? ''}（生成=${generated.toFixed(4)}）`).toBe(true);
       });
@@ -357,6 +417,34 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
     it('lid y 向（platform=0，back 側）：外壁→內壁→halfcut→舌片序位正確（無平台段）', () => {
       const verdict = checkYProfileSequence(lidPaths, 'back', fixture.params.lidPlatformWidth);
       expect(verdict.ok, verdict.reason).toBe(true);
+    });
+
+    it('base y 向 front 側（F7）：序位正確——back/front 兩側皆驗，防單側正確另一側鏡射錯位', () => {
+      const verdict = checkYProfileSequence(basePaths, 'front', fixture.params.basePlatformWidth);
+      expect(verdict.ok, verdict.reason).toBe(true);
+    });
+
+    it('lid y 向 front 側（F7）：序位正確', () => {
+      const verdict = checkYProfileSequence(lidPaths, 'front', fixture.params.lidPlatformWidth);
+      expect(verdict.ok, verdict.reason).toBe(true);
+    });
+
+    it('負類（F4）：合成錯序／漏槽／錯線型的 y 向剖面應被抓到（照 checkTuckFoldLineStructure fail-case 先例）', () => {
+      const valid = syntheticYProfile();
+      expect(checkYProfileSequence(valid, 'back', 5).ok, '對照組：合成的健康剖面應 pass（否則以下 fail 全是誤報）').toBe(true);
+
+      // 錯序：舌摺線（crease＋halfcut）搬到壁頂之前（y=130 < 160.4）→ 距離序列非嚴格遞增
+      const yLine130: Segment = { kind: 'line', x1: 0, y1: 130, x2: 10, y2: 130 };
+      const misordered = valid.map((p) => (p.tags?.includes('tongueFold') ? { ...p, segments: p.segments.map(() => yLine130) } : p));
+      expect(checkYProfileSequence(misordered, 'back', 5).ok, '錯序（舌摺線插到壁頂之前）應 fail').toBe(false);
+
+      // 漏槽：整條壁頂 path 不見
+      const missing = valid.filter((p) => !p.tags?.includes('wallTop'));
+      expect(checkYProfileSequence(missing, 'back', 5).ok, '漏槽（缺壁頂）應 fail').toBe(false);
+
+      // 錯線型：壁根從 crease 變 cut（雙 crease 根的線型錯畫）
+      const wrongType = valid.map((p) => (p.tags?.includes('wallRoot') ? { ...p, type: 'cut' as LineType } : p));
+      expect(checkYProfileSequence(wrongType, 'back', 5).ok, '錯線型（壁根 crease 變 cut）應 fail').toBe(false);
     });
   });
 
@@ -403,9 +491,14 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
   });
 
   describe('防假陽性：judgeNumericSlot 對刻意錯誤值必須標記 not-ok（不能只靠肉眼驗一次）', () => {
-    it('t 無關槽：生成值偏移超過 0.05 應被抓到', () => {
+    it('t 無關槽：生成值偏移超過 0.05 應被 T_INDEPENDENT_TOL 分支抓到（F3 修正）', () => {
       const slot: SlotFixture = { name: 'base.x.panel', expected: 124, measured: 124, lineType: 'x', source: 'measured', tIndependent: true };
-      expect(judgeNumericSlot(slot, 124.2, 124).ok, '偏移 0.2 > 0.05 應 fail').toBe(false);
+      // F3 教訓：generated 必須＝formulaValue，否則 1e-6 公式閘先攔、目標分支永不執行——
+      // 那樣的測試「會綠」的原因是錯的（把 T_INDEPENDENT_TOL 改掉或刪分支照樣綠）。
+      // 這裡讓公式閘通過（124.2==124.2），偏移由 t 無關分支攔，並斷言 reason 出自該分支。
+      const v = judgeNumericSlot(slot, 124.2, 124.2);
+      expect(v.ok, '偏移 0.2 > 0.05 應 fail').toBe(false);
+      expect(v.reason, '必須由 t 無關分支攔下（非公式閘）').toContain('t 無關');
       expect(judgeNumericSlot(slot, 124.0, 124).ok, '對照組：正確值應 pass（判定器不能永遠回傳 false）').toBe(true);
     });
 
@@ -419,13 +512,18 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
       expect(judgeNumericSlot(slot, 58.9, 58.8).ok, '生成值與公式值差 0.1 > 1e-6 應 fail').toBe(false);
     });
 
-    it('corrected 槽：偏移超過 0.05 應被抓到（不得對量測放寬）', () => {
+    it('corrected 槽：偏移超過 0.05 應被 CORRECTED_TOL 分支抓到、且不得對量測放寬（F3 修正）', () => {
       const slot: SlotFixture = { name: 'lid.x.outerWall', expected: 44.6, measured: 45.0, lineType: '—', source: 'corrected', tIndependent: false };
-      expect(judgeNumericSlot(slot, 44.7, 44.6).ok, '偏移 0.1 > 0.05 應 fail').toBe(false);
-      // 刻意驗證「不得對量測放寬」：若誤把 measured 當比對基準，44.7 對 45.0 差 0.3 也會被
-      // ≤0.15 攔下——但這裡要確認就算生成值恰好等於 measured(45.0)，也必須 fail（因為
-      // corrected 槽的比對基準是修正值 expected，不是 measured）。
-      expect(judgeNumericSlot(slot, 45.0, 44.6).ok, '生成值等於量測值也應 fail（corrected 槽不對量測）').toBe(false);
+      // F3 教訓同上：generated 必須＝formulaValue 才會真正走進 corrected 分支。
+      const v1 = judgeNumericSlot(slot, 44.7, 44.7);
+      expect(v1.ok, '偏移 0.1 > 0.05 應 fail').toBe(false);
+      expect(v1.reason, '必須由 corrected 分支攔下（非公式閘）').toContain('corrected');
+      // 「不得對量測放寬」的真正驗證：生成值恰等於量測值 45.0（模擬有人把平齊修正「修」回
+      // 生產品行為——公式函式與生成一起被改成 H，公式閘因此通過），仍必須 fail：corrected
+      // 槽的比對基準是修正值 expected=44.6，不是 measured=45.0。
+      const v2 = judgeNumericSlot(slot, 45.0, 45.0);
+      expect(v2.ok, '生成值等於量測值也應 fail（corrected 槽不對量測）').toBe(false);
+      expect(v2.reason, '必須由 corrected 分支攔下').toContain('corrected');
     });
 
     it('y 向槽：公式不自洽應被抓到（即使沒有量測比對這層）', () => {
@@ -440,42 +538,63 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
       const onlyHalfcut: DielinePath[] = [{ id: 'x', type: 'halfcut', tags: ['tongueFold', 'left'], segments: [] }];
       expect(checkTuckFoldLineStructure(onlyHalfcut, 'left').ok, '缺 crease 應 fail').toBe(false);
     });
+
+    it('lineType 判定（F6）：宣告 crease×2 但幾何只有單線／宣告 cut 但 path 缺失／未知宣告字串應被抓到', () => {
+      const singleRoot: DielinePath[] = [
+        { id: 'r', type: 'crease', tags: ['wallRoot', 'back'], segments: [{ kind: 'line', x1: 0, y1: 5, x2: 9, y2: 5 }] },
+      ];
+      const gapSlot: SlotFixture = { name: 'base.y.doubleCreaseGap', expected: 0.4, measured: 0.5, lineType: 'crease×2', source: 'measured', tIndependent: false };
+      expect(judgeLineType(gapSlot, singleRoot).ok, '雙 crease 宣告 vs 單線幾何應 fail').toBe(false);
+
+      const flapSlot: SlotFixture = { name: 'base.x.tuckFlap', expected: 15, measured: 15, lineType: 'cut', source: 'measured', tIndependent: true };
+      expect(judgeLineType(flapSlot, []).ok, 'cut 宣告 vs 缺 path 應 fail').toBe(false);
+      expect(judgeLineType({ ...flapSlot, lineType: 'cutt' }, []).ok, '未知 lineType 字串應 fail（防 fixture 拼錯被靜默跳過）').toBe(false);
+
+      // 對照組：真實幾何 vs 真實 fixture 宣告的全數 pass 已由「逐槽分層比對」迴圈涵蓋，不重複
+    });
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
 // Step 6：天地盒版 param-sweep（重用 Slice 1 掃描骨架：tests/boxes/param-sweep.test.ts
 // 的 assertSafe 慣例——不判斷幾何「對不對」，只判斷「不崩潰、無 NaN、bounds 有限」這條
-// 最低限度安全網，額外疊天地盒特有的兩項：cut 無自撞、不變式全過或正確警告。
+// 最低限度安全網，額外疊天地盒特有的兩項：不變式全過或正確警告、cut 無自撞（範圍化豁免，
+// 見下）。
 //
-// 「全過或正確警告」的判準：telescope 的 7 條不變式裡，pieces-valid／pieces-identity／
+// 「全過或正確警告」的判準：telescope 的 9 條不變式裡，pieces-valid／pieces-identity／
 // rim-flush／no-nan／no-bleed／bounds-cover 這 6 條是「恆真」不變式（由生成幾何的結構
 // 保證，任何合法參數組合下都不該 not-ok，若 not-ok 代表真的有 bug）；liner-flange-fits／
-// gusset-b-fits 兩條才是「設計上的參數域邊界」，允許 not-ok（如 margin 太小、薄壁角撐壁高
-// 太矮），但警告訊息必須是非空字串（「正確警告」而非崩潰或回傳殘缺物件）。
+// gusset-b-fits／tongue-flap-fits（fix wave F1 新增）三條是「設計上的參數域邊界」，允許
+// not-ok（margin 太小、薄壁角撐壁高太矮、面板邊過短），但警告訊息必須是非空字串
+//（「正確警告」而非崩潰或回傳殘缺物件）。
 //
-// 「cut 無自撞」的例外（實測發現，見下方「已知問題」describe block）：gusset-b-fits／
-// liner-flange-fits 這兩條「參數域邊界」不變式一旦 not-ok，代表該組合本來就是文件化的
-// 退化區（薄壁角撐壁高太矮、內襯翻邊變負值）——退化區裡 cut 自撞是「已被正確警告」的
-// 後果，不是新發現的沉默 bug，此時不再額外要求 cut 乾淨。只有在兩條邊界不變式都 ok:true
-// （代表「這組參數理應是健康的」）時才嚴格要求 cut 無自撞——這樣才能讓「confuse 自撞」
-// 真正對應「不變式沒接住的沉默退化」，而不是把已知、已警告的邊界又重複標記一次。
+// cut 自撞的「範圍化豁免」（fix wave F5——取代第一版的全域豁免）：邊界不變式警告觸發時，
+// 只豁免「該警告能解釋」的 tag 範圍（tongue-flap-fits→tongueFlap、gusset-b-fits→gusset、
+// liner-flange-fits→內襯帶），其餘 cut 照驗——全域豁免會讓一個 gusset 警告遮蔽掉舌片或
+// 內襯的新自撞；範圍化才能讓豁免精確對應「已警告的已知退化」，其餘部位的自撞仍是紅燈。
 //
 // 只新增 tests/telescope-fixture.test.ts＋tests/fixtures/telescope-reference.json 兩檔的
-// 限制下，這個 describe block 只能放在本檔（不能另開 tests/boxes/telescope-param-sweep.test.ts），
-// 故獨立成本檔案尾端一個區塊，並在獨立 commit 加入。
+// 限制下（F1 例外授權動 src/boxes/telescope/index.ts），這個 describe block 放在本檔尾端。
 // ─────────────────────────────────────────────────────────────────────────
 
 const ALWAYS_OK_INVARIANTS = new Set(['pieces-valid', 'pieces-identity', 'rim-flush', 'no-nan', 'no-bleed', 'bounds-cover']);
-/** 「參數域邊界」不變式——not-ok 時代表已知、已警告的退化區，cut 自撞不再視為新問題（見上方說明）。 */
-const BOUNDARY_INVARIANTS = new Set(['gusset-b-fits', 'liner-flange-fits']);
+
+/**
+ * 「參數域邊界」不變式 → 該警告能解釋（豁免）的 cut path tag 範圍（fix wave F5）。
+ * 警告觸發時只有這些 tag 的 cut 允許自撞——tray.ts 修好對應幾何後可逐項收窄。
+ */
+const BOUNDARY_EXEMPT_TAGS: Record<string, readonly string[]> = {
+  'gusset-b-fits': ['gusset'],
+  'tongue-flap-fits': ['tongueFlap'],
+  'liner-flange-fits': ['linerFlange', 'linerWall', 'linerTab'],
+};
 
 type Overrides = Partial<Record<string, number | boolean | string>>;
 
-/** 對單一組參數斷言天地盒版安全網：不 throw、無 NaN、bounds 有限、不變式全過或正確警告；
- *  cut 無自撞只在兩條邊界不變式都 ok 時嚴格要求（見上方區塊說明）。 */
+/** 對單一組參數斷言天地盒版安全網：不 throw、無 NaN、bounds 有限、不變式全過或正確警告、
+ *  cut 無自撞（已觸發之邊界警告的對應 tag 範圍豁免，其餘照驗——見上方區塊說明）。 */
 function assertTelescopeSafe(label: string, overrides: Overrides): void {
-  it(`${label}：generate 不 throw、無 NaN、bounds 有限、不變式全過或正確警告（cut 自撞見邊界不變式）`, () => {
+  it(`${label}：generate 不 throw、無 NaN、bounds 有限、不變式全過或正確警告、cut 無自撞（豁免已警告範圍）`, () => {
     let params: ReturnType<typeof resolveParams> | undefined;
     let result: GenerateResult | undefined;
 
@@ -491,7 +610,7 @@ function assertTelescopeSafe(label: string, overrides: Overrides): void {
       expect(Number.isFinite(v), `${label}：bounds.${k} 應為有限值，實際 ${v}`).toBe(true);
     }
 
-    let boundaryFired = false;
+    const exemptTags = new Set<string>();
     for (const inv of telescope.invariants) {
       let outcome: ReturnType<typeof inv.check> | undefined;
       expect(() => {
@@ -503,33 +622,37 @@ function assertTelescopeSafe(label: string, overrides: Overrides): void {
       } else if (!outcome!.ok) {
         expect(typeof outcome!.message.zh, `${label}：${inv.id} 警告需帶 message.zh 字串`).toBe('string');
         expect(outcome!.message.zh.length, `${label}：${inv.id} 警告訊息不可為空字串`).toBeGreaterThan(0);
-        if (BOUNDARY_INVARIANTS.has(inv.id)) boundaryFired = true;
+        for (const tag of BOUNDARY_EXEMPT_TAGS[inv.id] ?? []) exemptTags.add(tag);
       }
     }
 
-    if (!boundaryFired) {
-      const cutSegs = result!.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
-      expect(hasSelfIntersection(cutSegs), `${label}：cut 不應自撞（無邊界不變式警告，理應是健康幾何）`).toBe(false);
-    }
+    // cut 自撞恆驗（F5）：只扣掉「已觸發警告能解釋」的 tag 範圍，其餘 cut 一律要乾淨
+    const nonExemptCutSegs = result!.paths
+      .filter((p) => p.type === 'cut' && !p.tags?.some((t) => exemptTags.has(t)))
+      .flatMap((p) => p.segments);
+    expect(
+      hasSelfIntersection(nonExemptCutSegs),
+      `${label}：cut 不應自撞（已扣除被邊界警告豁免的範圍：${[...exemptTags].join('、') || '無'}）`,
+    ).toBe(false);
   });
 }
 
 describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描骨架）', () => {
+  it('不變式分類完備：每條不變式都被歸入「恆真」或「邊界豁免表」（新增不變式時必須更新分類）', () => {
+    // 沒有這條 guard，新不變式會默默走進 else 分支被當成邊界類（警告不豁免任何範圍），
+    // 上方註解的「9 條＝6 恆真＋3 邊界」也會無聲過期——結構性釘住分類完備性。
+    const classified = new Set([...ALWAYS_OK_INVARIANTS, ...Object.keys(BOUNDARY_EXEMPT_TAGS)]);
+    expect(telescope.invariants.map((i) => i.id).sort()).toEqual([...classified].sort());
+  });
+
   describe('單一 mm 參數 min/max（其餘維持預設，同 RTE tier 1）', () => {
-    // baseLength/baseWidth 的宣告 min=30 落在下方「已知問題」的 tongueFlap 自撞退化區
-    // （perpHalf=15<16.5 門檻，見下方 describe block 的精確推導與二分搜尋驗證）——那條
-    // 退化路徑目前沒有任何不變式接住（不像 gusset-b-fits/liner-flange-fits 有警告），
-    // 是本次 sweep 挖到的沉默 bug，不在本輪 對帳範圍內（src/ 不得動）。這裡「跳過真正
-    // min」不是要藏起來——下面的「已知問題」block 會用真正的 min=30 明確斷言 bug 現狀，
-    // 讓它變成被追蹤的已知缺口而非靜默消失；一般安全網掃描則改用safely-above-threshold
-    // 的 40（見該 block 的門檻推導），繼續驗證「低值但非已知退化區」的行為。
+    // baseLength/baseWidth 的宣告 min=30 落在 tongueFlap 反轉退化區（perpHalf=15<16.5），
+    // F1 之後由 tongue-flap-fits 不變式正確警告、F5 的範圍化豁免接住舌片自撞——
+    // 掃描因此可以直接用真正的宣告 min（fix wave F2：測試期待的是「有正確警告」，
+    // 不是「壞幾何存在」或跳過參數點）。
     for (const p of telescope.params) {
       if (p.unit !== 'mm') continue;
-      if (p.key === 'baseLength' || p.key === 'baseWidth') {
-        assertTelescopeSafe(`${p.key}=40（非宣告 min=30——真正 min 見下方已知問題 block）`, { [p.key]: 40 });
-      } else if (p.min !== undefined) {
-        assertTelescopeSafe(`${p.key}=min(${p.min})`, { [p.key]: p.min });
-      }
+      if (p.min !== undefined) assertTelescopeSafe(`${p.key}=min(${p.min})`, { [p.key]: p.min });
       if (p.max !== undefined) assertTelescopeSafe(`${p.key}=max(${p.max})`, { [p.key]: p.max });
     }
   });
@@ -569,12 +692,12 @@ describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描
   });
 
   describe('全域極端組合（同 RTE「全部參數同時取 min/max」慣例）', () => {
-    // baseLength/baseWidth 用 40（非宣告 min=30）：理由同上——真正 min 落在已知的
-    // tongueFlap 自撞退化區，這裡驗證的是「其餘參數同時極端」的交互作用，不是重複
-    // 撞同一個已知缺口。
-    assertTelescopeSafe('全部關鍵參數同時取 min（baseLength/baseWidth 用 40，見上方說明）', {
-      baseLength: 40,
-      baseWidth: 40,
+    // 全部用真正的宣告 min（F2 revert）：baseLength/baseWidth=30 會觸發 tongue-flap-fits、
+    // 壁高 10＋薄壁觸發 gusset-b-fits、margin=1 觸發 liner-flange-fits——三條邊界警告
+    // 各自豁免自己的 tag 範圍，其餘 cut 照驗（F5）。
+    assertTelescopeSafe('全部關鍵參數同時取 min', {
+      baseLength: 30,
+      baseWidth: 30,
       baseHeight: 10,
       lidMargin: 1,
       lidHeight: 10,
@@ -594,8 +717,8 @@ describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描
       thickness: 0.8,
       linerFitGap: 2,
     });
-    assertTelescopeSafe('大長寬比面板（baseLength=max, baseWidth=40，見上方說明）', { baseLength: 600, baseWidth: 40 });
-    assertTelescopeSafe('大長寬比面板反向（baseLength=40, baseWidth=max，見上方說明）', { baseLength: 40, baseWidth: 600 });
+    assertTelescopeSafe('大長寬比面板（baseLength=max, baseWidth=min）', { baseLength: 600, baseWidth: 30 });
+    assertTelescopeSafe('大長寬比面板反向（baseLength=min, baseWidth=max）', { baseLength: 30, baseWidth: 600 });
     assertTelescopeSafe('linerEnabled=false + 壁高極端（不對稱 tall/short＋薄壁）', {
       linerEnabled: false,
       baseHeight: 200,
@@ -606,47 +729,55 @@ describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// 已知問題（Step 6 param-sweep 挖到，出了具名槽位對帳的範圍；src/ 依 task 限制不得動，
-// 回報而非硬調——見 開發紀錄 concerns）。
+// tongue-flap-fits 邊界行為（fix wave F1/F2——原「已知問題」block 改寫）。
 //
-// tray.ts 的 buildTongueFlap 用兩個固定常數（TONGUE_END_RECESS=9、
-// TUCK_FLAP_SHALLOW_DEPTH=7.5）鉗制插底舌兩端的讓位，但沒有對「牆的垂直半跨
-// （perpHalf＝對向牆的半跨距）是否容得下這兩個常數」做防禦——當 perpHalf < 16.5
-// （＝TONGUE_END_RECESS+TUCK_FLAP_SHALLOW_DEPTH）時，梯形的兩個「全深」端點
-// （p3/p4，見 tray.ts buildTongueFlap 內的 perpB/perpC）順序反轉，插底舌 cut 從
-// 六邊形退化成自我交叉的蝴蝶結。二分搜尋確認門檻精確在 perpHalf=16.5（baseLength/
-// baseWidth＝33）：32 仍自撞、33 起乾淨。
-//
-// 這條路徑目前沒有任何不變式攔截（不像 gusset-b-fits／liner-flange-fits 有警告
-// 訊息），且可在宣告的合法參數範圍內觸發（baseLength/baseWidth 宣告 min=30，
-// 15 < 16.5——宣告下界本身就在退化區內；baseWidth 過大＋lidMargin 過小的組合也
-// 能從 lid 側觸發同一條路徑）。建議後續開一個新不變式（如比照 gusset-b-fits 的
-// 「tongue-flap-fits」）在 perpHalf 過窄時警告，而不是靜默產出自撞幾何。
-//
-// 下面用真正的宣告 min（30）明確斷言 bug 現狀，讓這個缺口留下追蹤——若未來 tray.ts
-// 修好這條路徑，這裡會變紅，屆時應改寫本 describe block（而不是被悄悄遺忘）。
+// T5 param-sweep 挖出 tray.ts buildTongueFlap 在 perpHalf<16.5mm（TONGUE_END_RECESS＋
+// TUCK_FLAP_SHALLOW_DEPTH，門檻代數推導見 index.ts MIN_TONGUE_PERP_HALF 的註解）時
+// 插底舌梯形反轉自撞；F1 依 gusset-b-fits 先例補了參數公式型警告不變式（只加不變式、
+// 不動幾何）。本 block 驗證「警告正確觸發」——測試期待的是有正確警告，不是壞幾何存在；
+// 幾何本身仍自撞的現狀記為該警告的豁免案例（見最後一個 it）——若未來 tray.ts 修好
+// 幾何，該 it 變紅，屆時應移除豁免案例、並考慮收窄 BOUNDARY_EXEMPT_TAGS 的 tongueFlap 項。
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('已知問題（tongueFlap 自撞，src/ 未觸碰、留待後續 task 修——見 開發紀錄）', () => {
-  it('baseLength=30（宣告 min）：base 片 x 向兩側 tongueFlap 已知自撞（未被任何不變式攔截）', () => {
+describe('telescope: tongue-flap-fits 邊界行為（F1 警告不變式）', () => {
+  const inv = () => telescope.invariants.find((i) => i.id === 'tongue-flap-fits')!;
+
+  it('baseLength=30（宣告 min）：警告觸發、訊息含最小安全邊長提示（2×16.5=33）、tags 指向 baseLength', () => {
     const params = resolveParams(telescope, { baseLength: 30 });
-    const result = telescope.generate(params);
-    const piece = result.pieces!.find((p) => p.id === 'base')!;
-    const cutSegs = result.paths.filter((p) => piece.pathIds.includes(p.id) && p.type === 'cut').flatMap((p) => p.segments);
-    expect(hasSelfIntersection(cutSegs), '已知 bug：perpHalf=15<16.5 門檻，tongueFlap 梯形反轉自撞').toBe(true);
-    for (const inv of telescope.invariants) {
-      expect(inv.check(params, result), `已知 bug：目前無不變式攔截此路徑（${inv.id} 不應標記它）`).toMatchObject({ ok: true });
+    const outcome = inv().check(params, telescope.generate(params));
+    expect(outcome.ok, '30 < 33 應警告').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.message.zh, '警告訊息應含最小安全邊長提示').toContain(`${2 * MIN_TONGUE_PERP_HALF}`);
+      expect(outcome.tags, '應指向可調的參數').toContain('baseLength');
     }
   });
 
-  it('baseLength=33（門檻邊界）乾淨、32 仍自撞——二分搜尋確認精確門檻＝perpHalf 16.5mm', () => {
-    const clean = telescope.generate(resolveParams(telescope, { baseLength: 33 }));
-    const broken = telescope.generate(resolveParams(telescope, { baseLength: 32 }));
-    const cutOf = (r: GenerateResult) => {
-      const piece = r.pieces!.find((p) => p.id === 'base')!;
-      return r.paths.filter((p) => piece.pathIds.includes(p.id) && p.type === 'cut').flatMap((p) => p.segments);
-    };
-    expect(hasSelfIntersection(cutOf(clean)), 'baseLength=33（perpHalf=16.5）應乾淨').toBe(false);
-    expect(hasSelfIntersection(cutOf(broken)), 'baseLength=32（perpHalf=16）應仍自撞').toBe(true);
+  it('baseWidth 側同樣把關（前後壁的舌片沿 baseWidth 邊分佈）', () => {
+    const params = resolveParams(telescope, { baseWidth: 30 });
+    const outcome = inv().check(params, telescope.generate(params));
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.tags).toContain('baseWidth');
+  });
+
+  it('門檻邊界（獨立二分搜尋錨）：baseLength=33 不警告且 base 片 cut 幾何乾淨；32 警告', () => {
+    const at33 = resolveParams(telescope, { baseLength: 33 });
+    const r33 = telescope.generate(at33);
+    expect(inv().check(at33, r33), '33＝2×MIN_TONGUE_PERP_HALF 恰在門檻上，不警告').toMatchObject({ ok: true });
+    const piece33 = r33.pieces!.find((p) => p.id === 'base')!;
+    const cut33 = r33.paths.filter((p) => piece33.pathIds.includes(p.id) && p.type === 'cut').flatMap((p) => p.segments);
+    expect(hasSelfIntersection(cut33), 'baseLength=33（perpHalf=16.5）幾何應乾淨').toBe(false);
+
+    const at32 = resolveParams(telescope, { baseLength: 32 });
+    expect(inv().check(at32, telescope.generate(at32)), '32 < 33 應警告').toMatchObject({ ok: false });
+  });
+
+  it('豁免案例現狀記錄：baseLength=30 時 base 片 tongueFlap cut 仍自撞（已被 F1 警告涵蓋；tray.ts 修好幾何時本 it 變紅→移除豁免）', () => {
+    const params = resolveParams(telescope, { baseLength: 30 });
+    const result = telescope.generate(params);
+    const piece = result.pieces!.find((p) => p.id === 'base')!;
+    const flapSegs = result.paths
+      .filter((p) => piece.pathIds.includes(p.id) && p.type === 'cut' && p.tags?.includes('tongueFlap'))
+      .flatMap((p) => p.segments);
+    expect(hasSelfIntersection(flapSegs), '幾何現狀：警告觸發下舌片仍自撞（BOUNDARY_EXEMPT_TAGS 豁免的正當性依據）').toBe(true);
   });
 });
