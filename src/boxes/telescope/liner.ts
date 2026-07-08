@@ -1,17 +1,18 @@
 /**
- * 天地盒內襯圍框——L 形斷面落地圍框的帶狀攤平幾何（Slice 2 Task 4）。
+ * 天地盒內襯——平台式腳架墊片幾何（Slice 2 Task 4；2026-07-09 T7 樣張 gate 反饋重定義）。
  *
- * 構造參照（唯讀、只借拓撲不借數值）：coding-workspace 工作目錄
- * `feature/2026/07/07-open-dieline/gen_liner.py`（原檔遺失後的重建腳本）——
- * tab｜長壁｜短壁｜長壁｜短壁 交替的攤平帶，每段壁頂向上翻邊（45° 梯形讓位）。
- * 本檔的 frameL/frameW/flange 由 spec §4.2 導出鏈公式重新推導（等邊 lidMargin
- * 假設下兩方向翻邊相同，見 deriveLinerFrame），不是抄 gen_liner.py 的常數。
+ * **重定義背景**：維護者實際操作樣張後裁決，原本的「L 形斷面落地圍框」（帶狀攤平＋翻邊＋
+ * 黏合 tab，錨定上蓋內淨）是實際不會用的版本。正確形式（定案）：
+ * - 底面錨定＝**下盒內淨**（不是上蓋內淨）——內襯放進下盒貼底，物品放內襯上被墊高
+ * - 四翼向下摺＝腳架（平台式）——翼深＝架高量，新參數 `linerFlapDepth`
+ * - 四邊同深、單一參數（不分長短壁）
+ * - 免膠、無 tab（四角天然讓位，翼互不重疊）
  *
- * tab 45° 斜切：gen_liner.py 原始座標（tip 落在 x=5）代入其 TAB=15 反而量不出
- * 45°（dx=10,dy=5，26.57°非 45°）——與其自身註解「45° 斜切 5mm」矛盾，判斷是
- * 重建腳本的手誤（此腳本本身就是「原檔遺失後的重建」，非生產 ground truth）。
- * 本檔改採真 45°（dx=dy=GLUE_CHAMFER）以符合 spec 明文的「45°」與「GLUE_CHAMFER」
- * 語意，tip 因此內縮到 TAB−GLUE_CHAMFER（見 generateLiner 內註解）。
+ * 幾何＝「十字／加號攤平」：中央矩形底面（crease 周界）＋四邊各一個梯形翼（cut，45°
+ * 內斜兩端），四角因兩相鄰翼的斜切共線而自然清出讓位缺口——不需要額外構造。
+ *
+ * 舊圍框版（帶狀攤平＋tab＋翻邊）已作廢，相關常數／函式全部移除，不做相容 shim
+ * （spec §4.2 已同步改寫，見 docs/specs/2026-07-07-open-dieline-v1-design.md）。
  *
  * 純 TS 模組，不 import React 或任何 UI。座標單位一律 mm。
  */
@@ -19,24 +20,15 @@
 import type { Bounds, Segment } from '@/core/geometry';
 import { segmentsBounds } from '@/core/geometry';
 import { PathBuilder } from '@/core/path';
-import { GLUE_CHAMFER, dimensionLine } from '@/core/primitives';
+import { dimensionLine } from '@/core/primitives';
 import type { DielinePath, DielineText, LineType } from '@/core/types';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 具名常數
 // ─────────────────────────────────────────────────────────────────────────
 
-/** 黏合 tab 深度（照量測／spec 明列，非 thickness 的函式）。 */
-const LINER_TAB = 15;
-
-/**
- * 內襯翻邊最小可用寬度——小於此值時 flange 已窄到難以穩定黏貼／卡入下盒外壁，
- * `liner-flange-fits` 不變式（index.ts）以此為警告門檻（spec §4.2）。
- */
-export const MIN_FLANGE = 5;
-
-/** 標註線與量測點的安全外推距離——見 index.ts 同名常數的完整推導註解（primitives.dimensionLine
- * 的文字錨點相對量測點有固定位移，需 offset 夠大文字才不會跑到路徑包絡外）。 */
+/** 標註線與量測點的安全外推距離（同 tray.ts/index.ts 同名常數的推導：offset 太小文字會
+ *  跑到路徑包絡外，讓 pieces.ts 的 piece-bounds-mismatch 誤判）。 */
 const DIM_OFFSET = 8;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -46,34 +38,32 @@ const DIM_OFFSET = 8;
 export interface LinerFrameInputs {
   baseLength: number;
   baseWidth: number;
-  lidMargin: number;
   thickness: number;
   fitGap: number;
 }
 
 export interface LinerFrame {
-  /** 圍框外圍，對應 baseLength 軸（spec 導出鏈的「長壁」）。 */
-  frameL: number;
-  /** 圍框外圍，對應 baseWidth 軸（spec 導出鏈的「短壁」）。 */
-  frameW: number;
-  /** 翻邊寬（兩方向共用同一值，等邊 lidMargin 下代數化簡的結果）。 */
-  flange: number;
+  /** 底面長邊（對應 baseLength 軸）。 */
+  padL: number;
+  /** 底面短邊（對應 baseWidth 軸）。 */
+  padW: number;
 }
 
 /**
- * 內襯導出鏈（spec §4.2；spec 逐字公式）——由上蓋/下盒的套合幾何反推，無獨立尺寸參數：
- * 圍框外圍＝上蓋內淨−2×fitGap（扣一次，對上蓋側）；翻邊寬代數化簡後＝
- * lidMargin−4t−2×fitGap（内含對下盒側的第二次扣）。
+ * 內襯導出鏈（2026-07-09 T7 gate 重定義；spec 逐字公式）——底面錨定＝下盒內淨，
+ * 無獨立尺寸參數：
+ *   baseInnerL = baseLength − 4t（下盒內淨：雙壁，外壁 t＋內壁 t 每側）
+ *   baseInnerW = baseWidth − 4t
+ *   padL = baseInnerL − 2×fitGap（底面，四邊留一次套合間隙）
+ *   padW = baseInnerW − 2×fitGap
+ * 不再吃 lidMargin——舊版「翻邊寬＝lidMargin−4t−2×fitGap」的上蓋錨定已作廢。
  */
 export function deriveLinerFrame(p: LinerFrameInputs): LinerFrame {
-  const lidPanelL = p.baseLength + 2 * p.lidMargin;
-  const lidPanelW = p.baseWidth + 2 * p.lidMargin;
-  const lidInnerL = lidPanelL - 4 * p.thickness;
-  const lidInnerW = lidPanelW - 4 * p.thickness;
-  const frameL = lidInnerL - 2 * p.fitGap;
-  const frameW = lidInnerW - 2 * p.fitGap;
-  const flange = p.lidMargin - 4 * p.thickness - 2 * p.fitGap;
-  return { frameL, frameW, flange };
+  const baseInnerL = p.baseLength - 4 * p.thickness;
+  const baseInnerW = p.baseWidth - 4 * p.thickness;
+  const padL = baseInnerL - 2 * p.fitGap;
+  const padW = baseInnerW - 2 * p.fitGap;
+  return { padL, padW };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -81,8 +71,8 @@ export function deriveLinerFrame(p: LinerFrameInputs): LinerFrame {
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface LinerOpts extends LinerFrameInputs {
-  /** 圍框壁高＝baseHeight（頂緣與下盒盒口齊平，見 spec §4.2 導出鏈）。 */
-  baseHeight: number;
+  /** 腳架深度（架高量）——四邊共用同一值（定案：單一參數，不分長短壁）。 */
+  flapDepth: number;
   idPrefix: string;
   offsetX: number;
   offsetY: number;
@@ -117,120 +107,101 @@ function translateSegments(segs: Segment[], dx: number, dy: number): Segment[] {
   });
 }
 
-/** 四段壁的寬度序（spec：長壁｜短壁｜長壁｜短壁 交替，對應 frameL/frameW）。 */
-function wallSegments(frame: LinerFrame): Array<{ width: number; tag: string }> {
-  return [
-    { width: frame.frameL, tag: 'long' },
-    { width: frame.frameW, tag: 'short' },
-    { width: frame.frameL, tag: 'long' },
-    { width: frame.frameW, tag: 'short' },
-  ];
+type Axis = 'x' | 'y';
+type Sign = 1 | -1;
+type Point = { x: number; y: number };
+
+/**
+ * 局部座標映射（沿用 tray.ts 的 along/perp 慣例）：axis='x' 的邊垂直於 x 軸（左右邊，
+ * 沿 y 方向延伸）——along→x（根／翼深方向）、perp→y（沿邊長度方向）。axis='y' 的邊
+ * 垂直於 y 軸（上下邊，沿 x 方向延伸）——along→y、perp→x。底面以局部原點為中心。
+ */
+function toXY(axis: Axis, along: number, perp: number): Point {
+  return axis === 'x' ? { x: along, y: perp } : { x: perp, y: along };
 }
 
 /**
- * 黏合 tab（梯形，cut+根部 crease）：root 於 x=LINER_TAB（全高 crease，與第一段壁相接的摺線），
- * tip 內縮至 x=LINER_TAB−GLUE_CHAMFER、45° 斜切讓 tip 的平邊比 root 短 2×GLUE_CHAMFER
- * （上下各切掉一個 GLUE_CHAMFER×GLUE_CHAMFER 直角三角形，非 gen_liner.py 的不對稱斜率）。
+ * 底面一邊＋其翼的 crease／cut 描述：
+ * - crease（底面周界，根部＝該邊全長）：從 (rootAlong, −lenHalf) 到 (rootAlong, +lenHalf)。
+ * - cut（翼片輪廓，斜切→外緣→斜切）：根部兩端點沿 45° 內斜 flapDepth，外緣＝該邊全長
+ *   −2×flapDepth。四角因相鄰兩翼的斜切共線（同一條 45° 直線通過底面角點）而自然讓位，
+ *   不需要另外的讓位構造——這是梯形公式本身的幾何推論，非額外設計。
+ *
+ * `flapDepth` 不鉗制（不同 tray.ts buildTongueFold 的 recess 防禦性 clamp）：翼深超過
+ * 邊長一半時外緣會反轉（自撞），比照 gusset-b-fits／tongue-flap-fits 的既有慣例——
+ * 用 `liner-flap-fits` 不變式警告＋範圍化豁免接住，不在幾何層silently 鉗制掉使用者設定值
+ * （見 index.ts 的 liner-flap-fits 條件 3）。
  */
-function buildTab(yFold: number, yBot: number): PathDescriptor[] {
-  const tipX = LINER_TAB - GLUE_CHAMFER;
-  const cut = new PathBuilder()
-    .moveTo(LINER_TAB, yFold)
-    .lineTo(tipX, yFold + GLUE_CHAMFER)
-    .lineTo(tipX, yBot - GLUE_CHAMFER)
-    .lineTo(LINER_TAB, yBot)
-    .segments();
-  const crease = new PathBuilder().moveTo(LINER_TAB, yFold).lineTo(LINER_TAB, yBot).segments();
+function buildPadEdgeAndFlap(axis: Axis, sign: Sign, side: string, rootHalf: number, lenHalf: number, flapDepth: number): PathDescriptor[] {
+  const rootAlong = sign * rootHalf;
+  const tipAlong = sign * (rootHalf + flapDepth);
+
+  const p1 = toXY(axis, rootAlong, -lenHalf);
+  const p2 = toXY(axis, rootAlong, lenHalf);
+  const crease = new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).segments();
+
+  const outerA = toXY(axis, tipAlong, -lenHalf + flapDepth);
+  const outerB = toXY(axis, tipAlong, lenHalf - flapDepth);
+  const cut = new PathBuilder().moveTo(p1.x, p1.y).lineTo(outerA.x, outerA.y).lineTo(outerB.x, outerB.y).lineTo(p2.x, p2.y).segments();
+
   return [
-    { type: 'cut', tags: ['linerTab'], segments: cut },
-    { type: 'crease', tags: ['linerTab', 'root'], segments: crease },
+    { type: 'crease', tags: ['linerPad', side], segments: crease },
+    { type: 'cut', tags: ['linerFlap', side], segments: cut },
   ];
 }
 
-/** 壁帶底邊（tab 根到右端，一條連續 cut）＋右端封邊（最後一段壁的外緣，與 tab 隔著整條壁帶相黏成環）。 */
-function buildBottomAndSeal(totalWidth: number, yFold: number, yBot: number): PathDescriptor[] {
-  const bottom = new PathBuilder().moveTo(LINER_TAB, yBot).lineTo(totalWidth, yBot).segments();
-  const seal = new PathBuilder().moveTo(totalWidth, yBot).lineTo(totalWidth, yFold).segments();
-  return [
-    { type: 'cut', tags: ['linerWall', 'bottom'], segments: bottom },
-    { type: 'cut', tags: ['linerWall', 'end'], segments: seal },
-  ];
-}
-
-/**
- * 四段壁的摺線與翻邊梯形：壁-壁摺線（除最後一段——右緣是外緣 cut，留給黏合，非摺線）、
- * 壁-翻邊摺線、翻邊梯形輪廓 cut（45° 讓位，高度＝flange，等邊 margin 下四段共用同一值）。
- */
-function buildWallsAndFlanges(frame: LinerFrame, yFold: number, yBot: number): PathDescriptor[] {
-  const descriptors: PathDescriptor[] = [];
-  const segs = wallSegments(frame);
-  const yTop = yFold - frame.flange;
-  let x = LINER_TAB;
-  for (let i = 0; i < segs.length; i++) {
-    const { width, tag } = segs[i]!;
-    const x2 = x + width;
-    if (i < segs.length - 1) {
-      descriptors.push({
-        type: 'crease',
-        tags: ['linerWall', tag, 'fold'],
-        segments: new PathBuilder().moveTo(x2, yFold).lineTo(x2, yBot).segments(),
-      });
-    }
-    descriptors.push({
-      type: 'crease',
-      tags: ['linerFlange', tag, 'fold'],
-      segments: new PathBuilder().moveTo(x, yFold).lineTo(x2, yFold).segments(),
-    });
-    descriptors.push({
-      type: 'cut',
-      tags: ['linerFlange', tag],
-      segments: new PathBuilder()
-        .moveTo(x, yFold)
-        .lineTo(x + frame.flange, yTop)
-        .lineTo(x2 - frame.flange, yTop)
-        .lineTo(x2, yFold)
-        .segments(),
-    });
-    x = x2;
-  }
-  return descriptors;
-}
-
-/** 帶長／壁高兩條尺寸標註（spec：liner 標「帶長＋壁高」）；offset 皆用正值外推，見 DIM_OFFSET 註解。 */
-function buildDimensions(totalWidth: number, wallH: number, yFold: number, yBot: number): { descriptors: PathDescriptor[]; texts: Omit<DielineText, 'id'>[] } {
+/** 底面＋翼深兩條尺寸標註（spec：標「底面 padL×padW＋翼深」）；offset 皆外推，見 DIM_OFFSET 註解。 */
+function buildDimensions(padL: number, padW: number, flapDepth: number): { descriptors: PathDescriptor[]; texts: Omit<DielineText, 'id'>[] } {
+  const hl = padL / 2;
+  const hw = padW / 2;
+  const rightX = hw + flapDepth;
+  const bottomY = -(hl + flapDepth);
   const descriptors: PathDescriptor[] = [];
   const texts: Omit<DielineText, 'id'>[] = [];
 
-  const lenDim = dimensionLine(LINER_TAB, yBot, totalWidth, yBot, `${(totalWidth - LINER_TAB).toFixed(1)}mm`, DIM_OFFSET, 'h');
-  descriptors.push({ type: 'dimension', tags: ['linerLen'], segments: lenDim.paths });
-  texts.push({ x: lenDim.text.x, y: lenDim.text.y, text: lenDim.text.text, rotation: lenDim.text.rotation, fontSize: 3, anchor: 'middle' });
+  const padWDim = dimensionLine(-hw, bottomY, hw, bottomY, `${padW.toFixed(1)}mm`, -DIM_OFFSET, 'h');
+  descriptors.push({ type: 'dimension', tags: ['linerPad'], segments: padWDim.paths });
+  texts.push({ x: padWDim.text.x, y: padWDim.text.y, text: padWDim.text.text, rotation: padWDim.text.rotation, fontSize: 3, anchor: 'middle' });
 
-  const heightDim = dimensionLine(totalWidth, yFold, totalWidth, yBot, `${wallH.toFixed(1)}mm`, DIM_OFFSET, 'v');
-  descriptors.push({ type: 'dimension', tags: ['linerHeight'], segments: heightDim.paths });
-  texts.push({ x: heightDim.text.x, y: heightDim.text.y, text: heightDim.text.text, rotation: heightDim.text.rotation, fontSize: 3, anchor: 'start' });
+  const padLDim = dimensionLine(rightX, -hl, rightX, hl, `${padL.toFixed(1)}mm`, DIM_OFFSET, 'v');
+  descriptors.push({ type: 'dimension', tags: ['linerPad'], segments: padLDim.paths });
+  texts.push({ x: padLDim.text.x, y: padLDim.text.y, text: padLDim.text.text, rotation: padLDim.text.rotation, fontSize: 3, anchor: 'start' });
+
+  const flapDim = dimensionLine(rightX, hl, rightX, hl + flapDepth, `${flapDepth.toFixed(1)}mm`, DIM_OFFSET * 2, 'v');
+  descriptors.push({ type: 'dimension', tags: ['linerFlap'], segments: flapDim.paths });
+  texts.push({ x: flapDim.text.x, y: flapDim.text.y, text: flapDim.text.text, rotation: flapDim.text.rotation, fontSize: 3, anchor: 'start' });
 
   return { descriptors, texts };
 }
 
+/** 四邊描述（各自的 axis/sign/side/rootHalf/lenHalf）：底面以局部原點為中心，四邊鏡射對稱。 */
+function padEdges(padL: number, padW: number): Array<{ axis: Axis; sign: Sign; side: string; rootHalf: number; lenHalf: number }> {
+  const hl = padL / 2;
+  const hw = padW / 2;
+  return [
+    { axis: 'x', sign: -1, side: 'left', rootHalf: hw, lenHalf: hl },
+    { axis: 'x', sign: 1, side: 'right', rootHalf: hw, lenHalf: hl },
+    { axis: 'y', sign: -1, side: 'bottom', rootHalf: hl, lenHalf: hw },
+    { axis: 'y', sign: 1, side: 'top', rootHalf: hl, lenHalf: hw },
+  ];
+}
+
 /**
- * 內襯圍框攤平帶生成——局部座標原點＝tab 根左上角外緣（非置中），y 向下為壁帶方向
- * （沿用 gen_liner.py 的構造慣例，純視覺方向不影響正確性）。
+ * 內襯平台式腳架墊片生成——局部座標原點＝底面中心（四邊鏡射對稱，沿用 tray.ts 的
+ * along/perp 慣例）。四片翼向外摺（架高 flapDepth），四角因相鄰翼斜切共線自然讓位。
  */
 export function generateLiner(opts: LinerOpts): { paths: DielinePath[]; texts: DielineText[]; bounds: Bounds } {
   const frame = deriveLinerFrame(opts);
-  const wallH = opts.baseHeight;
-  const yFold = frame.flange;
-  const yBot = frame.flange + wallH;
-  const totalWidth = LINER_TAB + wallSegments(frame).reduce((sum, s) => sum + s.width, 0);
+  const { padL, padW } = frame;
+  const flapDepth = opts.flapDepth;
 
-  const { descriptors: dimDescriptors, texts: dimTexts } = buildDimensions(totalWidth, wallH, yFold, yBot);
+  const descriptors: PathDescriptor[] = [];
+  for (const edge of padEdges(padL, padW)) {
+    descriptors.push(...buildPadEdgeAndFlap(edge.axis, edge.sign, edge.side, edge.rootHalf, edge.lenHalf, flapDepth));
+  }
 
-  const descriptors: PathDescriptor[] = [
-    ...buildTab(yFold, yBot),
-    ...buildBottomAndSeal(totalWidth, yFold, yBot),
-    ...buildWallsAndFlanges(frame, yFold, yBot),
-    ...dimDescriptors,
-  ];
+  const { descriptors: dimDescriptors, texts: dimTexts } = buildDimensions(padL, padW, flapDepth);
+  descriptors.push(...dimDescriptors);
 
   const paths: DielinePath[] = descriptors
     .filter((d) => d.segments.length > 0)

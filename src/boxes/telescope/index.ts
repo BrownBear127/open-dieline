@@ -1,6 +1,7 @@
 /**
- * 天地盒（Telescope）BoxModule 組裝——上蓋＋下盒（`tray.ts`，T3）＋內襯圍框
- * （`liner.ts`）三件套，pieces 分組（spec §4.2／§3.3）。
+ * 天地盒（Telescope）BoxModule 組裝——上蓋＋下盒（`tray.ts`，T3）＋內襯墊片
+ * （`liner.ts`；2026-07-09 T7 gate 反饋重定義為平台式腳架，見該檔檔頭）三件套，
+ * pieces 分組（spec §4.2／§3.3）。
  *
  * 版面（spec 明列）：lid 左、base 右（照生產版慣例）、liner 橫放下方，PIECE_GAP 分隔。
  * 每片用「量測 offset=0 的 bounds → 算出讓 bounds.min{X,Y} 落在目標點的位移 → 用該位移
@@ -26,7 +27,7 @@ import type {
   ResolvedParams,
 } from '@/core/types';
 import { generateTray } from '@/boxes/telescope/tray';
-import { deriveLinerFrame, generateLiner, MIN_FLANGE } from '@/boxes/telescope/liner';
+import { deriveLinerFrame, generateLiner } from '@/boxes/telescope/liner';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 具名常數
@@ -61,7 +62,7 @@ const params: BoxParamDef[] = [
     step: 0.5,
     group: { zh: '尺寸' },
     description: {
-      zh: '下盒主面板長邊尺寸（製造尺寸，與生產刀模直接對帳）；同時決定上蓋面板長邊（＋2×上蓋放大量）與內襯圍框長壁的套合基準。',
+      zh: '下盒主面板長邊尺寸（製造尺寸，與生產刀模直接對帳）；同時決定上蓋面板長邊（＋2×上蓋放大量）與內襯墊片底面長邊的套合基準（內襯現在錨定下盒內淨，見 linerFitGap）。',
     },
     highlightTags: ['baseLength'],
   },
@@ -75,7 +76,7 @@ const params: BoxParamDef[] = [
     step: 0.5,
     group: { zh: '尺寸' },
     description: {
-      zh: '下盒主面板短邊尺寸；同時決定上蓋面板短邊（＋2×上蓋放大量）與內襯圍框短壁的套合基準。',
+      zh: '下盒主面板短邊尺寸；同時決定上蓋面板短邊（＋2×上蓋放大量）與內襯墊片底面短邊的套合基準。',
     },
     highlightTags: ['baseWidth'],
   },
@@ -89,7 +90,7 @@ const params: BoxParamDef[] = [
     step: 0.5,
     group: { zh: '尺寸' },
     description: {
-      zh: '下盒後摺壁的名義全高；先摺壁自動再減一個紙厚做「頂緣平齊」修正，讓四片牆摺起後頂緣切齊。內襯圍框壁高與此共用同一個值，圍框頂緣因此與下盒盒口齊平。',
+      zh: '下盒後摺壁的名義全高；先摺壁自動再減一個紙厚做「頂緣平齊」修正，讓四片牆摺起後頂緣切齊。內襯墊片的腳架深度（linerFlapDepth）不得超過此值，否則內襯會頂出盒口（見 liner-flap-fits 警告）。',
     },
     highlightTags: ['baseHeight'],
   },
@@ -103,7 +104,7 @@ const params: BoxParamDef[] = [
     step: 0.1,
     group: { zh: '套合' },
     description: {
-      zh: '上蓋面板相對下盒面板的等邊放大量——長寬同時各加 2×此值，決定上蓋能套住下盒多深。同時是內襯翻邊寬度的主要來源：太小會讓翻邊窄到放不下內襯（見 liner-flange-fits 警告）。',
+      zh: '上蓋面板相對下盒面板的等邊放大量——長寬同時各加 2×此值，決定上蓋能套住下盒多深。（2026-07-09 T7 gate 重定義：內襯不再錨定上蓋，此參數與內襯幾何無關——見 linerFlapDepth。）',
     },
     highlightTags: ['lidMargin'],
   },
@@ -163,14 +164,14 @@ const params: BoxParamDef[] = [
   },
   {
     key: 'linerEnabled',
-    label: { zh: '內襯圍框' },
+    label: { zh: '內襯墊片' },
     unit: 'bool',
     default: true,
     group: { zh: '內襯' },
     description: {
-      zh: '是否產生內襯圍框片。關閉時只輸出上蓋／下盒兩片，套合與定位需另外自理（如緊配或腰封）。',
+      zh: '是否產生內襯墊片（2026-07-09 T7 gate 反饋重定義：平台式腳架墊片，放進下盒貼底、把物品墊高）。關閉時只輸出上蓋／下盒兩片，套合與定位需另外自理（如緊配或腰封）。',
     },
-    highlightTags: ['linerTab', 'linerWall', 'linerFlange'],
+    highlightTags: ['linerPad', 'linerFlap'],
   },
   {
     key: 'linerFitGap',
@@ -182,9 +183,23 @@ const params: BoxParamDef[] = [
     step: 0.1,
     group: { zh: '內襯' },
     description: {
-      zh: '內襯與上蓋內緣、內襯與下盒外緣，各留一次的套合間隙（導出鏈扣兩次，不是同一份間隙重複扣）；愈大內襯愈鬆好裝、翻邊也愈窄。',
+      zh: '內襯底面對下盒內淨，四邊各留一次的套合間隙（2026-07-09 T7 gate 重定義：內襯改為平台式、底面錨定下盒內淨，此間隙只扣一次，不再是舊圍框版「上蓋一次＋下盒一次」的雙重扣）；愈大底面愈小、內襯愈鬆好放入。',
     },
-    highlightTags: ['linerFlange'],
+    highlightTags: ['linerPad'],
+  },
+  {
+    key: 'linerFlapDepth',
+    label: { zh: '內襯腳架深度' },
+    unit: 'mm',
+    default: 15,
+    min: 5,
+    max: 60,
+    step: 0.5,
+    group: { zh: '內襯' },
+    description: {
+      zh: '內襯四翼向下摺的深度＝腳架高度，也就是物品被墊高的量（2026-07-09 T7 gate 反饋新增：平台式內襯重定義，維護者提供正確形式）。太深會頂出下盒盒口（見 liner-flap-fits 警告），太深也可能讓翼片外緣反轉（同一警告的另一條件）。',
+    },
+    highlightTags: ['linerFlap'],
   },
 ];
 
@@ -404,6 +419,7 @@ function generate(p: ResolvedParams): GenerateResult {
   const thickness = p.thickness as number;
   const linerEnabled = p.linerEnabled as boolean;
   const linerFitGap = p.linerFitGap as number;
+  const linerFlapDepth = p.linerFlapDepth as number;
 
   // D12：baseWidth 對 x 向（先摺壁）、baseLength 對 y 向（後摺壁）——見 開發紀錄 上游 handoff。
   const lidPanelX = baseWidth + 2 * lidMargin;
@@ -418,7 +434,11 @@ function generate(p: ResolvedParams): GenerateResult {
   );
   const topH = Math.max(lidFinal.bounds.maxY, baseFinal.bounds.maxY);
   const linerFinal = linerEnabled
-    ? placeAt((ox, oy) => generateLiner({ baseLength, baseWidth, baseHeight, lidMargin, thickness, fitGap: linerFitGap, idPrefix: 'liner', offsetX: ox, offsetY: oy }), 0, topH + PIECE_GAP)
+    ? placeAt(
+        (ox, oy) => generateLiner({ baseLength, baseWidth, thickness, fitGap: linerFitGap, flapDepth: linerFlapDepth, idPrefix: 'liner', offsetX: ox, offsetY: oy }),
+        0,
+        topH + PIECE_GAP,
+      )
     : undefined;
 
   const pieces: DielinePiece[] = linerEnabled
@@ -441,23 +461,26 @@ function generate(p: ResolvedParams): GenerateResult {
 // 欄位的唯一消費者是 Canvas.tsx 的 highlightTags 機制——`highlightSet` 由 hover 高亮
 // （ParamPanel 讀 `BoxParamDef.highlightTags`）∪ 不變式警告的 `tags` 聯集而成，
 // `isHighlighted` 拿它比對每條 `DielinePath.tags`（見 tray.ts/liner.ts 的 push 慣例，
-// 標的是 'wallRoot'/'wallTop'/'gusset'/'tongueFlap'/'linerFlange' 這類幾何 tag，不是
+// 標的是 'wallRoot'/'wallTop'/'gusset'/'tongueFlap'/'linerFlap' 這類幾何 tag，不是
 // `BoxParamDef.key`）——這條鏈路裡沒有第二個「參數定位」用途。RTE 的不變式 tags 剛好
 // 常等於參數 key，只是因為 RTE 自己的 `path.tags`／`param.highlightTags` 也剛好用參數 key
 // 當 vocabulary（見 reverse-tuck-end.ts 的 push('cut','tuckLock',...) 與同名 param）；
 // telescope 的 `BoxParamDef.highlightTags` 從一開始就改用幾何 tag（見上方 params 宣告，
 // basePlatformWidth/thickness/linerFitGap 的 highlightTags 分別是 'wallTop'/'wallRoot'/
-// 'linerFlange'，不是參數自己的 key），下面幾條不變式當初卻直接複製 RTE 的「回傳參數 key」
+// 'linerPad'，不是參數自己的 key），下面幾條不變式當初卻直接複製 RTE 的「回傳參數 key」
 // 寫法，導致 tags 對不上任何真實 path——Canvas 高亮變成無聲的 no-op（review 抓到的
 // gusset-b-fits 只是其中一個例子）。本檔 telescope-fixture.test.ts 的 BOUNDARY_EXEMPT_TAGS
 // 表（cut 自撞豁免用途，另一條獨立機制）早就把 gusset-b-fits/tongue-flap-fits/
-// liner-flange-fits 對應到 'gusset'/'tongueFlap'/'linerFlange' 這組幾何 tag，等於這個
+// liner-flap-fits 對應到 'gusset'/'tongueFlap'/'linerFlap' 這組幾何 tag，等於這個
 // codebase 自己的另一處已經印證了正確 vocabulary 是什麼——這裡改成一致。
 // 修法：tags 改回傳 tray.ts/liner.ts 實際使用的幾何 tag（liner-flange-fits／rim-flush／
 // gusset-b-fits／tongue-flap-fits 四條）；pieces-identity 本來就用 baseLength/baseWidth/
 // lidMargin（這三個字串同時也是 index.ts 自己 makeDimension() 蓋的 dimension path 的
 // tag，見 buildBasePiece/buildLidPiece 呼叫 addTrayDimensions 傳入的 tagL/tagW/tagH），
 // 已經對得上真實 path，不用改。
+//
+// 2026-07-09 T7 gate 追記：liner-flange-fits 已因內襯重定義（平台式，見 liner.ts 檔頭）
+// 整條作廢，改名 liner-flap-fits（語意與 tag 隨新幾何換新，上面 FX4 敘述的原則不變）。
 
 const invariants: BoxInvariant[] = [
   {
@@ -472,30 +495,48 @@ const invariants: BoxInvariant[] = [
     },
   },
   {
-    id: 'liner-flange-fits',
+    id: 'liner-flap-fits',
     description: {
-      zh: '內襯翻邊寬（lidMargin−4×thickness−2×linerFitGap）必須至少留 MIN_FLANGE=5mm 才穩定——太窄的翻邊難以可靠固定內襯，需要調大 margin 或調小 fitGap。只在 linerEnabled 時適用（spec §4.2 明文「linerEnabled 時」）：關閉內襯做純二件式盒（緊配或腰封自理，spec 允許）時根本沒有翻邊這個結構，警告「放不下」是無意義的假警報。',
+      zh: '2026-07-09 T7 gate 反饋重定義（取代 liner-flange-fits）：內襯平台式腳架的參數域邊界，3 條件依序檢查——① 底面尺寸（padL/padW，由下盒內淨與套合間隙導出）必須為正值，否則底面幾何不存在（極端參數才會踩到，例如 baseLength/linerFitGap 超出宣告 UI 範圍）；② 腳架深度（linerFlapDepth）不得超過下盒壁高（baseHeight），否則內襯會頂出下盒盒口；③ 腳架深度不得超過底面邊長（padL 或 padW）的一半，否則翼片外緣反轉自撞（梯形「外緣＝邊長−2×flapDepth」的幾何推論）。只在 linerEnabled 時適用（同 liner-flange-fits 舊慣例：關閉內襯的純二件式盒沒有內襯幾何，警告無意義）。',
     },
     check(params) {
       if (!(params.linerEnabled as boolean)) {
         return { ok: true };
       }
+      const baseHeight = params.baseHeight as number;
+      const linerFlapDepth = params.linerFlapDepth as number;
       const frame = deriveLinerFrame({
         baseLength: params.baseLength as number,
         baseWidth: params.baseWidth as number,
-        lidMargin: params.lidMargin as number,
         thickness: params.thickness as number,
         fitGap: params.linerFitGap as number,
       });
-      if (frame.flange < MIN_FLANGE) {
+
+      if (frame.padL <= 0 || frame.padW <= 0) {
         return {
           ok: false,
-          message: { zh: `內襯翻邊寬 ${frame.flange.toFixed(2)}mm 小於最小可用寬度 ${MIN_FLANGE}mm，margin 太小放不下內襯` },
-          // FX4：'linerFitGap' 不是任何 path 的 tag（liner.ts 的翻邊 cut/crease 用
-          // 'linerFlange'，也是 linerFitGap 參數自己宣告的 highlightTags），改對。
-          tags: ['lidMargin', 'linerFlange'],
+          message: { zh: `內襯底面尺寸（${frame.padL.toFixed(2)}×${frame.padW.toFixed(2)}mm）非正值，參數組合下底面幾何不存在` },
+          tags: ['baseLength', 'baseWidth', 'linerPad'],
         };
       }
+
+      if (linerFlapDepth > baseHeight) {
+        return {
+          ok: false,
+          message: { zh: `內襯腳架深度 ${linerFlapDepth}mm 超過下盒壁高 ${baseHeight}mm，內襯會頂出盒口` },
+          tags: ['baseHeight', 'linerFlap'],
+        };
+      }
+
+      const minPadEdge = Math.min(frame.padL, frame.padW);
+      if (linerFlapDepth > minPadEdge / 2) {
+        return {
+          ok: false,
+          message: { zh: `內襯腳架深度 ${linerFlapDepth}mm 超過底面較短邊長 ${minPadEdge.toFixed(2)}mm 的一半，翼片外緣已反轉自撞` },
+          tags: ['baseLength', 'baseWidth', 'linerFlap'],
+        };
+      }
+
       return { ok: true };
     },
   },
@@ -660,7 +701,7 @@ export const telescope: BoxModule = {
     id: 'telescope',
     name: { zh: '天地盒 (Telescope Box)' },
     intro: {
-      zh: '上蓋與下盒共用同一套免膠雙壁 tray 拓撲、上蓋等邊放大套住下盒；內襯圍框墊出兩者的套合間隙，頂緣與下盒盒口齊平。',
+      zh: '上蓋與下盒共用同一套免膠雙壁 tray 拓撲、上蓋等邊放大套住下盒；內襯墊片放進下盒貼底，四翼向下摺成腳架把物品墊高（2026-07-09 T7 gate 反饋重定義：平台式，取代舊圍框版）。',
     },
     topology: 'nested',
   },

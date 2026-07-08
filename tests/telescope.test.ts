@@ -5,7 +5,7 @@ import type { DielinePath, GenerateResult, LineType } from '@/core/types';
 import { generateTray, type TrayOpts } from '@/boxes/telescope/tray';
 import { getBox, resolveParams } from '@/core/registry';
 import { telescope, minStyleBHeight } from '@/boxes/telescope';
-import { deriveLinerFrame, generateLiner, MIN_FLANGE } from '@/boxes/telescope/liner';
+import { deriveLinerFrame, generateLiner } from '@/boxes/telescope/liner';
 import { validatePieces } from '@/core/pieces';
 
 // ── 測試專用查詢 helper（依 tray.ts 的 tags 慣例：['<landmark>', '<side>']）──
@@ -164,14 +164,14 @@ describe('generateTray', () => {
     expect(flapAlongs.some((v) => Math.abs(v - deepestAlong) < 1e-6), 'tongueFlap 應有一點落在全深 15mm 處').toBe(true);
   });
 
-  it('線型斷言：舌摺線含 halfcut 段（中段）與 crease 段（兩端讓位角撐）', () => {
+  it('線型斷言：舌摺線含 halfcut 段（中段）與 cut 段（兩端讓位角撐，裁決需軋斷·2026-07-09 T7 gate）', () => {
     const result = generateTray(baseOpts);
     const halfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
-    const crease = findTagged(result.paths, 'tongueFold', 'left', 'crease');
+    const cut = findTagged(result.paths, 'tongueFold', 'left', 'cut');
     expect(halfcut.length, '舌摺線應有 halfcut 型別的路徑（中段）').toBeGreaterThan(0);
-    expect(crease.length, '舌摺線應有 crease 型別的路徑（兩端讓位角撐）').toBeGreaterThan(0);
+    expect(cut.length, '舌摺線應有 cut 型別的路徑（兩端讓位角撐，自由邊必須軋斷）').toBeGreaterThan(0);
     expect(halfcut[0]!.segments).toHaveLength(1);
-    expect(crease[0]!.segments, '兩端各一條 crease，合計 2 段').toHaveLength(2);
+    expect(cut[0]!.segments, '兩端各一條 cut，合計 2 段').toHaveLength(2);
   });
 
   it('t=0 時 y 向壁根 collapse 為單一 crease（不得輸出兩條重合線）', () => {
@@ -419,51 +419,99 @@ describe('telescope', () => {
   });
 });
 
-describe('telescope: liner 導出鏈（deriveLinerFrame／generateLiner，spec Step 1 驗算錨）', () => {
-  it('t=0.4/lidMargin=13.5/fitGap=0.5/base 179×124×60 → 圍框 203.4×148.4、翻邊 10.9', () => {
-    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, lidMargin: 13.5, thickness: 0.4, fitGap: 0.5 });
-    expect(frame.frameL, '圍框外圍（長壁側，對應 baseLength 軸）').toBeCloseTo(203.4, 6);
-    expect(frame.frameW, '圍框外圍（短壁側，對應 baseWidth 軸）').toBeCloseTo(148.4, 6);
-    expect(frame.flange, '翻邊寬＝lidMargin−4t−2×fitGap').toBeCloseTo(10.9, 6);
+describe('telescope: liner 導出鏈（deriveLinerFrame／generateLiner，2026-07-09 T7 gate 反饋重定義：平台式）', () => {
+  // 平台式重定義（裁決，取代圍框版）：底面錨定＝下盒內淨（不再是上蓋內淨），
+  // 四翼向下摺＝腳架、翼深＝linerFlapDepth（架高量）、四邊同深單一參數、免膠無 tab。
+  // 驗算錨（spec 自檢，controller 手算）：t=0.4/fitGap=0.5/base 179×124/flapDepth=15
+  // → 底面 176.4×121.4、攤平 206.4×151.4；t=0.3 預設 → 底面 176.8×121.8。
+
+  it('t=0.4/fitGap=0.5/base 179×124 → 底面 176.4×121.4（spec 驗算錨）', () => {
+    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, thickness: 0.4, fitGap: 0.5 });
+    expect(frame.padL, '底面長邊＝(baseLength−4t)−2×fitGap，對應 baseLength 軸').toBeCloseTo(176.4, 6);
+    expect(frame.padW, '底面短邊＝(baseWidth−4t)−2×fitGap，對應 baseWidth 軸').toBeCloseTo(121.4, 6);
   });
 
-  it('同組參數：攤平帶右緣（tab 根到外緣的水平總跨）＝718.6、壁帶高＝flange+wallH＝70.9', () => {
+  it('thickness=0.3（宣告預設）/fitGap=0.5/base 179×124 → 底面 176.8×121.8（spec 第二驗算錨）', () => {
+    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, thickness: 0.3, fitGap: 0.5 });
+    expect(frame.padL).toBeCloseTo(176.8, 6);
+    expect(frame.padW).toBeCloseTo(121.8, 6);
+  });
+
+  it('同組參數＋flapDepth=15 → 攤平外圍 206.4×151.4（bounds 驗；spec 驗算錨）', () => {
     const liner = generateLiner({
       baseLength: 179,
       baseWidth: 124,
-      baseHeight: 60,
-      lidMargin: 13.5,
       thickness: 0.4,
       fitGap: 0.5,
+      flapDepth: 15,
       idPrefix: 'liner',
       offsetX: 0,
       offsetY: 0,
     });
-    // 右緣＝壁帶底邊 cut 的最遠端點；這條線的座標由「tab 根 + 4 段壁寬」直接決定，
-    // 不受 tab 45° 斜切內縮或標註線外推影響（兩者都不改變這條線本身的端點）。
-    const bottomEdge = liner.paths.find((p) => p.type === 'cut' && p.tags?.includes('linerWall') && p.tags?.includes('bottom'))!;
-    const bottomSeg = bottomEdge.segments[0] as Extract<Segment, { kind: 'line' }>;
-    expect(Math.max(bottomSeg.x1, bottomSeg.x2), '攤平帶總寬＝15(tab)+2×(203.4+148.4)=718.6').toBeCloseTo(718.6, 6);
-
-    // tab 根摺線縱貫 yFold(=flange)→yBot(=flange+wallH)，直接讀出兩個驗算錨。
-    const tabRoot = liner.paths.find((p) => p.type === 'crease' && p.tags?.includes('linerTab') && p.tags?.includes('root'))!;
-    const rootSeg = tabRoot.segments[0] as Extract<Segment, { kind: 'line' }>;
-    expect(Math.abs(rootSeg.y2 - rootSeg.y1), '壁帶高＝wallH＝baseHeight＝60').toBeCloseTo(60, 6);
-    expect(Math.min(rootSeg.y1, rootSeg.y2), 'yFold＝flange＝10.9').toBeCloseTo(10.9, 6);
+    // 攤平寬（X 向，對應 padW 軸）＝padW+2×flapDepth＝121.4+30＝151.4；
+    // 攤平高（Y 向，對應 padL 軸）＝padL+2×flapDepth＝176.4+30＝206.4。
+    // 只量 crease/cut（實際製造幾何），排除 dimension 標註線——同 ExportBar.tsx FX3 教訓：
+    // 標註線因 DIM_OFFSET 外推會把 liner.bounds 撐大，直接拿整個 bounds 驗會跟這組自檢錨對不上。
+    const geomOnly = segmentsBounds(liner.paths.filter((p) => p.type !== 'dimension').flatMap((p) => p.segments));
+    expect(geomOnly.maxX - geomOnly.minX, '攤平外圍寬＝padW+2×flapDepth').toBeCloseTo(151.4, 6);
+    expect(geomOnly.maxY - geomOnly.minY, '攤平外圍高＝padL+2×flapDepth').toBeCloseTo(206.4, 6);
   });
 
-  it('t=0：翻邊與圍框仍是 lidMargin/fitGap 的一次函數（歸零項只剩 −2×fitGap），無 NaN', () => {
-    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, lidMargin: 13.5, thickness: 0, fitGap: 0.5 });
-    expect(frame.flange).toBeCloseTo(13.5 - 1, 6);
-    const liner = generateLiner({ baseLength: 179, baseWidth: 124, baseHeight: 60, lidMargin: 13.5, thickness: 0, fitGap: 0.5, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
+  it('底面 crease 周界四條（top/bottom/left/right），根部＝該邊全長（無翻邊/tab，免膠）', () => {
+    const liner = generateLiner({ baseLength: 179, baseWidth: 124, thickness: 0.4, fitGap: 0.5, flapDepth: 15, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
+    const padCreases = liner.paths.filter((p) => p.type === 'crease' && p.tags?.includes('linerPad'));
+    expect(padCreases, '底面周界四條 crease').toHaveLength(4);
+    for (const side of ['top', 'bottom']) {
+      const seg = padCreases.find((c) => c.tags?.includes(side))!.segments[0] as Extract<Segment, { kind: 'line' }>;
+      expect(Math.abs(seg.x2 - seg.x1), `${side} 邊全長＝padW`).toBeCloseTo(121.4, 6);
+    }
+    for (const side of ['left', 'right']) {
+      const seg = padCreases.find((c) => c.tags?.includes(side))!.segments[0] as Extract<Segment, { kind: 'line' }>;
+      expect(Math.abs(seg.y2 - seg.y1), `${side} 邊全長＝padL`).toBeCloseTo(176.4, 6);
+    }
+  });
+
+  it('翼片外緣（cut）較根部縮 2×flapDepth、兩端 45° 內斜（dx=dy=flapDepth）、四角空出讓位（免膠無 tab）', () => {
+    const liner = generateLiner({ baseLength: 179, baseWidth: 124, thickness: 0.4, fitGap: 0.5, flapDepth: 15, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
+    const topFlap = liner.paths.find((p) => p.type === 'cut' && p.tags?.includes('linerFlap') && p.tags?.includes('top'))!;
+    const lines = topFlap.segments as Extract<Segment, { kind: 'line' }>[];
+    expect(lines, '翼片 cut＝斜切→外緣→斜切，共 3 段').toHaveLength(3);
+
+    const [slantA, outerEdge, slantB] = lines;
+    expect(Math.abs(outerEdge!.x2 - outerEdge!.x1), '外緣＝padW−2×flapDepth＝121.4−30').toBeCloseTo(91.4, 6);
+    expect(Math.abs(outerEdge!.y2 - outerEdge!.y1), '外緣與根部平行（同一 y）').toBeCloseTo(0, 6);
+    for (const slant of [slantA!, slantB!]) {
+      expect(Math.abs(slant.x2 - slant.x1), '斜切 |dx|＝flapDepth').toBeCloseTo(15, 6);
+      expect(Math.abs(slant.y2 - slant.y1), '斜切 |dy|＝flapDepth（45°：|dx|=|dy|）').toBeCloseTo(15, 6);
+    }
+
+    // 沒有任何 linerTab/linerWall 這類舊圍框版的 tag 殘留（免膠無 tab，構造徹底重定義）。
+    const staleTags = liner.paths.flatMap((p) => p.tags ?? []).filter((t) => t === 'linerTab' || t === 'linerWall');
+    expect(staleTags, '不應殘留圍框版的 linerTab/linerWall tag').toEqual([]);
+  });
+
+  it('t=0：底面公式仍是 fitGap 的一次函數（歸零項只剩 −2×fitGap），無 NaN', () => {
+    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, thickness: 0, fitGap: 0.5 });
+    expect(frame.padL).toBeCloseTo(179 - 1, 6);
+    expect(frame.padW).toBeCloseTo(124 - 1, 6);
+    const liner = generateLiner({ baseLength: 179, baseWidth: 124, thickness: 0, fitGap: 0.5, flapDepth: 15, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
     expect(hasNaN(liner.paths.flatMap((p) => p.segments))).toBe(false);
   });
 
   it('offsetX/offsetY 對整體幾何做剛體平移（bounds 跟著平移相同量，同 tray 的版面位移慣例）', () => {
-    const plain = generateLiner({ baseLength: 179, baseWidth: 124, baseHeight: 60, lidMargin: 13.5, thickness: 0.4, fitGap: 0.5, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
-    const shifted = generateLiner({ baseLength: 179, baseWidth: 124, baseHeight: 60, lidMargin: 13.5, thickness: 0.4, fitGap: 0.5, idPrefix: 'liner', offsetX: 50, offsetY: -30 });
+    const plain = generateLiner({ baseLength: 179, baseWidth: 124, thickness: 0.4, fitGap: 0.5, flapDepth: 15, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
+    const shifted = generateLiner({ baseLength: 179, baseWidth: 124, thickness: 0.4, fitGap: 0.5, flapDepth: 15, idPrefix: 'liner', offsetX: 50, offsetY: -30 });
     expect(shifted.bounds.minX - plain.bounds.minX).toBeCloseTo(50, 6);
     expect(shifted.bounds.minY - plain.bounds.minY).toBeCloseTo(-30, 6);
+  });
+
+  it('lidMargin 改變不影響 liner 片幾何尺寸（重定義核心語意：底面錨定＝下盒內淨，不再是上蓋內淨）', () => {
+    const a = genTelescope({ lidMargin: 13.5 });
+    const b = genTelescope({ lidMargin: 20 });
+    const dimsOf = (bd: { minX: number; maxX: number; minY: number; maxY: number }) => ({ w: bd.maxX - bd.minX, h: bd.maxY - bd.minY });
+    const linerA = a.pieces!.find((p) => p.id === 'liner')!;
+    const linerB = b.pieces!.find((p) => p.id === 'liner')!;
+    expect(dimsOf(linerB.bounds), 'liner 片尺寸不隨 lidMargin 改變').toEqual(dimsOf(linerA.bounds));
   });
 });
 
@@ -528,42 +576,60 @@ describe('telescope: rim-flush（先摺壁外壁高＝後摺壁外壁高−t，b
   });
 });
 
-describe('telescope: liner-flange-fits（翻邊寬 ≥ MIN_FLANGE=5，否則警告）', () => {
-  it('預設參數（flange＝13.5−1.2−1＝11.3）通過', () => {
+describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 liner-flange-fits，3 條參數域邊界）', () => {
+  it('預設參數（flapDepth=15 < baseHeight=60，底面 176.8×121.8>0，flapDepth<底面邊長一半）通過', () => {
     const params = resolveParams(telescope);
     const result = telescope.generate(params);
-    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     expect(inv.check(params, result)).toMatchObject({ ok: true });
   });
 
-  it('lidMargin 太小（flange<5）→ 警告不通過', () => {
-    const params = resolveParams(telescope, { lidMargin: 4 }); // flange = 4 − 4×0.3 − 2×0.5 = 1.8 < 5
+  it('條件 1——腳架深度超過下盒壁高（linerFlapDepth > baseHeight）→ 警告', () => {
+    const params = resolveParams(telescope, { baseHeight: 10 }); // flapDepth 預設 15 > 10
     const result = telescope.generate(params);
-    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
-    expect(inv.check(params, result)).toMatchObject({ ok: false });
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
+    const outcome = inv.check(params, result);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.message.zh).toContain('頂出');
   });
 
-  it('flange 恰好等於 MIN_FLANGE 邊界（非嚴格小於）：應通過', () => {
-    // flange = lidMargin − 4×0.3 − 2×0.5 = lidMargin − 2.2 = MIN_FLANGE(5) → lidMargin = 7.2
-    const params = resolveParams(telescope, { lidMargin: MIN_FLANGE + 2.2 });
+  it('條件 1 邊界（非嚴格大於）：flapDepth 恰等於 baseHeight 時通過', () => {
+    const params = resolveParams(telescope, { baseHeight: 15 }); // = 預設 linerFlapDepth
     const result = telescope.generate(params);
-    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     expect(inv.check(params, result)).toMatchObject({ ok: true });
   });
 
-  it('linerEnabled=false 時不適用（spec §4.2「linerEnabled 時」）：lidMargin=4 也不得假警告；同 margin 開內襯必警告（review F1 迴歸）', () => {
-    // 這個 bug（無閘門版本對關閉內襯的純二件式盒發「放不下內襯」假警告）能滑過原本
-    // 228/228，正是因為「linerEnabled=false」與「lidMargin 過小」兩組測試從未交叉——
-    // 這裡把兩個維度釘在同一個案例裡：關內襯時全部不變式都不得警告（含 flange 該算出
-    // 1.8<5 的參數組），同參數開內襯則必須警告（證明全綠不是因為門檻本身被弄壞）。
-    const paramsOff = resolveParams(telescope, { linerEnabled: false, lidMargin: 4 });
+  it('條件 2——極端參數使底面非正值（padL/padW ≤ 0）→ 警告「底面不存在」（超出宣告 UI 範圍的防禦檢查）', () => {
+    // resolveParams 不驗證 override 值域（只驗 key 存在），可用來直接構造超出宣告 min 的案例：
+    // baseLength=1、linerFitGap=2 → baseInnerL=1−1.2=−0.2、padL=−0.2−4=−4.2<0。
+    const params = resolveParams(telescope, { baseLength: 1, linerFitGap: 2 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
+    const outcome = inv.check(params, result);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.message.zh).toContain('不存在');
+  });
+
+  it('條件 3——腳架深度超過底面邊長一半（翼片外緣反轉）→ 警告（單一 mm 參數 min/max 掃描會踩到的真實案例：baseWidth=30）', () => {
+    // baseWidth=30（宣告 min）、其餘預設：padW=30−4×0.3−2×0.5=27.8，
+    // flapDepth=15 > 27.8/2=13.9 → 翼片外緣＝27.8−30=−2.2<0，反轉。
+    const params = resolveParams(telescope, { baseWidth: 30 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
+    const outcome = inv.check(params, result);
+    expect(outcome.ok, 'baseWidth=30 應觸發條件 3').toBe(false);
+  });
+
+  it('linerEnabled=false 時不適用（同 liner-flange-fits 舊慣例）：極端參數也不得假警告；同參數開內襯必警告', () => {
+    const paramsOff = resolveParams(telescope, { linerEnabled: false, baseHeight: 10 });
     const resultOff = telescope.generate(paramsOff);
     for (const inv of telescope.invariants) {
       expect(inv.check(paramsOff, resultOff), `linerEnabled=false 時 ${inv.id} 不得警告`).toMatchObject({ ok: true });
     }
-    const paramsOn = resolveParams(telescope, { linerEnabled: true, lidMargin: 4 });
-    const flangeInv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
-    expect(flangeInv.check(paramsOn, telescope.generate(paramsOn)), '開內襯時同 margin 必警告').toMatchObject({ ok: false });
+    const paramsOn = resolveParams(telescope, { linerEnabled: true, baseHeight: 10 });
+    const flapInv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
+    expect(flapInv.check(paramsOn, telescope.generate(paramsOn)), '開內襯時同參數必警告').toMatchObject({ ok: false });
   });
 });
 
@@ -623,9 +689,9 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
     return new Set(all.flatMap((p) => p.tags ?? []));
   }
 
-  it('sanity：真實幾何存在 wallRoot/wallTop/gusset/tongueFlap/linerFlange，不存在 thickness/linerFitGap/basePlatformWidth/lidPlatformWidth 這些參數名字面', () => {
+  it('sanity：真實幾何存在 wallRoot/wallTop/gusset/tongueFlap/linerFlap，不存在 thickness/linerFitGap/basePlatformWidth/lidPlatformWidth 這些參數名字面', () => {
     const vocab = realPathTagVocabulary();
-    for (const geometric of ['wallRoot', 'wallTop', 'gusset', 'tongueFlap', 'linerFlange']) {
+    for (const geometric of ['wallRoot', 'wallTop', 'gusset', 'tongueFlap', 'linerFlap']) {
       expect(vocab.has(geometric), `真實幾何應存在 tag「${geometric}」`).toBe(true);
     }
     for (const paramKey of ['thickness', 'linerFitGap', 'basePlatformWidth', 'lidPlatformWidth']) {
@@ -633,13 +699,13 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
     }
   });
 
-  it('liner-flange-fits：警告 tags 全部命中真實 path tag（修前含 linerFitGap 不命中）', () => {
+  it('liner-flap-fits：警告 tags 全部命中真實 path tag（2026-07-09 T7 gate 重定義，取代 liner-flange-fits）', () => {
     const vocab = realPathTagVocabulary();
-    const params = resolveParams(telescope, { lidMargin: 4 });
+    const params = resolveParams(telescope, { baseHeight: 10 }); // flapDepth 預設 15 > baseHeight 10
     const result = telescope.generate(params);
-    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     const outcome = inv.check(params, result);
-    expect(outcome.ok, 'lidMargin=4 應觸發警告').toBe(false);
+    expect(outcome.ok, 'baseHeight=10 應觸發警告').toBe(false);
     if (!outcome.ok) {
       expect(outcome.tags?.length ?? 0, '應至少有一個 tag').toBeGreaterThan(0);
       for (const tag of outcome.tags!) {
@@ -759,7 +825,7 @@ describe('telescope: 假旋鈕（每個宣告參數都接線，spec §8；10 參
   const ALT_OVERRIDES: Record<string, number> = { basePlatformWidth: 0 };
 
   it('每個參數取第二有效值都改變輸出', () => {
-    expect(telescope.params, 'spec 逐字 10 個參數').toHaveLength(10);
+    expect(telescope.params, '10 個原參數 + linerFlapDepth（2026-07-09 T7 gate 重定義新增）＝11').toHaveLength(11);
     const base = normalizeSegments(genTelescope().paths.flatMap((p) => p.segments));
     for (const param of telescope.params) {
       const alt =

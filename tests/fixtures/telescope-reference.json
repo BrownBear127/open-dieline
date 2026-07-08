@@ -17,7 +17,7 @@
     { "name": "base.x.outerWall", "expected": 59.6, "measured": 59.5, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−t（頂緣平齊修正）" },
     { "name": "base.x.platform", "expected": 5.0, "measured": 5.0, "lineType": "crease×2", "source": "measured", "tIndependent": true },
     { "name": "base.x.innerWall", "expected": 58.8, "measured": 58.7, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−3t" },
-    { "name": "base.x.tuckFoldLine", "expected": null, "measured": null, "lineType": "halfcut 中段＋crease 兩端", "source": "measured", "tIndependent": true, "structural": true },
+    { "name": "base.x.tuckFoldLine", "expected": null, "measured": null, "lineType": "halfcut 中段＋cut 兩端", "source": "measured", "tIndependent": true, "structural": true, "note": "2026-07-09 T7 gate 反饋：兩端讓位段線型由 crease 改 cut（裁決·軋斷需求；量測表原判讀係 SVG 顏色分類誤差）" },
     { "name": "base.x.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true },
     { "name": "base.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": false, "note": "t" },
     { "name": "base.y.outerWall", "expected": 60.0, "measured": 60.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H，自雙 crease 外線起量（不做平齊修正）" },

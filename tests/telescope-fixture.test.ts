@@ -20,7 +20,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { Segment } from '@/core/geometry';
-import { hasNaN, hasSelfIntersection } from '@/core/geometry';
+import { hasNaN, hasSelfIntersection, segmentsBounds } from '@/core/geometry';
 import type { DielinePath, GenerateResult, LineType } from '@/core/types';
 import { resolveParams } from '@/core/registry';
 import { telescope, MIN_TONGUE_PERP_HALF } from '@/boxes/telescope';
@@ -141,21 +141,24 @@ const EXTRACTORS: Record<string, Extractor> = {
   'base.x.panel': (b) => minAbsGap(creaseAlongValues(b, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(b, 'wallRoot', 'right', 'x', 'crease')),
   'base.x.outerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(b, 'wallTop', 'left', 'x', 'crease')),
   'base.x.platform': (b) => creaseSpan(b, 'wallTop', 'left', 'x', 'crease'),
-  'base.x.innerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(b, 'tongueFold', 'left', 'x', 'crease')),
-  'base.x.tuckFlap': (b) => maxAbsGap(creaseAlongValues(b, 'tongueFold', 'left', 'x', 'crease'), creaseAlongValues(b, 'tongueFlap', 'left', 'x', 'cut')),
+  // 舌摺線兩端讓位段線型 2026-07-09 T7 gate 反饋改 crease→cut（裁決·軋斷需求，見
+  // tray.ts buildTongueFold 註解）；下面 4 條 innerWall／4 條 tuckFlap 抽取式原本查
+  // tongueFold+crease，改查 tongueFold+cut——抽出的駐留座標數值不變（同一條線只換線型)。
+  'base.x.innerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(b, 'tongueFold', 'left', 'x', 'cut')),
+  'base.x.tuckFlap': (b) => maxAbsGap(creaseAlongValues(b, 'tongueFold', 'left', 'x', 'cut'), creaseAlongValues(b, 'tongueFlap', 'left', 'x', 'cut')),
   'base.y.doubleCreaseGap': (b) => creaseSpan(b, 'wallRoot', 'back', 'y', 'crease'),
   'base.y.outerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallRoot', 'back', 'y', 'crease'), creaseAlongValues(b, 'wallTop', 'back', 'y', 'crease')),
   'base.y.platform': (b) => creaseSpan(b, 'wallTop', 'back', 'y', 'crease'),
-  'base.y.innerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallTop', 'back', 'y', 'crease'), creaseAlongValues(b, 'tongueFold', 'back', 'y', 'crease')),
-  'base.y.tuckFlap': (b) => maxAbsGap(creaseAlongValues(b, 'tongueFold', 'back', 'y', 'crease'), creaseAlongValues(b, 'tongueFlap', 'back', 'y', 'cut')),
+  'base.y.innerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallTop', 'back', 'y', 'crease'), creaseAlongValues(b, 'tongueFold', 'back', 'y', 'cut')),
+  'base.y.tuckFlap': (b) => maxAbsGap(creaseAlongValues(b, 'tongueFold', 'back', 'y', 'cut'), creaseAlongValues(b, 'tongueFlap', 'back', 'y', 'cut')),
   'lid.x.panel': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(l, 'wallRoot', 'right', 'x', 'crease')),
   'lid.x.outerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(l, 'wallTop', 'left', 'x', 'crease')),
-  'lid.x.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(l, 'tongueFold', 'left', 'x', 'crease')),
-  'lid.x.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'left', 'x', 'crease'), creaseAlongValues(l, 'tongueFlap', 'left', 'x', 'cut')),
+  'lid.x.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(l, 'tongueFold', 'left', 'x', 'cut')),
+  'lid.x.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'left', 'x', 'cut'), creaseAlongValues(l, 'tongueFlap', 'left', 'x', 'cut')),
   'lid.y.doubleCreaseGap': (_b, l) => creaseSpan(l, 'wallRoot', 'back', 'y', 'crease'),
   'lid.y.outerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'back', 'y', 'crease'), creaseAlongValues(l, 'wallTop', 'back', 'y', 'crease')),
-  'lid.y.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'back', 'y', 'crease'), creaseAlongValues(l, 'tongueFold', 'back', 'y', 'crease')),
-  'lid.y.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'back', 'y', 'crease'), creaseAlongValues(l, 'tongueFlap', 'back', 'y', 'cut')),
+  'lid.y.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'back', 'y', 'crease'), creaseAlongValues(l, 'tongueFold', 'back', 'y', 'cut')),
+  'lid.y.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'back', 'y', 'cut'), creaseAlongValues(l, 'tongueFlap', 'back', 'y', 'cut')),
   'lid.y.panel': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'front', 'y', 'crease'), creaseAlongValues(l, 'wallRoot', 'back', 'y', 'crease')),
 };
 
@@ -235,14 +238,18 @@ function judgeNumericSlot(slot: SlotFixture, generated: number, formulaValue: nu
   return { ok: true };
 }
 
-/** base.x.tuckFoldLine 結構檢查：舌摺線應同時有 halfcut（中段 1 段）與 crease（兩端共 2 段）。 */
+/**
+ * base.x.tuckFoldLine 結構檢查：舌摺線應同時有 halfcut（中段 1 段）與 cut（兩端共 2 段）。
+ * 兩端讓位段線型 2026-07-09 T7 gate 反饋由 crease 改 cut（裁決·軋斷需求，
+ * 見 tray.ts buildTongueFold 註解）。
+ */
 function checkTuckFoldLineStructure(paths: DielinePath[], side: string): Verdict {
-  const crease = findTagged(paths, 'tongueFold', side, 'crease');
+  const cut = findTagged(paths, 'tongueFold', side, 'cut');
   const halfcut = findTagged(paths, 'tongueFold', side, 'halfcut');
-  if (crease.length === 0) return { ok: false, reason: `tongueFold(${side}) 缺 crease（兩端讓位角撐）` };
+  if (cut.length === 0) return { ok: false, reason: `tongueFold(${side}) 缺 cut（兩端讓位角撐，需軋斷）` };
   if (halfcut.length === 0) return { ok: false, reason: `tongueFold(${side}) 缺 halfcut（中段）` };
-  if (crease[0]!.segments.length !== 2) {
-    return { ok: false, reason: `tongueFold(${side}) crease 應恰有 2 段（兩端），實際 ${crease[0]!.segments.length}` };
+  if (cut[0]!.segments.length !== 2) {
+    return { ok: false, reason: `tongueFold(${side}) cut 應恰有 2 段（兩端），實際 ${cut[0]!.segments.length}` };
   }
   if (halfcut[0]!.segments.length !== 1) {
     return { ok: false, reason: `tongueFold(${side}) halfcut 應恰有 1 段（中段），實際 ${halfcut[0]!.segments.length}` };
@@ -286,7 +293,7 @@ function judgeLineType(slot: SlotFixture, paths: DielinePath[]): Verdict {
     if (ps.length !== 1) return { ok: false, reason: `${landmark}(${side}) 應恰有 1 條 cut path，實際 ${ps.length}` };
     return { ok: true };
   }
-  if (slot.lineType === 'halfcut 中段＋crease 兩端') return checkTuckFoldLineStructure(paths, side);
+  if (slot.lineType === 'halfcut 中段＋cut 兩端') return checkTuckFoldLineStructure(paths, side);
   return { ok: false, reason: `未知的 lineType 宣告「${slot.lineType}」` };
 }
 
@@ -319,7 +326,7 @@ function checkYProfileSequence(paths: DielinePath[], side: 'back' | 'front', pla
 
   const foldStruct = checkTuckFoldLineStructure(paths, side);
   if (!foldStruct.ok) return foldStruct;
-  const foldAlong = alongOf(findTagged(paths, 'tongueFold', side, 'crease')[0]!.segments[0]!, 'y');
+  const foldAlong = alongOf(findTagged(paths, 'tongueFold', side, 'cut')[0]!.segments[0]!, 'y');
 
   const flapPath = findTagged(paths, 'tongueFlap', side, 'cut');
   if (flapPath.length !== 1) return { ok: false, reason: `tongueFlap(${side}) 應恰有 1 條 cut path，實際 ${flapPath.length}` };
@@ -337,15 +344,16 @@ function checkYProfileSequence(paths: DielinePath[], side: 'back' | 'front', pla
 
 /**
  * 合成一組「健康形狀」的 y 向剖面資料（fix wave F4 負類測試用；back 側、platform=5 型）：
- * 雙 crease 根（gap 0.4）→ 壁頂兩線（60.4/65.4）→ 舌摺線（crease 兩端＋halfcut 中段，
+ * 雙 crease 根（gap 0.4）→ 壁頂兩線（60.4/65.4）→ 舌摺線（cut 兩端＋halfcut 中段，
  * 224.6）→ 插底舌斜線（最深 239.6）。數值只需序位正確，不對應任何真實參數組。
+ * 舌摺線兩端線型 2026-07-09 T7 gate 反饋由 crease 改 cut（裁決·軋斷需求）。
  */
 function syntheticYProfile(): DielinePath[] {
   const yLine = (y: number): Segment => ({ kind: 'line', x1: 0, y1: y, x2: 10, y2: y });
   return [
     { id: 'r', type: 'crease', tags: ['wallRoot', 'back'], segments: [yLine(100), yLine(100.4)] },
     { id: 't', type: 'crease', tags: ['wallTop', 'back'], segments: [yLine(160.4), yLine(165.4)] },
-    { id: 'fc', type: 'crease', tags: ['tongueFold', 'back'], segments: [yLine(224.6), yLine(224.6)] },
+    { id: 'fc', type: 'cut', tags: ['tongueFold', 'back'], segments: [yLine(224.6), yLine(224.6)] },
     { id: 'fh', type: 'halfcut', tags: ['tongueFold', 'back'], segments: [yLine(224.6)] },
     { id: 'fl', type: 'cut', tags: ['tongueFlap', 'back'], segments: [{ kind: 'line', x1: 0, y1: 224.6, x2: 5, y2: 239.6 }] },
   ];
@@ -433,7 +441,7 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
       const valid = syntheticYProfile();
       expect(checkYProfileSequence(valid, 'back', 5).ok, '對照組：合成的健康剖面應 pass（否則以下 fail 全是誤報）').toBe(true);
 
-      // 錯序：舌摺線（crease＋halfcut）搬到壁頂之前（y=130 < 160.4）→ 距離序列非嚴格遞增
+      // 錯序：舌摺線（cut＋halfcut）搬到壁頂之前（y=130 < 160.4）→ 距離序列非嚴格遞增
       const yLine130: Segment = { kind: 'line', x1: 0, y1: 130, x2: 10, y2: 130 };
       const misordered = valid.map((p) => (p.tags?.includes('tongueFold') ? { ...p, segments: p.segments.map(() => yLine130) } : p));
       expect(checkYProfileSequence(misordered, 'back', 5).ok, '錯序（舌摺線插到壁頂之前）應 fail').toBe(false);
@@ -448,45 +456,45 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
     });
   });
 
-  describe('內襯 golden（規則 4：圍框 203.4×148.4、翻邊 10.9、段序 tab|L|W|L|W、壁高 60）', () => {
-    it('deriveLinerFrame 公式值（單元層，等邊 margin＋t=0.4 自產，不引用重建 SVG 數值）', () => {
+  describe('內襯 golden（2026-07-09 T7 gate 反饋重定義：平台式——底面 176.4×121.4、攤平 206.4×151.4、翼深 15）', () => {
+    it('deriveLinerFrame 公式值（單元層，t=0.4/fitGap=0.5 自產，spec 驗算錨；不再吃 lidMargin）', () => {
       const frame = deriveLinerFrame({
         baseLength: fixture.params.baseLength,
         baseWidth: fixture.params.baseWidth,
-        lidMargin: fixture.params.lidMargin,
         thickness: fixture.params.thickness,
         fitGap: fixture.params.linerFitGap,
       });
-      expect(frame.frameL, '圍框外圍（長壁側）').toBeCloseTo(203.4, 6);
-      expect(frame.frameW, '圍框外圍（短壁側）').toBeCloseTo(148.4, 6);
-      expect(frame.flange, '翻邊寬').toBeCloseTo(10.9, 6);
+      expect(frame.padL, '底面長邊（對應 baseLength 軸）').toBeCloseTo(176.4, 6);
+      expect(frame.padW, '底面短邊（對應 baseWidth 軸）').toBeCloseTo(121.4, 6);
     });
 
-    it('整合管線（telescope.generate 實際組裝的 liner 片）：段序 tab|203.4|148.4|203.4|148.4、壁高 60', () => {
+    it('整合管線（telescope.generate 實際組裝的 liner 片）：底面周界四條 crease、四翼 cut 各 3 段、45° 斜切、攤平 206.4×151.4', () => {
       const linerPiece = fixtureResult.pieces!.find((p) => p.id === 'liner')!;
       const linerPaths = fixtureResult.paths.filter((p) => linerPiece.pathIds.includes(p.id));
 
-      const tabRoot = linerPaths.find((p) => p.type === 'crease' && p.tags?.includes('linerTab') && p.tags?.includes('root'));
-      expect(tabRoot, '應有 linerTab+root 摺線').toBeDefined();
-      const tabRootSeg = tabRoot!.segments[0] as LineSeg;
-      expect(tabRootSeg.x1, 'tab 根摺線應為鉛直線（x1=x2）').toBeCloseTo(tabRootSeg.x2, 6);
-      expect(Math.abs(tabRootSeg.y2 - tabRootSeg.y1), '壁高＝baseHeight＝60').toBeCloseTo(60, 6);
+      const padCreases = linerPaths.filter((p) => p.type === 'crease' && p.tags?.includes('linerPad'));
+      expect(padCreases, '底面周界四條 crease（top/bottom/left/right）').toHaveLength(4);
 
-      const folds = linerPaths.filter((p) => p.type === 'crease' && p.tags?.includes('linerWall') && p.tags?.includes('fold'));
-      expect(folds, '4 段壁應有 3 條壁間摺線（最後一段是外緣，不摺）').toHaveLength(3);
-      const foldXs = folds.map((p) => (p.segments[0] as LineSeg).x1);
+      const flapCuts = linerPaths.filter((p) => p.type === 'cut' && p.tags?.includes('linerFlap'));
+      expect(flapCuts, '四翼各一條 cut').toHaveLength(4);
+      for (const flap of flapCuts) {
+        expect(flap.segments, '每翼 cut＝斜切→外緣→斜切，共 3 段').toHaveLength(3);
+        const [slantA, , slantB] = flap.segments as LineSeg[];
+        expect(Math.abs(slantA!.x2 - slantA!.x1), '斜切 |dx|＝flapDepth＝15').toBeCloseTo(15, 6);
+        expect(Math.abs(slantA!.y2 - slantA!.y1), '斜切 |dy|＝flapDepth（45°）').toBeCloseTo(15, 6);
+        expect(Math.abs(slantB!.x2 - slantB!.x1)).toBeCloseTo(15, 6);
+        expect(Math.abs(slantB!.y2 - slantB!.y1)).toBeCloseTo(15, 6);
+      }
 
-      const seal = linerPaths.find((p) => p.type === 'cut' && p.tags?.includes('linerWall') && p.tags?.includes('end'));
-      expect(seal, '應有 linerWall+end 封邊').toBeDefined();
-      const sealX = (seal!.segments[0] as LineSeg).x1;
+      // 不殘留圍框版的 tab/wall 舊 tag（免膠無 tab，構造徹底重定義）。
+      const staleTags = linerPaths.flatMap((p) => p.tags ?? []).filter((t) => t === 'linerTab' || t === 'linerWall');
+      expect(staleTags, '不應殘留圍框版的 linerTab/linerWall tag').toEqual([]);
 
-      const boundaries = [tabRootSeg.x1, ...foldXs, sealX].sort((a, b) => a - b);
-      expect(boundaries, '應有 5 個邊界（tab 根 + 3 條壁間摺線 + 封邊）').toHaveLength(5);
-      const widths = boundaries.slice(1).map((x, i) => x - boundaries[i]!);
-      expect(widths[0], '段序第 1 段＝長壁 frameL').toBeCloseTo(203.4, 6);
-      expect(widths[1], '段序第 2 段＝短壁 frameW').toBeCloseTo(148.4, 6);
-      expect(widths[2], '段序第 3 段＝長壁 frameL').toBeCloseTo(203.4, 6);
-      expect(widths[3], '段序第 4 段＝短壁 frameW').toBeCloseTo(148.4, 6);
+      // 只量 crease/cut（實際製造幾何），排除 dimension 標註線——同 ExportBar.tsx FX3 教訓：
+      // 標註線因 DIM_OFFSET 外推會把 piece.bounds 撐大，直接拿 piece.bounds 驗會跟這組自檢錨對不上。
+      const geomOnly = segmentsBounds(linerPaths.filter((p) => p.type !== 'dimension').flatMap((p) => p.segments));
+      expect(geomOnly.maxX - geomOnly.minX, '攤平外圍寬＝padW+2×flapDepth＝121.4+30').toBeCloseTo(151.4, 6);
+      expect(geomOnly.maxY - geomOnly.minY, '攤平外圍高＝padL+2×flapDepth＝176.4+30').toBeCloseTo(206.4, 6);
     });
   });
 
@@ -532,11 +540,11 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
       expect(judgeNumericSlot(slot, 60, 60).ok, '對照組：y 向公式自洽應 pass').toBe(true);
     });
 
-    it('結構檢查：故意拿掉 halfcut/crease 其中一種型別應被抓到', () => {
-      const onlyCrease: DielinePath[] = [{ id: 'x', type: 'crease', tags: ['tongueFold', 'left'], segments: [] }];
-      expect(checkTuckFoldLineStructure(onlyCrease, 'left').ok, '缺 halfcut 應 fail').toBe(false);
+    it('結構檢查：故意拿掉 halfcut/cut 其中一種型別應被抓到', () => {
+      const onlyCut: DielinePath[] = [{ id: 'x', type: 'cut', tags: ['tongueFold', 'left'], segments: [] }];
+      expect(checkTuckFoldLineStructure(onlyCut, 'left').ok, '缺 halfcut 應 fail').toBe(false);
       const onlyHalfcut: DielinePath[] = [{ id: 'x', type: 'halfcut', tags: ['tongueFold', 'left'], segments: [] }];
-      expect(checkTuckFoldLineStructure(onlyHalfcut, 'left').ok, '缺 crease 應 fail').toBe(false);
+      expect(checkTuckFoldLineStructure(onlyHalfcut, 'left').ok, '缺 cut 應 fail').toBe(false);
     });
 
     it('lineType 判定（F6）：宣告 crease×2 但幾何只有單線／宣告 cut 但 path 缺失／未知宣告字串應被抓到', () => {
@@ -586,7 +594,9 @@ const ALWAYS_OK_INVARIANTS = new Set(['pieces-valid', 'pieces-identity', 'rim-fl
 const BOUNDARY_EXEMPT_TAGS: Record<string, readonly string[]> = {
   'gusset-b-fits': ['gusset'],
   'tongue-flap-fits': ['tongueFlap'],
-  'liner-flange-fits': ['linerFlange', 'linerWall', 'linerTab'],
+  // 2026-07-09 T7 gate 重定義：liner-flange-fits→liner-flap-fits；豁免範圍改為新幾何
+  // 的翼片 cut tag（'linerFlap'）——平台式重定義後底面 crease 不含 cut，'linerPad' 不需要豁免。
+  'liner-flap-fits': ['linerFlap'],
 };
 
 type Overrides = Partial<Record<string, number | boolean | string>>;
@@ -679,16 +689,24 @@ describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描
     }
   });
 
-  describe('內襯翻邊邊界 三值交叉（lidMargin×linerFitGap；驅動 liner-flange-fits）', () => {
-    for (const lidMargin of [1, 13.5, 40]) {
-      for (const linerFitGap of [0.2, 0.5, 2]) {
-        assertTelescopeSafe(`lidMargin=${lidMargin}, linerFitGap=${linerFitGap}`, { lidMargin, linerFitGap });
+  describe('內襯腳架邊界 三值交叉（baseHeight×linerFlapDepth；驅動 liner-flap-fits 條件 1「腳架深度超過壁高」，2026-07-09 T7 gate 重定義取代舊 lidMargin×linerFitGap 交叉——liner 不再錨定 lidMargin）', () => {
+    for (const baseHeight of [10, 60, 200]) {
+      for (const linerFlapDepth of [5, 15, 60]) {
+        assertTelescopeSafe(`baseHeight=${baseHeight}, linerFlapDepth=${linerFlapDepth}`, { baseHeight, linerFlapDepth });
       }
     }
-    assertTelescopeSafe('linerEnabled=false + lidMargin=1（關內襯時翻邊警告應被閘門擋下，不得假警告）', {
+    assertTelescopeSafe('linerEnabled=false + baseHeight=10（關內襯時腳架警告應被閘門擋下，不得假警告）', {
       linerEnabled: false,
-      lidMargin: 1,
+      baseHeight: 10,
     });
+  });
+
+  describe('內襯底面邊界 三值交叉（baseWidth×linerFlapDepth；驅動 liner-flap-fits 條件 3「翼片外緣反轉」）', () => {
+    for (const baseWidth of [30, 124, 600]) {
+      for (const linerFlapDepth of [5, 15, 60]) {
+        assertTelescopeSafe(`baseWidth=${baseWidth}, linerFlapDepth=${linerFlapDepth}`, { baseWidth, linerFlapDepth });
+      }
+    }
   });
 
   describe('全域極端組合（同 RTE「全部參數同時取 min/max」慣例）', () => {
