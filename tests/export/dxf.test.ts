@@ -5,65 +5,12 @@ import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
 import { toDxfDocument, DXF_LAYER_BY_LINETYPE } from '@/export/dxf';
+import { parseDxf } from './dxf-helpers';
 
-// ─────────────────────────────────────────────────────────────────────────
-// parseDxf：逐行讀 group code/value 配對、依 0 碼切「記錄」（SECTION/TABLE/LAYER/
-// LINE/ARC/POLYLINE/VERTEX/SEQEND/…），依所在 SECTION 分類成 layers（TABLES 段的
-// LAYER 名稱）與 entities（ENTITIES 段的每筆記錄）。結構性記錄（SECTION/ENDSEC/
-// TABLE/ENDTAB/EOF）本身不算 layer 也不算 entity。之後 Task 2（下載 UI）沿用同一份
-// helper 驗證匯出結果，故獨立於本檔任何單一測試案例、盡量通用。
-// ─────────────────────────────────────────────────────────────────────────
-
-export interface ParsedDxfEntity {
-  type: string;
-  layer: string;
-  codes: Record<number, string[]>;
-}
-
-export interface ParsedDxf {
-  layers: string[];
-  entities: ParsedDxfEntity[];
-}
-
-const STRUCTURAL_RECORD_TYPES = new Set(['SECTION', 'ENDSEC', 'TABLE', 'ENDTAB', 'EOF']);
-
-export function parseDxf(text: string): ParsedDxf {
-  const raw = text.split('\n');
-  const pairs: Array<[number, string]> = [];
-  for (let i = 0; i + 1 < raw.length; i += 2) {
-    pairs.push([Number(raw[i]!.trim()), raw[i + 1]!.trim()]);
-  }
-
-  const layers: string[] = [];
-  const entities: ParsedDxfEntity[] = [];
-  let section = '';
-  let record: { type: string; codes: Record<number, string[]> } | null = null;
-
-  const flush = () => {
-    if (record && !STRUCTURAL_RECORD_TYPES.has(record.type)) {
-      if (section === 'TABLES' && record.type === 'LAYER') {
-        layers.push(record.codes[2]?.[0] ?? '');
-      } else if (section === 'ENTITIES') {
-        entities.push({ type: record.type, layer: record.codes[8]?.[0] ?? '', codes: record.codes });
-      }
-    }
-    record = null;
-  };
-
-  for (const [code, value] of pairs) {
-    if (code === 0) {
-      flush();
-      record = { type: value, codes: {} };
-      continue;
-    }
-    if (!record) continue;
-    (record.codes[code] ??= []).push(value);
-    if (code === 2 && record.type === 'SECTION') section = value;
-  }
-  flush();
-
-  return { layers, entities };
-}
+// parseDxf（含型別）定義於 dxf-helpers.ts（review F1 修復：原本 export 於本檔，
+// tests/ui/app.test.tsx 靜態 import 一個 *.test.ts 檔會連帶重跑它自己的頂層 describe，
+// 讓本檔 12 個測試在 app.test.tsx 的 suite 裡重複執行一次；dxf-helpers.ts 非 .test.ts
+// 命名，Vitest 不會收集成測試檔，兩邊 import 都只拿函式本身）。詳見 dxf-helpers.ts 檔頭。
 
 // ─────────────────────────────────────────────────────────────────────────
 // 測試專用建構器與 bezier 數值 helper

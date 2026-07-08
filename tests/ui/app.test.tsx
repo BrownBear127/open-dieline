@@ -11,13 +11,14 @@ import { ExportBar } from '@/ui/ExportBar';
 import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
-// T1 的 parseDxf 匯出於 tests/export/dxf.test.ts（該檔 docblock 明說是為了讓 Task 2 重用、
-// 不重寫解析器）。已知副作用：靜態 import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的
-// describe（Vitest globals 模式下 `describe`/`it` 是模組執行當下綁定的全域，不是這裡新增的
-// 邏輯）——下面「ExportBar：下載 DXF」那組測試跑起來時，dxf.test.ts 自己的 12 個測試會
-// 在本檔案的測試報告裡「重複」出現一次，經驗證兩邊斷言完全一致、無副作用/無 flake，見
-// task-2-report.md「Issues or concerns」。
-import { parseDxf } from '../export/dxf.test';
+// T1 的 parseDxf 原本 export 於 tests/export/dxf.test.ts，供本檔重用、不重寫解析器；但靜態
+// import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的 describe（Vitest globals 模式下
+// `describe`/`it` 是模組執行當下綁定的全域）——下面「ExportBar：下載 DXF」那組測試跑起來時，
+// dxf.test.ts 自己的 12 個測試會在本檔案的測試報告裡「重複」出現一次（review F1，總數虛報
+// 429，實際 417；兩邊斷言完全一致、無 flake，但重複執行本身就是缺陷，不該留著）。
+// 修法：parseDxf（含型別）搬到 tests/export/dxf-helpers.ts——非 .test.ts 命名，Vitest 預設
+// include glob 不會收集成測試檔，兩邊 import 都只拿函式本身、不再連帶重跑任何 describe。
+import { parseDxf } from '../export/dxf-helpers';
 
 // ── 測試專用 harness：ExportBar 的 includeDimensions 改成受控 prop 後（T9 Fix Round 2
 // 修復 3，state 提升到 App.tsx），底下「ExportBar：下載內容與 includeDimensions checkbox
