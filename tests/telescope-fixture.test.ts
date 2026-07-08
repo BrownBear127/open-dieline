@@ -10,8 +10,9 @@
  *      這兩槽是新模組刻意做生產品漏做的平齊補償，差值＝t 是設計意圖不是 bug。
  *   3. y 向：只驗序列完整性＋公式關係，不驗與生產品的絕對差（D12 單一等邊 margin
  *      定案的已知後果）。
- *   4. 內襯 golden：圍框 203.4×148.4、翻邊 10.9、段序 tab|203.4|148.4|203.4|148.4、
- *      壁高 60（§4.2 導出鏈公式自產，不引用重建 SVG 數值）。
+ *   4. 內襯 golden（2026-07-09 T7 gate 反饋重定義：平台式腳架墊片，取代舊圍框版）：
+ *      底面 176.4×121.4、攤平 206.4×151.4、腳架翼深 15（45° 斜切、免膠無 tab；
+ *      §4.2 導出鏈公式自產，錨定下盒內淨）。
  *
  * 抽駐留座標的做法沿用 tray.ts 的 tag 慣例（['<landmark>','<side>']，見 telescope.test.ts
  * 對 generateTray() 的既有測試），但這裡一律走完整的 telescope.generate() 管線（而非直接呼叫
@@ -571,15 +572,16 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
 //
 // 「全過或正確警告」的判準：telescope 的 9 條不變式裡，pieces-valid／pieces-identity／
 // rim-flush／no-nan／no-bleed／bounds-cover 這 6 條是「恆真」不變式（由生成幾何的結構
-// 保證，任何合法參數組合下都不該 not-ok，若 not-ok 代表真的有 bug）；liner-flange-fits／
-// gusset-b-fits／tongue-flap-fits（fix wave F1 新增）三條是「設計上的參數域邊界」，允許
-// not-ok（margin 太小、薄壁角撐壁高太矮、面板邊過短），但警告訊息必須是非空字串
+// 保證，任何合法參數組合下都不該 not-ok，若 not-ok 代表真的有 bug）；liner-flap-fits
+// （2026-07-09 T7 gate 重定義，取代 liner-flange-fits）／gusset-b-fits／tongue-flap-fits
+// （fix wave F1 新增）三條是「設計上的參數域邊界」，允許 not-ok（腳架過深或底面過小、
+// 薄壁角撐壁高太矮、面板邊過短），但警告訊息必須是非空字串
 //（「正確警告」而非崩潰或回傳殘缺物件）。
 //
 // cut 自撞的「範圍化豁免」（fix wave F5——取代第一版的全域豁免）：邊界不變式警告觸發時，
 // 只豁免「該警告能解釋」的 tag 範圍（tongue-flap-fits→tongueFlap、gusset-b-fits→gusset、
-// liner-flange-fits→內襯帶），其餘 cut 照驗——全域豁免會讓一個 gusset 警告遮蔽掉舌片或
-// 內襯的新自撞；範圍化才能讓豁免精確對應「已警告的已知退化」，其餘部位的自撞仍是紅燈。
+// liner-flap-fits→linerFlap 翼片），其餘 cut 照驗——全域豁免會讓一個 gusset 警告遮蔽掉舌片
+// 或內襯的新自撞；範圍化才能讓豁免精確對應「已警告的已知退化」，其餘部位的自撞仍是紅燈。
 //
 // 只新增 tests/telescope-fixture.test.ts＋tests/fixtures/telescope-reference.json 兩檔的
 // 限制下（F1 例外授權動 src/boxes/telescope/index.ts），這個 describe block 放在本檔尾端。
@@ -711,8 +713,9 @@ describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描
 
   describe('全域極端組合（同 RTE「全部參數同時取 min/max」慣例）', () => {
     // 全部用真正的宣告 min（F2 revert）：baseLength/baseWidth=30 會觸發 tongue-flap-fits、
-    // 壁高 10＋薄壁觸發 gusset-b-fits、margin=1 觸發 liner-flange-fits——三條邊界警告
-    // 各自豁免自己的 tag 範圍，其餘 cut 照驗（F5）。
+    // 壁高 10＋薄壁觸發 gusset-b-fits、腳架深度（linerFlapDepth 未覆寫＝預設 15）＞壁高 10
+    // 觸發 liner-flap-fits（2026-07-09 平台式重定義後 lidMargin 與內襯無關，min 組合改由
+    // 這條件觸發）——三條邊界警告各自豁免自己的 tag 範圍，其餘 cut 照驗（F5）。
     assertTelescopeSafe('全部關鍵參數同時取 min', {
       baseLength: 30,
       baseWidth: 30,
