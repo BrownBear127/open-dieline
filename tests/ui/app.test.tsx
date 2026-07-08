@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { BoxModule, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
-import { registerBox, _clearRegistry } from '@/core/registry';
+import { registerBox, _clearRegistry, resolveParams } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
@@ -475,8 +475,8 @@ describe('ExportBar：pieces 存在時的「匯出目前視圖」（全版＋單
     expect(text).not.toContain('M0.00,20.00 L0.00,30.00'); // b-p0 不該出現
   });
 
-  it('單片匯出檔名為 {boxId}-{pieceId}-{L}x{W}.svg（L/W 取片 bounds 尺寸，fmt 2 位小數）', () => {
-    const pieceA = piecesResult.pieces![0]!; // bounds {minX:0,maxX:10,minY:0,maxY:5} → L=10.00 W=5.00
+  it('單片匯出檔名為 {boxId}-{pieceId}-{L}x{W}.svg（L/W 取片非 dimension paths 的 hull，fmt 2 位小數；FX3 修正後 pieceA 的 path 是水平線，height=0）', () => {
+    const pieceA = piecesResult.pieces![0]!; // bounds {minX:0,maxX:10,minY:0,maxY:5}——maxY=5 其實來自 a-t0 文字座標，不是幾何本身
     let capturedFilename = '';
     const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
@@ -485,7 +485,68 @@ describe('ExportBar：pieces 存在時的「匯出目前視圖」（全版＋單
       });
     render(<ExportBarHarness boxId="test-pieces-box" values={values} result={piecesResult} activePiece={pieceA} />);
     fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖' }));
-    expect(capturedFilename).toBe('test-pieces-box-piece-a-10.00x5.00.svg');
+    // FX3 修前：直接用 piece.bounds（含 a-t0 文字帶出的 maxY=5）→ 'test-pieces-box-piece-a-10.00x5.00.svg'。
+    // FX3 修後：只量非 dimension 的 path 幾何（唯一成員 a-p0 是 y=0 的水平線）→ height=0。
+    expect(capturedFilename).toBe('test-pieces-box-piece-a-10.00x0.00.svg');
+    clickSpy.mockRestore();
+  });
+
+  it('FX3：piece.bounds 因含尺寸標註線而外擴時，檔名改用非 dimension paths 的 hull，不再把標註延伸算進去', () => {
+    const pieceWithDim: GenerateResult = {
+      paths: [
+        {
+          id: 'cut-0',
+          type: 'cut',
+          segments: [
+            { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
+            { kind: 'line', x1: 10, y1: 0, x2: 10, y2: 20 },
+          ],
+        },
+        // 模擬尺寸標註線外擴出比實際製造幾何更大的包絡（spec 描述的「大 ~10mm」現象）。
+        { id: 'dim-0', type: 'dimension', segments: [{ kind: 'line', x1: -5, y1: -8, x2: 15, y2: 30 }] },
+      ],
+      texts: [],
+      // 依 pieces-valid 三向等式，piece.bounds 必須涵蓋含 dimension 在內的全部成員。
+      bounds: { minX: -5, maxX: 15, minY: -8, maxY: 30 },
+      pieces: [
+        {
+          id: 'piece-x',
+          label: { zh: '片X' },
+          pathIds: ['cut-0', 'dim-0'],
+          textIds: [],
+          bounds: { minX: -5, maxX: 15, minY: -8, maxY: 30 },
+        },
+      ],
+    };
+    const pieceX = pieceWithDim.pieces![0]!;
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    render(<ExportBarHarness boxId="test-pieces-box" values={{}} result={pieceWithDim} activePiece={pieceX} />);
+    fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖' }));
+    // 非 dimension（cut-0）的 hull：x∈[0,10]、y∈[0,20] → 10.00×20.00；
+    // 若沿用修前行為（直接用 piece.bounds）會得到 20.00×38.00（明顯偏大）。
+    expect(capturedFilename).toBe('test-pieces-box-piece-x-10.00x20.00.svg');
+    clickSpy.mockRestore();
+  });
+
+  it('FX1：全版匯出（activePiece 未傳）用真實 telescope 盒型——values 無 L/W/D 鍵，檔名改用 bounds 尺寸，不再退化成含 "?" 的檔名', () => {
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    // telescope 有 pieces，按鈕文字是「匯出目前視圖」；activePiece 不傳＝全版匯出路徑。
+    render(<ExportBarHarness boxId="telescope" values={params} result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖' }));
+    expect(capturedFilename, '修前：telescope 無 L/W/D 鍵，全部 fallback 成 "?"').not.toContain('?');
+    expect(capturedFilename).toMatch(/^telescope-\d+\.\d{2}x\d+\.\d{2}\.svg$/);
     clickSpy.mockRestore();
   });
 });
@@ -588,5 +649,69 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 
     expect(await screen.findByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // ── FX5（whole-branch review 修復）：selectedPieceId 復活 snap-back ──
+  //
+  // 根因：selectedPieceId 指向的片因為參數變動（非切盒型）而從 result.pieces 消失時
+  // （例如選定內襯單片視圖後關閉 linerEnabled），activePiece 的「找不到就視為全版」防呆
+  // 只保證「這一輪」畫面正確，但 selectedPieceId 這顆 state 本身沒有被清掉——之後只要
+  // pieces 又重新包含同一個 id（重新打開 linerEnabled），沒有任何點擊動作就會自動跳回
+  // 原本選定的單片視圖。修法：App.tsx 新增一個 effect，在 selectedPieceId 指向的片消失時
+  // 把 state 本身也清成 null。
+
+  it('FX5：選內襯單片後關閉 linerEnabled（fallback 全版），重新打開後不應無點擊自動跳回內襯視圖（selectedPieceId 復活 snap-back 回歸）', async () => {
+    render(<App />);
+    const select = screen.getByLabelText(/盒型/);
+    fireEvent.change(select, { target: { value: 'telescope' } });
+    await screen.findByRole('button', { name: '內襯' });
+
+    fireEvent.click(screen.getByRole('button', { name: '內襯' }));
+    expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'true');
+
+    const linerCheckbox = screen.getByLabelText(/內襯圍框/) as HTMLInputElement;
+    expect(linerCheckbox.checked).toBe(true);
+
+    fireEvent.click(linerCheckbox); // 關閉 linerEnabled → 'liner' 片消失，fallback 回全版
+    await waitFor(() => expect(screen.queryByRole('button', { name: '內襯' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(linerCheckbox); // 重新打開 linerEnabled → 'liner' 片重新出現
+    await screen.findByRole('button', { name: '內襯' });
+
+    // 核心斷言（修前會失敗）：沒有任何點擊「內襯」按鈕的動作，selectedPieceId 這顆 state
+    // 若沒被清成 null，'liner' 片一旦重新出現就會立刻復活成單片視圖——必須停留在全版。
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// FX4（whole-branch review 修復，UI 層驗證）：telescope 不變式警告觸發時，Canvas 必須
+// 真的出現高亮 path——修前 gusset-b-fits 回傳 tags=[platformKey]（參數名），對不到任何
+// 真實 path 的 tags（tray.ts 的角撐幾何用 'gusset'），高亮是無聲的 no-op；telescope.test.ts
+// 已有單元層級的「tags 命中真實 path tag 字典」驗證，這裡另外從真實 UI 渲染路徑補一條
+// 端到端證據：實際觸發警告後，畫布 DOM 裡確實多出一個 stroke="#FF6B00" 的 <path>。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope 不變式警告 tags 對應真實幾何（FX4，Canvas 高亮命中而非 no-op）', () => {
+  it('gusset-b-fits 觸發時，畫布應出現至少一個高亮 path（修前 tags=[platformKey] 對不到任何 path，高亮是無聲的 no-op）', async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'telescope' } });
+    const lidHeightInput = (await screen.findByLabelText(/上蓋壁高/)) as HTMLInputElement;
+    expect(document.querySelectorAll('path[stroke="#FF6B00"]').length, '尚未觸發警告前不應有高亮').toBe(0);
+
+    // lidPlatformWidth 預設 0（薄壁角撐），H=15 低於 minStyleBHeight(thickness=0.3) 門檻
+    // （≈16.635）→ 觸發 gusset-b-fits，且不會連帶觸發其他不變式（見 telescope.test.ts
+    // 既有測試「lidHeight 剛好低於門檻...」同一組態）。
+    fireEvent.change(lidHeightInput, { target: { value: '15' } });
+
+    await screen.findByText(/讓位槽幾何已擠壓變形/); // 先確認警告條真的出現
+    expect(
+      document.querySelectorAll('path[stroke="#FF6B00"]').length,
+      "gusset-b-fits 警告觸發後應有真實 path 被高亮（tags=['gusset'] 命中 tray.ts 的角撐 path）",
+    ).toBeGreaterThan(0);
   });
 });

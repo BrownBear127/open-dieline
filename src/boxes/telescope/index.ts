@@ -436,6 +436,28 @@ function generate(p: ResolvedParams): GenerateResult {
 // ─────────────────────────────────────────────────────────────────────────
 // 不變式
 // ─────────────────────────────────────────────────────────────────────────
+//
+// FX4（whole-branch review 查證結論：是 bug，非「tags 本來就是參數定位用途」）：`tags`
+// 欄位的唯一消費者是 Canvas.tsx 的 highlightTags 機制——`highlightSet` 由 hover 高亮
+// （ParamPanel 讀 `BoxParamDef.highlightTags`）∪ 不變式警告的 `tags` 聯集而成，
+// `isHighlighted` 拿它比對每條 `DielinePath.tags`（見 tray.ts/liner.ts 的 push 慣例，
+// 標的是 'wallRoot'/'wallTop'/'gusset'/'tongueFlap'/'linerFlange' 這類幾何 tag，不是
+// `BoxParamDef.key`）——這條鏈路裡沒有第二個「參數定位」用途。RTE 的不變式 tags 剛好
+// 常等於參數 key，只是因為 RTE 自己的 `path.tags`／`param.highlightTags` 也剛好用參數 key
+// 當 vocabulary（見 reverse-tuck-end.ts 的 push('cut','tuckLock',...) 與同名 param）；
+// telescope 的 `BoxParamDef.highlightTags` 從一開始就改用幾何 tag（見上方 params 宣告，
+// basePlatformWidth/thickness/linerFitGap 的 highlightTags 分別是 'wallTop'/'wallRoot'/
+// 'linerFlange'，不是參數自己的 key），下面幾條不變式當初卻直接複製 RTE 的「回傳參數 key」
+// 寫法，導致 tags 對不上任何真實 path——Canvas 高亮變成無聲的 no-op（review 抓到的
+// gusset-b-fits 只是其中一個例子）。本檔 telescope-fixture.test.ts 的 BOUNDARY_EXEMPT_TAGS
+// 表（cut 自撞豁免用途，另一條獨立機制）早就把 gusset-b-fits/tongue-flap-fits/
+// liner-flange-fits 對應到 'gusset'/'tongueFlap'/'linerFlange' 這組幾何 tag，等於這個
+// codebase 自己的另一處已經印證了正確 vocabulary 是什麼——這裡改成一致。
+// 修法：tags 改回傳 tray.ts/liner.ts 實際使用的幾何 tag（liner-flange-fits／rim-flush／
+// gusset-b-fits／tongue-flap-fits 四條）；pieces-identity 本來就用 baseLength/baseWidth/
+// lidMargin（這三個字串同時也是 index.ts 自己 makeDimension() 蓋的 dimension path 的
+// tag，見 buildBasePiece/buildLidPiece 呼叫 addTrayDimensions 傳入的 tagL/tagW/tagH），
+// 已經對得上真實 path，不用改。
 
 const invariants: BoxInvariant[] = [
   {
@@ -469,7 +491,9 @@ const invariants: BoxInvariant[] = [
         return {
           ok: false,
           message: { zh: `內襯翻邊寬 ${frame.flange.toFixed(2)}mm 小於最小可用寬度 ${MIN_FLANGE}mm，margin 太小放不下內襯` },
-          tags: ['lidMargin', 'linerFitGap'],
+          // FX4：'linerFitGap' 不是任何 path 的 tag（liner.ts 的翻邊 cut/crease 用
+          // 'linerFlange'，也是 linerFitGap 參數自己宣告的 highlightTags），改對。
+          tags: ['lidMargin', 'linerFlange'],
         };
       }
       return { ok: true };
@@ -521,7 +545,9 @@ const invariants: BoxInvariant[] = [
           return {
             ok: false,
             message: { zh: `${pieceId} 片先摺壁外壁高 ${walls.x.toFixed(3)}mm 應等於後摺壁 ${walls.y.toFixed(3)}mm − 紙厚 ${t}mm` },
-            tags: ['thickness'],
+            // FX4：'thickness' 不是任何 path 的 tag（tray.ts 的壁根 crease 用 'wallRoot'，
+            // 也是 thickness 參數自己宣告的 highlightTags），改對。
+            tags: ['wallRoot'],
           };
         }
       }
@@ -545,7 +571,9 @@ const invariants: BoxInvariant[] = [
           return {
             ok: false,
             message: { zh: `${platformKey}=0（薄壁角撐）時壁高 ${height}mm 低於 ${minH.toFixed(1)}mm，讓位槽幾何已擠壓變形` },
-            tags: [platformKey],
+            // FX4：platformKey（'basePlatformWidth'/'lidPlatformWidth'）不是任何 path 的
+            // tag，退化的讓位槽幾何本身標的是 'gusset'（tray.ts buildGussetA/buildGussetB），改對。
+            tags: ['gusset'],
           };
         }
       }
@@ -565,11 +593,14 @@ const invariants: BoxInvariant[] = [
       // 每片×每軸：x 向牆（左右壁）的舌片沿面板 y 邊分佈（perpHalf＝panelW/2）、
       // y 向牆（前後壁）沿面板 x 邊（perpHalf＝panelL/2）——見 tray.ts generateTray 的
       // buildWall 呼叫（perpHalfSpan 參數）。
+      // FX4：baseLength/baseWidth/lidMargin 三個字串本身有效（同時是 index.ts 自己蓋的
+      // dimension path tag，見上方檔頭註解），但真正退化的幾何是插底舌本身，補上
+      // 'tongueFlap'（tray.ts buildTongueFlap 的 tag）讓高亮同時點出實際自撞的那段輪廓。
       const checks: Array<[string, number, string[]]> = [
-        ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength']],
-        ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth']],
-        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMargin', baseLength + 2 * lidMargin, ['baseLength', 'lidMargin']],
-        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMargin', baseWidth + 2 * lidMargin, ['baseWidth', 'lidMargin']],
+        ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength', 'tongueFlap']],
+        ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth', 'tongueFlap']],
+        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMargin', baseLength + 2 * lidMargin, ['baseLength', 'lidMargin', 'tongueFlap']],
+        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMargin', baseWidth + 2 * lidMargin, ['baseWidth', 'lidMargin', 'tongueFlap']],
       ];
       for (const [label, edge, tags] of checks) {
         if (edge / 2 < MIN_TONGUE_PERP_HALF) {

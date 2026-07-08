@@ -26,7 +26,7 @@
  * zinc-50/white 主題，讓黑色 cut 線在白底畫布上清楚可見；前身移植的流程/互動
  * 手感〔pan/zoom、分組、hover 高亮〕不受影響，僅呈現層色票改動）。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { listBoxes } from '@/core/registry';
 // side-effect import：觸發 RTE 於模組載入時自我註冊（registry.ts 的 registerBox）。
 // 沒有這行 listBoxes() 恆為空、整個 App 沒有盒型可渲染——registry.ts 的設計是
@@ -60,6 +60,24 @@ export function App() {
     () => (selectedPieceId ? result.pieces?.find((p) => p.id === selectedPieceId) : undefined),
     [result, selectedPieceId],
   );
+
+  // FX5（whole-branch review）：selectedPieceId 復活 snap-back——上面的 activePiece 只是
+  // 「這一輪渲染要顯示什麼」的防呆，selectedPieceId 這顆 state 本身若不清掉，之後只要
+  // result.pieces 剛好又重新包含同一個 id（例如選定內襯單片視圖後關閉 linerEnabled
+  // fallback 回全版、再重新打開 linerEnabled），沒有任何點擊動作就會自動跳回原本選定的
+  // 單片視圖——這是 state 沒有真正歸零，不是 activePiece 算錯。用 effect、不用 render-phase
+  // setState（在 component function 本體內直接呼叫 setState，如 useParams.ts 切換 boxId
+  // 那種寫法）：render 期間呼叫 setState 觸發的重渲問題在 Slice 1 final review 已有前科
+  // 記錄，這裡讓 render 保持純粹，state 清除挪到 commit 後非同步處理（下一輪 re-render
+  // 才反映）。這與下面 box-select 用的 event-handler 同步重置（onChange callback 裡直接
+  // setSelectedPieceId(null)，不是 render-phase）是兩種情境：boxId 切換有明確的單一事件
+  // （select onChange）可以在事件處理常式裡同步處理，這裡的 pieces 消失可能由「任何」
+  // 參數改動觸發（不只 linerEnabled），沒有單一事件掛鉤，effect 是唯一乾淨的通用做法。
+  useEffect(() => {
+    if (selectedPieceId !== null && !result.pieces?.some((piece) => piece.id === selectedPieceId)) {
+      setSelectedPieceId(null);
+    }
+  }, [result.pieces, selectedPieceId]);
 
   const invariantWarnings = useMemo(
     () =>
