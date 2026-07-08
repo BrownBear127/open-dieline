@@ -16,12 +16,17 @@
  * 「匯出目前視圖」——語意跟著 Canvas 目前顯示的視圖走：`activePiece` 為 undefined（全版
  * 視圖）時輸出跟既有行為完全相同的整版 SVG；有值（單片視圖）時只輸出該片的 paths/texts
  * （依 pathIds/textIds 集合過濾，見 `scopeResultToPiece`），檔名也換成
- * `{boxId}-{pieceId}-{L}x{W}.svg`（L/W 取該片 bounds 尺寸，不是 values 裡的宣告參數——
- * 片 bounds 才是這片實際占用的製造尺寸，且多片盒型未必每片都對應到單一個宣告 key，例如
- * liner 是帶狀攤平、沒有單一「L」意義的參數）。`result.pieces` 為 undefined 的單片盒型
- * （RTE）完全不受影響：`hasPieces` 為 false，按鈕文字與匯出行為都維持原樣。
+ * `{boxId}-{pieceId}-{L}x{W}.svg`（L/W 取該片**非 dimension** paths 的 hull，不是
+ * `piece.bounds` 也不是 values 裡的宣告參數——`piece.bounds` 依 spec §3.3 三向等式必須
+ * 涵蓋含尺寸標註線在內的全部成員，直接拿來當檔名會比實際製造尺寸大一圈；viewBox 顯示仍用
+ * `piece.bounds` 原值，含標註匯出時標註線才不會跑出可視框外，只有檔名這裡改用更貼近製造
+ * 尺寸的窄口徑——見 `pieceManufacturingBounds`，FX3）。多片盒型未必每片都對應到單一個
+ * 宣告 key，例如 liner 是帶狀攤平、沒有單一「L」意義的參數，因此不採 values 反查。
+ * `result.pieces` 為 undefined 的單片盒型（RTE）完全不受影響：`hasPieces` 為 false，
+ * 按鈕文字與匯出行為都維持原樣。
  */
 import type { Bounds } from '@/core/geometry';
+import { segmentsBounds } from '@/core/geometry';
 import type { DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
 import { toSvgDocument } from '@/export/svg';
 
@@ -44,15 +49,24 @@ export interface ExportBarProps {
  * 檔名慣例沿用 spec §6.2 為 DXF 訂的 `{盒型id}-{L}x{W}x{D}` 模式（此處副檔名 .svg）——
  * brief 給的具體範例 `rte-{L}x{W}x{D}.svg` 是 v1 唯一盒型（boxId='rte'）代入這個
  * 通式後的結果，兩者逐字相符；泛化成 boxId 前綴讓 Slice 2 新盒型不必改這支檔案。
- * L/W/D 三個 key 若某盒型未宣告（v1 兩個盒型 RTE/天地盒皆有，见 spec §4），退化顯示
- * '?' 而非字面 "undefined"（防禦性 fallback，非預期路徑）。
+ *
+ * FX1（whole-branch review）：telescope 宣告的是 `baseLength`/`baseWidth`/`baseHeight`，
+ * 沒有 L/W/D 這三個 key——舊版無條件用 `dim('L')/dim('W')/dim('D')`，telescope 全版匯出
+ * 因此退化成 `telescope-?x?x?.svg`（三個都 fallback 成 '?'）。只有「L/W/D 三個 key 都
+ * 宣告」的盒型（v1 只有 RTE）才走原本的 `{L}x{W}x{D}` 模式；其餘盒型改用 `result.bounds`
+ * 的實際尺寸（比照 `buildPieceFilename` 的 maxX−minX/maxY−minY 模式，兩者共用同一套
+ * 「用幾何包絡而非猜測宣告 key」的 fallback 邏輯），格式退化為 `{boxId}-{length}x{width}.svg`
+ * （2 維，不是 3 維——bounds 天生只有兩個維度，沒有第三個「深度」可取）。
  */
-function buildFilename(boxId: string, values: ResolvedParams): string {
-  const dim = (key: string): string => {
-    const v = values[key];
-    return v === undefined ? '?' : String(v);
-  };
-  return `${boxId}-${dim('L')}x${dim('W')}x${dim('D')}.svg`;
+function buildFilename(boxId: string, values: ResolvedParams, bounds: Bounds): string {
+  const hasDeclaredLWD = ['L', 'W', 'D'].every((key) => values[key] !== undefined);
+  if (hasDeclaredLWD) {
+    const dim = (key: string): string => String(values[key]);
+    return `${boxId}-${dim('L')}x${dim('W')}x${dim('D')}.svg`;
+  }
+  const length = fmtDim(bounds.maxX - bounds.minX);
+  const width = fmtDim(bounds.maxY - bounds.minY);
+  return `${boxId}-${length}x${width}.svg`;
 }
 
 /**
@@ -70,14 +84,35 @@ function fmtDim(v: number): string {
 }
 
 /**
- * 單片匯出檔名：`{boxId}-{pieceId}-{L}x{W}.svg`——L/W 取該片 `bounds` 的實際尺寸，不是
- * `values` 裡的宣告參數（片 bounds 已經是「這片實際占用的製造尺寸」，多片盒型裡也未必每片
- * 都對應到單一個宣告 key，例如 liner 是帶狀攤平、沒有單一「L」意義的參數）。
+ * 單片匯出檔名：`{boxId}-{pieceId}-{L}x{W}.svg`——L/W 取該片**非 dimension** paths 的
+ * hull，不是 `piece.bounds` 也不是 `values` 裡的宣告參數（多片盒型裡也未必每片都對應到
+ * 單一個宣告 key，例如 liner 是帶狀攤平、沒有單一「L」意義的參數）。
+ *
+ * FX3（whole-branch review）：`piece.bounds` 依 `core/pieces.ts` 的 spec §3.3 三向等式，
+ * 必須完整涵蓋該片全部成員（含尺寸標註線與文字），直接拿 `piece.bounds` 當檔名尺寸會比
+ * 實際製造尺寸大一圈（含標註延伸與引出線）——使用者拿檔名對照實物量測時會困惑。改用
+ * `pieceManufacturingBounds()` 只量該片 cut/crease/halfcut 幾何（過濾掉
+ * `type==='dimension'` 的 paths 後 `segmentsBounds`），viewBox 顯示不受影響、仍用
+ * `piece.bounds` 原值（含標註匯出時標註線才不會跑出可視框外，見 Canvas.tsx 與本檔開頭
+ * docblock）。
  */
 function buildPieceFilename(boxId: string, pieceId: string, bounds: Bounds): string {
   const length = fmtDim(bounds.maxX - bounds.minX);
   const width = fmtDim(bounds.maxY - bounds.minY);
   return `${boxId}-${pieceId}-${length}x${width}.svg`;
+}
+
+/**
+ * 單片「製造尺寸」hull——排除 dimension 型別的 paths 後對剩餘 segments 取 segmentsBounds
+ * （FX3）。只用來算檔名，不影響 viewBox：viewBox 仍用 `piece.bounds` 原值（見上方
+ * `buildPieceFilename` docblock）。
+ */
+function pieceManufacturingBounds(result: GenerateResult, piece: DielinePiece): Bounds {
+  const pathIdSet = new Set(piece.pathIds);
+  const nonDimensionSegments = result.paths
+    .filter((p) => pathIdSet.has(p.id) && p.type !== 'dimension')
+    .flatMap((p) => p.segments);
+  return segmentsBounds(nonDimensionSegments);
 }
 
 /**
@@ -106,7 +141,9 @@ export function ExportBar({ boxId, values, result, includeDimensions, onIncludeD
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = activePiece ? buildPieceFilename(boxId, activePiece.id, activePiece.bounds) : buildFilename(boxId, values);
+    link.download = activePiece
+      ? buildPieceFilename(boxId, activePiece.id, pieceManufacturingBounds(result, activePiece))
+      : buildFilename(boxId, values, result.bounds);
     document.body.appendChild(link);
     link.click();
     URL.revokeObjectURL(url); // 每次下載都會 createObjectURL 一個新 blob URL，不 revoke 會持續洩漏

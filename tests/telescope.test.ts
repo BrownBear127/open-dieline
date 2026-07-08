@@ -603,6 +603,124 @@ describe('telescope: gusset-b-fits（薄壁角撐讓位槽最小壁高，minStyl
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// FX4（whole-branch review 查證）：telescope 不變式 tags 是否對應真實幾何
+//
+// 查證結論＝是 bug（見 src/boxes/telescope/index.ts 不變式區塊前的長註解）：Canvas.tsx
+// 的 highlightTags 機制只認 `DielinePath.tags`（tray.ts/liner.ts 蓋的幾何 tag），不變式
+// 回傳的 tags 若不是這個 vocabulary 裡的字串，高亮就是無聲的 no-op。下面針對修過的四條
+// （liner-flange-fits／rim-flush／gusset-b-fits／tongue-flap-fits）逐一驗證：警告觸發時
+// 回傳的 tags 必須至少有一個命中「真實 path 會用到的 tag 字典」。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlightTags 消費 path.tags，不是參數 key）', () => {
+  /** 兩種常見組態（含/不含 liner、厚壁/薄壁角撐）的 path tags 聯集——當「真實 tag 字典」，
+   *  用來驗證不變式回傳的 tags 不是憑空字串（未命中任何 path 等於 canvas 高亮 no-op）。 */
+  function realPathTagVocabulary(): Set<string> {
+    const withLiner = genTelescope();
+    const withoutLinerThinWalls = genTelescope({ linerEnabled: false, basePlatformWidth: 0, lidPlatformWidth: 0 });
+    const all = [...withLiner.paths, ...withoutLinerThinWalls.paths];
+    return new Set(all.flatMap((p) => p.tags ?? []));
+  }
+
+  it('sanity：真實幾何存在 wallRoot/wallTop/gusset/tongueFlap/linerFlange，不存在 thickness/linerFitGap/basePlatformWidth/lidPlatformWidth 這些參數名字面', () => {
+    const vocab = realPathTagVocabulary();
+    for (const geometric of ['wallRoot', 'wallTop', 'gusset', 'tongueFlap', 'linerFlange']) {
+      expect(vocab.has(geometric), `真實幾何應存在 tag「${geometric}」`).toBe(true);
+    }
+    for (const paramKey of ['thickness', 'linerFitGap', 'basePlatformWidth', 'lidPlatformWidth']) {
+      expect(vocab.has(paramKey), `真實幾何不應存在字面參數名 tag「${paramKey}」（否則本組測試沒有意義）`).toBe(false);
+    }
+  });
+
+  it('liner-flange-fits：警告 tags 全部命中真實 path tag（修前含 linerFitGap 不命中）', () => {
+    const vocab = realPathTagVocabulary();
+    const params = resolveParams(telescope, { lidMargin: 4 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    const outcome = inv.check(params, result);
+    expect(outcome.ok, 'lidMargin=4 應觸發警告').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.tags?.length ?? 0, '應至少有一個 tag').toBeGreaterThan(0);
+      for (const tag of outcome.tags!) {
+        expect(vocab.has(tag), `tag「${tag}」應命中至少一條真實 path（否則高亮 no-op）`).toBe(true);
+      }
+    }
+  });
+
+  it('rim-flush：警告 tags 命中真實 path tag（修前 thickness 不命中；合法參數域下 rim-flush 恆真，用構造的 fake result 直接觸發 check()）', () => {
+    const vocab = realPathTagVocabulary();
+    const fakeResult: GenerateResult = {
+      paths: [
+        { id: 'b-root-l', type: 'crease', tags: ['wallRoot', 'left'], segments: [{ kind: 'line', x1: -10, y1: -5, x2: -10, y2: 5 }] },
+        { id: 'b-top-l', type: 'crease', tags: ['wallTop', 'left'], segments: [{ kind: 'line', x1: -20, y1: -5, x2: -20, y2: 5 }] },
+        { id: 'b-root-back', type: 'crease', tags: ['wallRoot', 'back'], segments: [{ kind: 'line', x1: -5, y1: 8, x2: 5, y2: 8 }] },
+        { id: 'b-top-back', type: 'crease', tags: ['wallTop', 'back'], segments: [{ kind: 'line', x1: -5, y1: 8.3, x2: 5, y2: 8.3 }] },
+      ],
+      texts: [],
+      bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },
+      pieces: [
+        {
+          id: 'base',
+          label: { zh: '下盒' },
+          pathIds: ['b-root-l', 'b-top-l', 'b-root-back', 'b-top-back'],
+          textIds: [],
+          bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },
+        },
+        {
+          id: 'lid',
+          label: { zh: '上蓋' },
+          pathIds: ['b-root-l', 'b-top-l', 'b-root-back', 'b-top-back'],
+          textIds: [],
+          bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },
+        },
+      ],
+    };
+    const inv = telescope.invariants.find((i) => i.id === 'rim-flush')!;
+    // x 向外壁高（wallRoot~wallTop, left）=10、y 向外壁高（wallRoot~wallTop, back）=0.3，
+    // 10 ≠ 0.3-0.3=0，構造的 fake result 讓 base 片這條關係不成立，直接觸發 not-ok。
+    const outcome = inv.check({ thickness: 0.3 }, fakeResult);
+    expect(outcome.ok, '構造的 x/y 外壁高差不等於 t，應觸發警告').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.tags).toEqual(['wallRoot']);
+      for (const tag of outcome.tags!) {
+        expect(vocab.has(tag), `tag「${tag}」應命中至少一條真實 path（否則高亮 no-op）`).toBe(true);
+      }
+    }
+  });
+
+  it('gusset-b-fits：警告 tags 全部命中真實 path tag（修前 platformKey 不命中）', () => {
+    const vocab = realPathTagVocabulary();
+    const threshold = minStyleBHeight(0.3);
+    const params = resolveParams(telescope, { lidHeight: threshold - 0.5 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'gusset-b-fits')!;
+    const outcome = inv.check(params, result);
+    expect(outcome.ok, 'lidHeight 低於門檻應警告').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.tags).toEqual(['gusset']);
+      for (const tag of outcome.tags!) {
+        expect(vocab.has(tag), `tag「${tag}」應命中至少一條真實 path（否則高亮 no-op）`).toBe(true);
+      }
+    }
+  });
+
+  it('tongue-flap-fits：警告 tags 含 tongueFlap 且全部命中真實 path tag（修前缺 tongueFlap）', () => {
+    const vocab = realPathTagVocabulary();
+    const params = resolveParams(telescope, { baseLength: 30 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'tongue-flap-fits')!;
+    const outcome = inv.check(params, result);
+    expect(outcome.ok, 'baseLength=30 應警告').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.tags).toContain('tongueFlap');
+      for (const tag of outcome.tags!) {
+        expect(vocab.has(tag), `tag「${tag}」應命中至少一條真實 path（否則高亮 no-op）`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('telescope: 全部不變式在預設參數下通過（linerEnabled 開關兩態都驗）', () => {
   it('linerEnabled=true（預設）', () => {
     const params = resolveParams(telescope);
