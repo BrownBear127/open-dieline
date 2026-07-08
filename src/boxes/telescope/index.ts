@@ -229,6 +229,31 @@ export function minStyleBHeight(thickness: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// 插底舌梯形最小垂直半跨——解析推導（T5 param-sweep 挖出的退化區，fix wave F1）
+// ─────────────────────────────────────────────────────────────────────────
+
+// 複製自 tray.ts 的插底舌私有常數（tray.ts 未 export；若該檔調整這些值，這裡需要
+// 同步更新——同上方 B 款角撐常數的先例）。
+const TUCK_FLAP_DEPTH = 15;
+const TUCK_FLAP_SHALLOW_DEPTH = TUCK_FLAP_DEPTH / 2;
+const TONGUE_END_RECESS = 9;
+
+/**
+ * 插底舌梯形不反轉的最小「牆垂直半跨」（perpHalf＝該牆所在面板另一軸邊長的一半）。
+ *
+ * tray.ts 的 buildTongueFlap 讓梯形全深段兩端點落在 perpB＝−perpHalf＋recess＋
+ * TUCK_FLAP_SHALLOW_DEPTH、perpC＝perpHalf−recess−TUCK_FLAP_SHALLOW_DEPTH
+ * （recess＝min(TONGUE_END_RECESS, perpHalf)）；順序不反轉需要 perpB ≤ perpC ⇔
+ * perpHalf ≥ recess＋TUCK_FLAP_SHALLOW_DEPTH。perpHalf ≥ TONGUE_END_RECESS 時門檻
+ * ＝RECESS＋SHALLOW＝16.5；perpHalf < TONGUE_END_RECESS 時（recess 被鉗到 perpHalf）
+ * 條件化為 0 ≥ SHALLOW 恆不成立——兩段合併後退化條件就是 perpHalf < 16.5。
+ * 恰在 16.5 時全深段長度歸零（退化但不交叉）。已用 generateTray＋hasSelfIntersection
+ * 對 baseLength 二分搜尋驗證：32（perpHalf=16）自撞、33（perpHalf=16.5）乾淨
+ * （tests/telescope-fixture.test.ts 的 tongue-flap-fits 邊界測試釘住這組錨）。
+ */
+export const MIN_TONGUE_PERP_HALF = TONGUE_END_RECESS + TUCK_FLAP_SHALLOW_DEPTH;
+
+// ─────────────────────────────────────────────────────────────────────────
 // 從生成幾何反推量測值——rim-flush／pieces-identity 兩條不變式共用
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -521,6 +546,37 @@ const invariants: BoxInvariant[] = [
             ok: false,
             message: { zh: `${platformKey}=0（薄壁角撐）時壁高 ${height}mm 低於 ${minH.toFixed(1)}mm，讓位槽幾何已擠壓變形` },
             tags: [platformKey],
+          };
+        }
+      }
+      return { ok: true };
+    },
+  },
+  {
+    id: 'tongue-flap-fits',
+    description: {
+      zh: '插底舌兩端各留 TONGUE_END_RECESS 的角撐讓位、45° 過渡再各吃掉半個全深——牆的垂直半跨（＝面板另一軸邊長的一半）小於兩者之和（MIN_TONGUE_PERP_HALF=16.5mm）時，梯形全深段的兩端點順序反轉、插底舌 cut 自我交叉。門檻對應面板邊長 33mm。上蓋面板恆比下盒大 2×lidMargin（lidMargin 下限 1），實務上由下盒兩邊長把關，上蓋兩列為防禦性保留（防未來參數域調整）。只警告不擋（同 gusset-b-fits 慣例），讓使用者知道幾何已退化。',
+    },
+    check(params) {
+      const baseLength = params.baseLength as number;
+      const baseWidth = params.baseWidth as number;
+      const lidMargin = params.lidMargin as number;
+      const minEdge = 2 * MIN_TONGUE_PERP_HALF;
+      // 每片×每軸：x 向牆（左右壁）的舌片沿面板 y 邊分佈（perpHalf＝panelW/2）、
+      // y 向牆（前後壁）沿面板 x 邊（perpHalf＝panelL/2）——見 tray.ts generateTray 的
+      // buildWall 呼叫（perpHalfSpan 參數）。
+      const checks: Array<[string, number, string[]]> = [
+        ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength']],
+        ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth']],
+        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMargin', baseLength + 2 * lidMargin, ['baseLength', 'lidMargin']],
+        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMargin', baseWidth + 2 * lidMargin, ['baseWidth', 'lidMargin']],
+      ];
+      for (const [label, edge, tags] of checks) {
+        if (edge / 2 < MIN_TONGUE_PERP_HALF) {
+          return {
+            ok: false,
+            message: { zh: `${label}＝${edge}mm 低於插底舌讓位所需的最小邊長 ${minEdge}mm，該側插底舌梯形已反轉自撞` },
+            tags,
           };
         }
       }
