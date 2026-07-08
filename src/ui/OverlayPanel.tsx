@@ -41,6 +41,11 @@ const ALIGN_BUTTON_CLASS = 'flex-1 px-2 py-1 bg-white border border-zinc-200 tex
 export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds }: OverlayPanelProps) {
   const [unit, setUnit] = useState<OverlayUnit>('pt'); // 維護者生產檔慣例，見 spec UI 規格
   const [sourceInfo, setSourceInfo] = useState<OverlayParseResult['sourceInfo'] | null>(null);
+  // file input 是 uncontrolled 元件，瀏覽器選過檔後「再選同一個檔案」不會觸發 onChange
+  // （value 沒變）——「清除」後若使用者想重新匯入同一份檔案會靜默沒反應。用遞增 key 讓
+  // 「清除」時強制重掛載 input（原生的已選檔案記憶隨舊節點一起卸載），下次選檔一定是全新的
+  // change 事件。只在 handleClear 遞增，其餘互動不受影響。
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>): void => {
     const file = e.target.files?.[0];
@@ -101,6 +106,7 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
   const handleClear = (): void => {
     setSourceInfo(null);
     onOverlayStateChange(null);
+    setFileInputKey((k) => k + 1); // 見上方宣告處註解：強制重掛載 file input，清掉原生已選檔案記憶
   };
 
   return (
@@ -116,7 +122,14 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
         <label htmlFor="overlay-file" className={LABEL_CLASS}>
           匯入生產 SVG
         </label>
-        <input id="overlay-file" type="file" accept=".svg" onChange={handleFileChange} className="text-xs text-zinc-600" />
+        <input
+          key={fileInputKey}
+          id="overlay-file"
+          type="file"
+          accept=".svg"
+          onChange={handleFileChange}
+          className="text-xs text-zinc-600"
+        />
       </div>
 
       {overlayState && overlayState.warnings.length > 0 && (
