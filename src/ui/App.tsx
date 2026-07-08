@@ -40,6 +40,7 @@ import { useParams } from '@/ui/useParams';
 import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
+import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
 
 export function App() {
   const boxes = useMemo(() => listBoxes(), []);
@@ -49,6 +50,11 @@ export function App() {
   const [highlightTags, setHighlightTags] = useState<string[] | null>(null);
   const [includeDimensions, setIncludeDimensions] = useState(true);
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
+  // v0.2.0 宣告視窗：跟 includeDimensions/selectedPieceId 同一個提升理由——header 的
+  // 「關於」鈕與 modal 本體是平行的兄弟位置（一個在 aside 頂部，一個要蓋在整個畫面上），
+  // 只能靠共同父層的 state 同步開關。惰性初始值只在掛載當下讀一次 localStorage：
+  // 首次訪問（未關過）預設開啟，關過的訪客重新整理後不會再自動彈出。
+  const [announcementOpen, setAnnouncementOpen] = useState(() => !isAnnouncementDismissed());
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
 
@@ -92,14 +98,24 @@ export function App() {
       <aside className="w-[320px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto p-5 border-r border-zinc-200">
         <div className="flex items-center justify-between">
           <h1 className="text-sm font-bold uppercase tracking-widest text-zinc-900">open-dieline</h1>
-          <button
-            type="button"
-            onClick={reset}
-            title="清除全部參數覆寫，回到預設值"
-            className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-blue-600"
-          >
-            重設全部
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setAnnouncementOpen(true)}
+              title="重新開啟專案介紹"
+              className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-blue-600"
+            >
+              關於
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              title="清除全部參數覆寫，回到預設值"
+              className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-blue-600"
+            >
+              重設全部
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5 p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
@@ -156,6 +172,8 @@ export function App() {
           onSelectPiece={setSelectedPieceId}
         />
       </main>
+
+      <AnnouncementModal open={announcementOpen} onClose={() => setAnnouncementOpen(false)} />
     </div>
   );
 }
