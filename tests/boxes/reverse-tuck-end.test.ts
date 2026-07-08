@@ -71,12 +71,12 @@ function parseDToSegments(d: string): Segment[] {
 type ReferenceFixture = { paths: { type: string; d: string }[] };
 
 /**
- * 依線型分組取出 reference 的 Segment（Fix Round 1 #1：cut 與 crease 分開比對，不得攤平混記）。
- *
- * dimension 線永遠被排除在外（前身標註線含文字定位微差可接受；主幾何 cut/crease 必須全等），
- * 只呼叫本函式取 'cut' 或 'crease' 兩種型別，等於天然延續了原本「排除 dimension」的規則。
+ * 依線型分組取出 reference 的 Segment（Fix Round 1 #1：cut 與 crease 分開比對，不得攤平混記；
+ * FX6：dimension 併入同一套分組比對——t=0 時三個 addDim() 呼叫用的 x1/x2/x3 全部來自 girth
+ * 補償後的 wP1..wP4，補償在 t=0 時歸零、與前身完全一致，dimension 座標理論上也該逐位元
+ * 相等，不再是排除在外的例外；見下方等價驗證測試）。
  */
-function parseReferenceSegmentsByType(raw: ReferenceFixture, type: 'cut' | 'crease'): Segment[] {
+function parseReferenceSegmentsByType(raw: ReferenceFixture, type: 'cut' | 'crease' | 'dimension'): Segment[] {
   return raw.paths.filter((p) => p.type === type).flatMap((p) => parseDToSegments(p.d));
 }
 
@@ -110,7 +110,7 @@ describe('reverseTuckEnd', () => {
     expect(getBox('rte')).toBe(reverseTuckEnd);
   });
 
-  it('等價驗證：與前身輸出在 normalized Segment 層一致，cut/crease 分線型比對（spec §4.1，Fix Round 1 #1）', () => {
+  it('等價驗證：與前身輸出在 normalized Segment 層一致，cut/crease/dimension 分線型比對（spec §4.1，Fix Round 1 #1；FX6 補強 dimension 座標）', () => {
     // 為什麼分組比對比攤平比對嚴格：攤平比對（舊版）把 cut 跟 crease 全部丟進同一個集合
     // 再比對聯集內容，line type 標籤本身完全不影響這個聯集——如果某條線的座標算對了、
     // 但被標成錯的線型（例如該是 cut 卻標成 crease），攤平比對完全看不出來，照樣綠燈。
@@ -127,16 +127,19 @@ describe('reverseTuckEnd', () => {
     expect(oursCut, 'cut 分組').toEqual(referenceCut);
     expect(oursCrease, 'crease 分組').toEqual(referenceCrease);
 
-    // dimension 分組數量獨立檢查（上面兩個 expect 只驗 cut/crease，契約排除 dimension——
-    // 見檔頭註解「dimension 線永遠被排除在外」，dimension 分組本身過去沒有任何斷言）。
-    // 這裡數的是攤平後的線段數，不是 result.paths 裡 type==='dimension' 的 DielinePath
-    // 物件數：3 次 addDim 呼叫（P2 寬度／P3 長度／盒身高度）各自把 dimensionLine() 產生的
-    // 3 條線段（兩條引出線＋一條主標註線）bundle 成 1 個 DielinePath，所以 result.paths
-    // 層級只有 3 筆 type=dimension 的物件；攤平 segments 後才是 9 條，與 fixture（前身
-    // 逐段展開、一段一個 JSON path 的計數口徑）的 dimension 數一致——見
+    // FX6：dimension 分組座標比對（原本只驗數量，位置漂移會滑過）。這裡數的是攤平後的
+    // 線段數，不是 result.paths 裡 type==='dimension' 的 DielinePath 物件數：3 次 addDim
+    // 呼叫（P2 寬度／P3 長度／盒身高度）各自把 dimensionLine() 產生的 3 條線段（兩條引出線
+    // ＋一條主標註線）bundle 成 1 個 DielinePath，所以 result.paths 層級只有 3 筆
+    // type=dimension 的物件；攤平 segments 後才是 9 條，與 fixture（前身逐段展開、一段一個
+    // JSON path 的計數口徑）的 dimension 數一致——見
     // docs/plans/2026-07-07-v1-slice1-core-rte.md:347「前身實測值：cut 19/crease 14/dimension 9」。
-    const dimensionSegments = result.paths.filter((p) => p.type === 'dimension').flatMap((p) => p.segments);
-    expect(dimensionSegments, 'dimension 分組（flatten 後線段數，fixture 實測值 9）').toHaveLength(9);
+    // t=0 時三條 addDim 呼叫用的 x1/x2/x3 全部來自 girth 補償後的 wP1..wP4（補償歸零），
+    // 逐一手算核對後與 fixture 的 9 段逐位元相符（見 task report FX6 段落），改用
+    // normalizeSegments 全等比對，不再只驗數量。
+    const oursDimension = normalizeSegments(result.paths.filter((p) => p.type === 'dimension').flatMap((p) => p.segments));
+    const referenceDimension = normalizeSegments(parseReferenceSegmentsByType(referenceRaw, 'dimension'));
+    expect(oursDimension, 'dimension 分組（FX6：座標全等比對，原本只驗數量）').toEqual(referenceDimension);
   });
 
   it('parseReferenceSegmentsByType 對 A 指令的 rx/ry/rotation/largeArc 顯式斷言（Fix Round 1 #4）', () => {
@@ -429,5 +432,83 @@ describe('reverseTuckEnd', () => {
     const zero = normalizeSegments(gen({ thickness: 0 }).paths.flatMap((p) => p.segments));
     const withT = normalizeSegments(gen({ thickness: 0.4 }).paths.flatMap((p) => p.segments));
     expect(withT, 'thickness 從 0 改到 0.4 應改變幾何輸出').not.toEqual(zero);
+  });
+
+  // ── FX2（whole-branch review 修復）：tuck-lock-fits／tuck-radius-clamped 改用 girth
+  // 補償後的蓋板寬度，不再誤用名義 L——glueSide='right' 且 thickness>0 時，蓋板兩側實際
+  // 寬度（wP1/wP3）分別是 L+2t／L+t，舊版直接拿 L 當上限，會把「名義 L 之上、實際補償後
+  // 寬度之下」的合法值誤判成超限（假警告）。──
+
+  it('FX2：tuck-lock-fits——glueSide=right/thickness=0.8 時，tuckLock 貼「名義上限」但未超「補償後上限」不應警告（修前會假警告）', () => {
+    // L=32,thickness=0.8,glueSide=right → wP1=L+2t=33.6、wP3=L+t=32.8，較小值（補償後
+    // 上限）=32.8；名義 L=32。tuckLock=32.5 落在 (32,32.8] 這個「修前誤判超限、修後正確
+    // 判定未超限」的窗口內。
+    const params = resolveParams(reverseTuckEnd, { L: 32, thickness: 0.8, glueSide: 'right', tuckLock: 32.5 });
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-lock-fits')!;
+    expect(inv.check(params, result), 'tuckLock(32.5) 未超補償後上限(32.8) 不應警告').toMatchObject({ ok: true });
+  });
+
+  it('FX2：tuck-lock-fits——對照組，tuckLock 真的超過補償後上限（32.8）時仍應警告（沒有把真超限也吃掉）', () => {
+    const params = resolveParams(reverseTuckEnd, { L: 32, thickness: 0.8, glueSide: 'right', tuckLock: 33 });
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-lock-fits')!;
+    expect(inv.check(params, result), 'tuckLock(33) > 補償後上限(32.8) 應警告').toMatchObject({ ok: false });
+  });
+
+  it('FX2：tuck-lock-fits——glueSide=left 時補償後上限恆等於名義 L（comp[0]=0），行為與修復前一致', () => {
+    const params = resolveParams(reverseTuckEnd, { L: 32, thickness: 0.8, glueSide: 'left', tuckLock: 32.5 });
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-lock-fits')!;
+    expect(
+      inv.check(params, result),
+      'glueSide=left 時 tuckLock(32.5) > L(32) 仍應警告（上限沒被誤放寬）',
+    ).toMatchObject({ ok: false });
+  });
+
+  it('FX2：tuck-radius-clamped——glueSide=right/thickness=0.8 時，tuckRadius 貼「名義上限」但未超「補償後上限」不應警告（修前會假警告）', () => {
+    // L=32,tuckClearance=2,thickness=0.8,glueSide=right → 補償後蓋板寬（wP3）=32.8，
+    // tongueHalfWidth_new=(32.8-4)/2=14.4；名義 tongueHalfWidth_old=(32-4)/2=14。
+    // tuckDepth=20 夠大，不會成為鉗制瓶頸（limit=tongueHalfWidth）。tuckRadius=14.2 落在
+    // (14,14.4] 這個「修前誤判超限、修後正確判定未超限」的窗口內，且仍在宣告 max=15 內。
+    const params = resolveParams(reverseTuckEnd, {
+      L: 32,
+      thickness: 0.8,
+      glueSide: 'right',
+      tuckClearance: 2,
+      tuckDepth: 20,
+      tuckRadius: 14.2,
+    });
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-radius-clamped')!;
+    expect(inv.check(params, result), 'tuckRadius(14.2) 未超補償後上限(14.4) 不應警告').toMatchObject({ ok: true });
+  });
+
+  it('FX2：tuck-radius-clamped——對照組，tuckRadius 真的超過補償後上限（14.4）時仍應警告', () => {
+    const params = resolveParams(reverseTuckEnd, {
+      L: 32,
+      thickness: 0.8,
+      glueSide: 'right',
+      tuckClearance: 2,
+      tuckDepth: 20,
+      tuckRadius: 14.5,
+    });
+    const result = reverseTuckEnd.generate(params);
+    const inv = reverseTuckEnd.invariants.find((i) => i.id === 'tuck-radius-clamped')!;
+    expect(inv.check(params, result), 'tuckRadius(14.5) > 補償後上限(14.4) 應警告').toMatchObject({ ok: false });
+  });
+
+  it('FX2：golden 快照與 t=0 等價測試不受影響（不變式修正不動幾何，只動上限計算）', () => {
+    // 自檢：本 fix wave 只改 tuck-lock-fits/tuck-radius-clamped 兩條不變式的「判斷上限」，
+    // 不動 generate() 任何一行——t=0 等價測試與 golden 快照理應維持零 diff，這裡另外
+    // 顯式釘一條「預設參數下兩條不變式仍是 ok」的回歸，防止未來重構不小心誤觸 generate()。
+    const params = resolveParams(reverseTuckEnd);
+    const result = reverseTuckEnd.generate(params);
+    expect(reverseTuckEnd.invariants.find((i) => i.id === 'tuck-lock-fits')!.check(params, result)).toMatchObject({
+      ok: true,
+    });
+    expect(reverseTuckEnd.invariants.find((i) => i.id === 'tuck-radius-clamped')!.check(params, result)).toMatchObject({
+      ok: true,
+    });
   });
 });
