@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { Segment } from '@/core/geometry';
 import { hasNaN, hasSelfIntersection, normalizeSegments, segmentsBounds } from '@/core/geometry';
-import type { DielinePath, LineType } from '@/core/types';
+import type { DielinePath, GenerateResult, LineType } from '@/core/types';
 import { generateTray, type TrayOpts } from '@/boxes/telescope/tray';
+import { getBox, resolveParams } from '@/core/registry';
+import { telescope, minStyleBHeight } from '@/boxes/telescope';
+import { deriveLinerFrame, generateLiner, MIN_FLANGE } from '@/boxes/telescope/liner';
+import { validatePieces } from '@/core/pieces';
 
 // ── 測試專用查詢 helper（依 tray.ts 的 tags 慣例：['<landmark>', '<side>']）──
 
@@ -398,5 +402,230 @@ describe('gusset 幾何（座標級迴歸）', () => {
       }
     }
     expect(failures, `異常組合：${failures.join('; ')}`).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// T4：telescope BoxModule 組裝（liner 導出鏈／pieces／專屬不變式／假旋鈕／golden）
+// ─────────────────────────────────────────────────────────────────────────
+
+/** 預設參數上疊 overrides 後直接 generate 的捷徑（同 RTE 測試的 `gen` 慣例）。 */
+const genTelescope = (overrides?: Partial<Record<string, number | boolean | string>>) =>
+  telescope.generate(resolveParams(telescope, overrides));
+
+describe('telescope', () => {
+  it('模組載入時已透過 registerBox 自行註冊（id=telescope）', () => {
+    expect(getBox('telescope')).toBe(telescope);
+  });
+});
+
+describe('telescope: liner 導出鏈（deriveLinerFrame／generateLiner，brief Step 1 驗算錨）', () => {
+  it('t=0.4/lidMargin=13.5/fitGap=0.5/base 179×124×60 → 圍框 203.4×148.4、翻邊 10.9', () => {
+    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, lidMargin: 13.5, thickness: 0.4, fitGap: 0.5 });
+    expect(frame.frameL, '圍框外圍（長壁側，對應 baseLength 軸）').toBeCloseTo(203.4, 6);
+    expect(frame.frameW, '圍框外圍（短壁側，對應 baseWidth 軸）').toBeCloseTo(148.4, 6);
+    expect(frame.flange, '翻邊寬＝lidMargin−4t−2×fitGap').toBeCloseTo(10.9, 6);
+  });
+
+  it('同組參數：攤平帶右緣（tab 根到外緣的水平總跨）＝718.6、壁帶高＝flange+wallH＝70.9', () => {
+    const liner = generateLiner({
+      baseLength: 179,
+      baseWidth: 124,
+      baseHeight: 60,
+      lidMargin: 13.5,
+      thickness: 0.4,
+      fitGap: 0.5,
+      idPrefix: 'liner',
+      offsetX: 0,
+      offsetY: 0,
+    });
+    // 右緣＝壁帶底邊 cut 的最遠端點；這條線的座標由「tab 根 + 4 段壁寬」直接決定，
+    // 不受 tab 45° 斜切內縮或標註線外推影響（兩者都不改變這條線本身的端點）。
+    const bottomEdge = liner.paths.find((p) => p.type === 'cut' && p.tags?.includes('linerWall') && p.tags?.includes('bottom'))!;
+    const bottomSeg = bottomEdge.segments[0] as Extract<Segment, { kind: 'line' }>;
+    expect(Math.max(bottomSeg.x1, bottomSeg.x2), '攤平帶總寬＝15(tab)+2×(203.4+148.4)=718.6').toBeCloseTo(718.6, 6);
+
+    // tab 根摺線縱貫 yFold(=flange)→yBot(=flange+wallH)，直接讀出兩個驗算錨。
+    const tabRoot = liner.paths.find((p) => p.type === 'crease' && p.tags?.includes('linerTab') && p.tags?.includes('root'))!;
+    const rootSeg = tabRoot.segments[0] as Extract<Segment, { kind: 'line' }>;
+    expect(Math.abs(rootSeg.y2 - rootSeg.y1), '壁帶高＝wallH＝baseHeight＝60').toBeCloseTo(60, 6);
+    expect(Math.min(rootSeg.y1, rootSeg.y2), 'yFold＝flange＝10.9').toBeCloseTo(10.9, 6);
+  });
+
+  it('t=0：翻邊與圍框仍是 lidMargin/fitGap 的一次函數（歸零項只剩 −2×fitGap），無 NaN', () => {
+    const frame = deriveLinerFrame({ baseLength: 179, baseWidth: 124, lidMargin: 13.5, thickness: 0, fitGap: 0.5 });
+    expect(frame.flange).toBeCloseTo(13.5 - 1, 6);
+    const liner = generateLiner({ baseLength: 179, baseWidth: 124, baseHeight: 60, lidMargin: 13.5, thickness: 0, fitGap: 0.5, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
+    expect(hasNaN(liner.paths.flatMap((p) => p.segments))).toBe(false);
+  });
+
+  it('offsetX/offsetY 對整體幾何做剛體平移（bounds 跟著平移相同量，同 tray 的版面位移慣例）', () => {
+    const plain = generateLiner({ baseLength: 179, baseWidth: 124, baseHeight: 60, lidMargin: 13.5, thickness: 0.4, fitGap: 0.5, idPrefix: 'liner', offsetX: 0, offsetY: 0 });
+    const shifted = generateLiner({ baseLength: 179, baseWidth: 124, baseHeight: 60, lidMargin: 13.5, thickness: 0.4, fitGap: 0.5, idPrefix: 'liner', offsetX: 50, offsetY: -30 });
+    expect(shifted.bounds.minX - plain.bounds.minX).toBeCloseTo(50, 6);
+    expect(shifted.bounds.minY - plain.bounds.minY).toBeCloseTo(-30, 6);
+  });
+});
+
+describe('telescope: pieces 分組（linerEnabled 開關／pieces-identity 防對調）', () => {
+  it('linerEnabled=true（預設）→ pieces=[base,lid,liner]，各片 pathIds/textIds 非空，validatePieces 通過', () => {
+    const result = genTelescope();
+    expect(result.pieces?.map((p) => p.id)).toEqual(['base', 'lid', 'liner']);
+    for (const piece of result.pieces!) {
+      expect(piece.pathIds.length, `${piece.id} pathIds 應非空`).toBeGreaterThan(0);
+      expect(piece.textIds.length, `${piece.id} textIds 應非空（3 條標註/2 條標註至少各有 text）`).toBeGreaterThan(0);
+    }
+    expect(validatePieces(result)).toEqual({ ok: true });
+  });
+
+  it('linerEnabled=false → pieces=[base,lid] 兩片，不產生任何 liner- 開頭的 path，validatePieces 通過', () => {
+    const result = genTelescope({ linerEnabled: false });
+    expect(result.pieces?.map((p) => p.id)).toEqual(['base', 'lid']);
+    expect(result.paths.some((p) => p.id.startsWith('liner-')), '不應殘留任何 liner path').toBe(false);
+    expect(validatePieces(result)).toEqual({ ok: true });
+  });
+
+  it('pieces-identity 不變式：預設參數下 base/lid 主面板實測與 baseLength/baseWidth/lidMargin 吻合', () => {
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'pieces-identity')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: true });
+  });
+
+  it('人為互換 base/lid 的 pathIds/textIds（模擬「pieces 整包對調」的迴歸）→ pieces-identity 應偵測不通過', () => {
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    const basePiece = result.pieces!.find((p) => p.id === 'base')!;
+    const lidPiece = result.pieces!.find((p) => p.id === 'lid')!;
+    const swapped: GenerateResult = {
+      ...result,
+      pieces: result.pieces!.map((p) => {
+        if (p.id === 'base') return { ...p, pathIds: lidPiece.pathIds, textIds: lidPiece.textIds };
+        if (p.id === 'lid') return { ...p, pathIds: basePiece.pathIds, textIds: basePiece.textIds };
+        return p;
+      }),
+    };
+    const inv = telescope.invariants.find((i) => i.id === 'pieces-identity')!;
+    expect(inv.check(params, swapped)).toMatchObject({ ok: false });
+  });
+});
+
+describe('telescope: rim-flush（先摺壁外壁高＝後摺壁外壁高−t，base/lid 皆驗）', () => {
+  it('預設參數下 rim-flush 通過', () => {
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'rim-flush')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: true });
+  });
+
+  it('thickness 假旋鈕（0／0.3／0.8）下 rim-flush 皆自洽通過（頂緣平齊修正對任意 t 都成立）', () => {
+    for (const thickness of [0, 0.3, 0.8]) {
+      const params = resolveParams(telescope, { thickness });
+      const result = telescope.generate(params);
+      const inv = telescope.invariants.find((i) => i.id === 'rim-flush')!;
+      expect(inv.check(params, result), `thickness=${thickness}`).toMatchObject({ ok: true });
+    }
+  });
+});
+
+describe('telescope: liner-flange-fits（翻邊寬 ≥ MIN_FLANGE=5，否則警告）', () => {
+  it('預設參數（flange＝13.5−1.2−1＝11.3）通過', () => {
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: true });
+  });
+
+  it('lidMargin 太小（flange<5）→ 警告不通過', () => {
+    const params = resolveParams(telescope, { lidMargin: 4 }); // flange = 4 − 4×0.3 − 2×0.5 = 1.8 < 5
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: false });
+  });
+
+  it('flange 恰好等於 MIN_FLANGE 邊界（非嚴格小於）：應通過', () => {
+    // flange = lidMargin − 4×0.3 − 2×0.5 = lidMargin − 2.2 = MIN_FLANGE(5) → lidMargin = 7.2
+    const params = resolveParams(telescope, { lidMargin: MIN_FLANGE + 2.2 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'liner-flange-fits')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: true });
+  });
+});
+
+describe('telescope: gusset-b-fits（薄壁角撐讓位槽最小壁高，minStyleBHeight 解析推導）', () => {
+  it('minStyleBHeight 在 thickness=0/0.3/0.4/0.8 的值——獨立二分搜尋驗證過的錨（見 task-4-report.md），非由公式自證', () => {
+    // 這幾個數字是另外寫腳本、用 generateTray+hasSelfIntersection 對 height 做二分搜尋
+    // 獨立算出來的（非從 minStyleBHeight 的公式反推），閉式解與搜尋結果殘差 <1e-5mm。
+    expect(minStyleBHeight(0)).toBeCloseTo(16.1124, 3);
+    expect(minStyleBHeight(0.3)).toBeCloseTo(16.6351, 3);
+    expect(minStyleBHeight(0.4)).toBeCloseTo(16.8093, 3);
+    expect(minStyleBHeight(0.8)).toBeCloseTo(17.5063, 3);
+  });
+
+  it('lidHeight 剛好低於門檻（platform=0）→ 警告；剛好高於→ 通過', () => {
+    const threshold = minStyleBHeight(0.3); // 預設 thickness
+    const below = resolveParams(telescope, { lidHeight: threshold - 0.5 });
+    const above = resolveParams(telescope, { lidHeight: threshold + 0.5 });
+    const inv = telescope.invariants.find((i) => i.id === 'gusset-b-fits')!;
+    expect(inv.check(below, telescope.generate(below)), '低於門檻應警告').toMatchObject({ ok: false });
+    expect(inv.check(above, telescope.generate(above)), '高於門檻應通過').toMatchObject({ ok: true });
+  });
+
+  it('basePlatformWidth=0 時（下盒改用薄壁）同樣受此門檻約束，不是只查 lid', () => {
+    const threshold = minStyleBHeight(0.3);
+    const params = resolveParams(telescope, { basePlatformWidth: 0, baseHeight: threshold - 0.5 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'gusset-b-fits')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: false });
+  });
+
+  it('門檻之上 0.5mm：與 hasSelfIntersection 交叉驗證，確認真的沒有自撞（不只是不變式沒報而已）', () => {
+    const threshold = minStyleBHeight(0.3);
+    const params = resolveParams(telescope, { lidHeight: threshold + 0.5 });
+    const result = telescope.generate(params);
+    const cutSegs = result.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+    expect(hasSelfIntersection(cutSegs)).toBe(false);
+  });
+});
+
+describe('telescope: 全部不變式在預設參數下通過（linerEnabled 開關兩態都驗）', () => {
+  it('linerEnabled=true（預設）', () => {
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    for (const inv of telescope.invariants) {
+      expect(inv.check(params, result), inv.id).toMatchObject({ ok: true });
+    }
+  });
+
+  it('linerEnabled=false', () => {
+    const params = resolveParams(telescope, { linerEnabled: false });
+    const result = telescope.generate(params);
+    for (const inv of telescope.invariants) {
+      expect(inv.check(params, result), inv.id).toMatchObject({ ok: true });
+    }
+  });
+});
+
+describe('telescope: 假旋鈕（每個宣告參數都接線，spec §8；10 參數自動迴圈）', () => {
+  it('每個參數取第二有效值都改變輸出', () => {
+    expect(telescope.params, 'brief 逐字 10 個參數').toHaveLength(10);
+    const base = normalizeSegments(genTelescope().paths.flatMap((p) => p.segments));
+    for (const param of telescope.params) {
+      const alt =
+        param.unit === 'bool'
+          ? !(param.default as boolean)
+          : param.unit === 'enum'
+            ? param.options!.find((o) => o.value !== param.default)!.value
+            : Math.min(param.max ?? 999, (param.default as number) + Math.max(param.step ?? 1, 1));
+      const out = normalizeSegments(genTelescope({ [param.key]: alt }).paths.flatMap((s) => s.segments));
+      expect(out, `參數 ${param.key} 未接線`).not.toEqual(base);
+    }
+  });
+});
+
+describe('telescope: golden 快照（預設參數，t=0.3）', () => {
+  it('golden 快照', () => {
+    const result = genTelescope();
+    expect(normalizeSegments(result.paths.flatMap((p) => p.segments))).toMatchSnapshot();
   });
 });
