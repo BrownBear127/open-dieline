@@ -72,7 +72,7 @@ export interface ExportBarProps {
  * `ext`（Slice 3 Task 2 新增）：SVG／DXF 下載共用這份檔名邏輯，只有副檔名不同，因此抽成參數
  * 而不是複製一份幾乎一樣的 builder——呼叫端傳 `'svg'` 或 `'dxf'`。
  */
-function buildFilename(boxId: string, values: ResolvedParams, bounds: Bounds, ext: string): string {
+function buildFilename(boxId: string, values: ResolvedParams, bounds: Bounds, ext: 'svg' | 'dxf'): string {
   const hasDeclaredLWD = ['L', 'W', 'D'].every((key) => values[key] !== undefined);
   if (hasDeclaredLWD) {
     const dim = (key: string): string => String(values[key]);
@@ -112,7 +112,7 @@ function fmtDim(v: number): string {
  *
  * `ext`（Slice 3 Task 2 新增）：同上方 `buildFilename`，SVG／DXF 共用這份邏輯、只有副檔名不同。
  */
-function buildPieceFilename(boxId: string, pieceId: string, bounds: Bounds, ext: string): string {
+function buildPieceFilename(boxId: string, pieceId: string, bounds: Bounds, ext: 'svg' | 'dxf'): string {
   const length = fmtDim(bounds.maxX - bounds.minX);
   const width = fmtDim(bounds.maxY - bounds.minY);
   return `${boxId}-${pieceId}-${length}x${width}.${ext}`;
@@ -165,7 +165,7 @@ function downloadBlob(content: string, mimeType: string, filename: string): void
 }
 
 /** 單片／全版檔名的分流本身也是 SVG／DXF 共用邏輯，只有 ext 不同——收斂成一個函式，兩個下載 handler 各呼叫一次。 */
-function exportFilename(boxId: string, values: ResolvedParams, result: GenerateResult, activePiece: DielinePiece | undefined, ext: string): string {
+function exportFilename(boxId: string, values: ResolvedParams, result: GenerateResult, activePiece: DielinePiece | undefined, ext: 'svg' | 'dxf'): string {
   return activePiece
     ? buildPieceFilename(boxId, activePiece.id, pieceManufacturingBounds(result, activePiece), ext)
     : buildFilename(boxId, values, result.bounds, ext);
@@ -173,6 +173,10 @@ function exportFilename(boxId: string, values: ResolvedParams, result: GenerateR
 
 export function ExportBar({ boxId, values, result, includeDimensions, onIncludeDimensionsChange, activePiece }: ExportBarProps) {
   const hasPieces = result.pieces !== undefined;
+  // exportResult 在 render 期計算（而非各自 handler 內才算）是 T2 的刻意變更：SVG／DXF
+  // 兩個 handler 共用同一份已過濾結果，不必各自呼叫 scopeResultToPiece。scopeResultToPiece
+  // 是純函式，行為與「handler 內即時算」功能等價；代價是未點擊匯出按鈕的 render 也會多跑
+  // 一次過濾（result 的 paths/texts 量體小，可忽略）。
   const exportResult = activePiece ? scopeResultToPiece(result, activePiece) : result;
 
   const handleSvgDownload = () => {
