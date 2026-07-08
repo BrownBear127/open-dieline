@@ -427,9 +427,12 @@ const invariants: BoxInvariant[] = [
   {
     id: 'liner-flange-fits',
     description: {
-      zh: '內襯翻邊寬（lidMargin−4×thickness−2×linerFitGap）必須至少留 MIN_FLANGE=5mm 才穩定——太窄的翻邊難以可靠固定內襯，需要調大 margin 或調小 fitGap。',
+      zh: '內襯翻邊寬（lidMargin−4×thickness−2×linerFitGap）必須至少留 MIN_FLANGE=5mm 才穩定——太窄的翻邊難以可靠固定內襯，需要調大 margin 或調小 fitGap。只在 linerEnabled 時適用（spec §4.2 明文「linerEnabled 時」）：關閉內襯做純二件式盒（緊配或腰封自理，spec 允許）時根本沒有翻邊這個結構，警告「放不下」是無意義的假警報。',
     },
     check(params) {
+      if (!(params.linerEnabled as boolean)) {
+        return { ok: true };
+      }
       const frame = deriveLinerFrame({
         baseLength: params.baseLength as number,
         baseWidth: params.baseWidth as number,
