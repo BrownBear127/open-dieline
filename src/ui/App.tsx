@@ -26,6 +26,7 @@ import { listBoxes } from '@/core/registry';
 // 但「觸發註冊」仍需要某處的 side-effect import，App 作為組裝根是合理的落點
 // （Slice 2 新增 boxes/telescope.ts 時，只需在這裡多加一行 import）。
 import '@/boxes/reverse-tuck-end';
+import '@/boxes/telescope';
 import type { LocalizedText } from '@/core/types';
 import { useParams } from '@/ui/useParams';
 import { ParamPanel } from '@/ui/ParamPanel';
