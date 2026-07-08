@@ -442,3 +442,211 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Step 6：天地盒版 param-sweep（重用 Slice 1 掃描骨架：tests/boxes/param-sweep.test.ts
+// 的 assertSafe 慣例——不判斷幾何「對不對」，只判斷「不崩潰、無 NaN、bounds 有限」這條
+// 最低限度安全網，額外疊天地盒特有的兩項：cut 無自撞、不變式全過或正確警告。
+//
+// 「全過或正確警告」的判準：telescope 的 7 條不變式裡，pieces-valid／pieces-identity／
+// rim-flush／no-nan／no-bleed／bounds-cover 這 6 條是「恆真」不變式（由生成幾何的結構
+// 保證，任何合法參數組合下都不該 not-ok，若 not-ok 代表真的有 bug）；liner-flange-fits／
+// gusset-b-fits 兩條才是「設計上的參數域邊界」，允許 not-ok（如 margin 太小、薄壁角撐壁高
+// 太矮），但警告訊息必須是非空字串（「正確警告」而非崩潰或回傳殘缺物件）。
+//
+// 「cut 無自撞」的例外（實測發現，見下方「已知問題」describe block）：gusset-b-fits／
+// liner-flange-fits 這兩條「參數域邊界」不變式一旦 not-ok，代表該組合本來就是文件化的
+// 退化區（薄壁角撐壁高太矮、內襯翻邊變負值）——退化區裡 cut 自撞是「已被正確警告」的
+// 後果，不是新發現的沉默 bug，此時不再額外要求 cut 乾淨。只有在兩條邊界不變式都 ok:true
+// （代表「這組參數理應是健康的」）時才嚴格要求 cut 無自撞——這樣才能讓「confuse 自撞」
+// 真正對應「不變式沒接住的沉默退化」，而不是把已知、已警告的邊界又重複標記一次。
+//
+// 只新增 tests/telescope-fixture.test.ts＋tests/fixtures/telescope-reference.json 兩檔的
+// 限制下，這個 describe block 只能放在本檔（不能另開 tests/boxes/telescope-param-sweep.test.ts），
+// 故獨立成本檔案尾端一個區塊，並在獨立 commit 加入。
+// ─────────────────────────────────────────────────────────────────────────
+
+const ALWAYS_OK_INVARIANTS = new Set(['pieces-valid', 'pieces-identity', 'rim-flush', 'no-nan', 'no-bleed', 'bounds-cover']);
+/** 「參數域邊界」不變式——not-ok 時代表已知、已警告的退化區，cut 自撞不再視為新問題（見上方說明）。 */
+const BOUNDARY_INVARIANTS = new Set(['gusset-b-fits', 'liner-flange-fits']);
+
+type Overrides = Partial<Record<string, number | boolean | string>>;
+
+/** 對單一組參數斷言天地盒版安全網：不 throw、無 NaN、bounds 有限、不變式全過或正確警告；
+ *  cut 無自撞只在兩條邊界不變式都 ok 時嚴格要求（見上方區塊說明）。 */
+function assertTelescopeSafe(label: string, overrides: Overrides): void {
+  it(`${label}：generate 不 throw、無 NaN、bounds 有限、不變式全過或正確警告（cut 自撞見邊界不變式）`, () => {
+    let params: ReturnType<typeof resolveParams> | undefined;
+    let result: GenerateResult | undefined;
+
+    expect(() => {
+      params = resolveParams(telescope, overrides);
+      result = telescope.generate(params);
+    }, label).not.toThrow();
+
+    const segs = result!.paths.flatMap((p) => p.segments);
+    expect(hasNaN(segs), `${label}：不應有 NaN`).toBe(false);
+
+    for (const [k, v] of Object.entries(result!.bounds)) {
+      expect(Number.isFinite(v), `${label}：bounds.${k} 應為有限值，實際 ${v}`).toBe(true);
+    }
+
+    let boundaryFired = false;
+    for (const inv of telescope.invariants) {
+      let outcome: ReturnType<typeof inv.check> | undefined;
+      expect(() => {
+        outcome = inv.check(params!, result!);
+      }, `${label}：不變式 ${inv.id} 不應 throw`).not.toThrow();
+
+      if (ALWAYS_OK_INVARIANTS.has(inv.id)) {
+        expect(outcome, `${label}：${inv.id} 屬恆真不變式，應恆過`).toMatchObject({ ok: true });
+      } else if (!outcome!.ok) {
+        expect(typeof outcome!.message.zh, `${label}：${inv.id} 警告需帶 message.zh 字串`).toBe('string');
+        expect(outcome!.message.zh.length, `${label}：${inv.id} 警告訊息不可為空字串`).toBeGreaterThan(0);
+        if (BOUNDARY_INVARIANTS.has(inv.id)) boundaryFired = true;
+      }
+    }
+
+    if (!boundaryFired) {
+      const cutSegs = result!.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+      expect(hasSelfIntersection(cutSegs), `${label}：cut 不應自撞（無邊界不變式警告，理應是健康幾何）`).toBe(false);
+    }
+  });
+}
+
+describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描骨架）', () => {
+  describe('單一 mm 參數 min/max（其餘維持預設，同 RTE tier 1）', () => {
+    // baseLength/baseWidth 的宣告 min=30 落在下方「已知問題」的 tongueFlap 自撞退化區
+    // （perpHalf=15<16.5 門檻，見下方 describe block 的精確推導與二分搜尋驗證）——那條
+    // 退化路徑目前沒有任何不變式接住（不像 gusset-b-fits/liner-flange-fits 有警告），
+    // 是本次 sweep 挖到的沉默 bug，不在本 task 對帳範圍內（src/ 不得動）。這裡「跳過真正
+    // min」不是要藏起來——下面的「已知問題」block 會用真正的 min=30 明確斷言 bug 現狀，
+    // 讓它變成被追蹤的已知缺口而非靜默消失；一般安全網掃描則改用safely-above-threshold
+    // 的 40（見該 block 的門檻推導），繼續驗證「低值但非已知退化區」的行為。
+    for (const p of telescope.params) {
+      if (p.unit !== 'mm') continue;
+      if (p.key === 'baseLength' || p.key === 'baseWidth') {
+        assertTelescopeSafe(`${p.key}=40（非宣告 min=30——真正 min 見下方已知問題 block）`, { [p.key]: 40 });
+      } else if (p.min !== undefined) {
+        assertTelescopeSafe(`${p.key}=min(${p.min})`, { [p.key]: p.min });
+      }
+      if (p.max !== undefined) assertTelescopeSafe(`${p.key}=max(${p.max})`, { [p.key]: p.max });
+    }
+  });
+
+  describe('角撐款式×壁高×紙厚 三值交叉（base 側；驅動 gusset-b-fits 與 A/B 款切換）', () => {
+    for (const basePlatformWidth of [0, 5, 15]) {
+      for (const baseHeight of [15, 60, 150]) {
+        for (const thickness of [0, 0.4, 0.8]) {
+          assertTelescopeSafe(`basePlatformWidth=${basePlatformWidth}, baseHeight=${baseHeight}, thickness=${thickness}`, {
+            basePlatformWidth,
+            baseHeight,
+            thickness,
+          });
+        }
+      }
+    }
+  });
+
+  describe('角撐款式×壁高 交叉（lid 側；thickness 固定預設 0.3，避免案例數過度膨脹）', () => {
+    for (const lidPlatformWidth of [0, 5, 15]) {
+      for (const lidHeight of [15, 45, 150]) {
+        assertTelescopeSafe(`lidPlatformWidth=${lidPlatformWidth}, lidHeight=${lidHeight}`, { lidPlatformWidth, lidHeight });
+      }
+    }
+  });
+
+  describe('內襯翻邊邊界 三值交叉（lidMargin×linerFitGap；驅動 liner-flange-fits）', () => {
+    for (const lidMargin of [1, 13.5, 40]) {
+      for (const linerFitGap of [0.2, 0.5, 2]) {
+        assertTelescopeSafe(`lidMargin=${lidMargin}, linerFitGap=${linerFitGap}`, { lidMargin, linerFitGap });
+      }
+    }
+    assertTelescopeSafe('linerEnabled=false + lidMargin=1（關內襯時翻邊警告應被閘門擋下，不得假警告）', {
+      linerEnabled: false,
+      lidMargin: 1,
+    });
+  });
+
+  describe('全域極端組合（同 RTE「全部參數同時取 min/max」慣例）', () => {
+    // baseLength/baseWidth 用 40（非宣告 min=30）：理由同上——真正 min 落在已知的
+    // tongueFlap 自撞退化區，這裡驗證的是「其餘參數同時極端」的交互作用，不是重複
+    // 撞同一個已知缺口。
+    assertTelescopeSafe('全部關鍵參數同時取 min（baseLength/baseWidth 用 40，見上方說明）', {
+      baseLength: 40,
+      baseWidth: 40,
+      baseHeight: 10,
+      lidMargin: 1,
+      lidHeight: 10,
+      basePlatformWidth: 0,
+      lidPlatformWidth: 0,
+      thickness: 0,
+      linerFitGap: 0.2,
+    });
+    assertTelescopeSafe('全部關鍵參數同時取 max', {
+      baseLength: 600,
+      baseWidth: 600,
+      baseHeight: 200,
+      lidMargin: 40,
+      lidHeight: 200,
+      basePlatformWidth: 15,
+      lidPlatformWidth: 15,
+      thickness: 0.8,
+      linerFitGap: 2,
+    });
+    assertTelescopeSafe('大長寬比面板（baseLength=max, baseWidth=40，見上方說明）', { baseLength: 600, baseWidth: 40 });
+    assertTelescopeSafe('大長寬比面板反向（baseLength=40, baseWidth=max，見上方說明）', { baseLength: 40, baseWidth: 600 });
+    assertTelescopeSafe('linerEnabled=false + 壁高極端（不對稱 tall/short＋薄壁）', {
+      linerEnabled: false,
+      baseHeight: 200,
+      lidHeight: 10,
+      basePlatformWidth: 0,
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 已知問題（Step 6 param-sweep 挖到，出了具名槽位對帳的範圍；src/ 依 task 限制不得動，
+// 回報而非硬調——見 task-5-report.md concerns）。
+//
+// tray.ts 的 buildTongueFlap 用兩個固定常數（TONGUE_END_RECESS=9、
+// TUCK_FLAP_SHALLOW_DEPTH=7.5）鉗制插底舌兩端的讓位，但沒有對「牆的垂直半跨
+// （perpHalf＝對向牆的半跨距）是否容得下這兩個常數」做防禦——當 perpHalf < 16.5
+// （＝TONGUE_END_RECESS+TUCK_FLAP_SHALLOW_DEPTH）時，梯形的兩個「全深」端點
+// （p3/p4，見 tray.ts buildTongueFlap 內的 perpB/perpC）順序反轉，插底舌 cut 從
+// 六邊形退化成自我交叉的蝴蝶結。二分搜尋確認門檻精確在 perpHalf=16.5（baseLength/
+// baseWidth＝33）：32 仍自撞、33 起乾淨。
+//
+// 這條路徑目前沒有任何不變式攔截（不像 gusset-b-fits／liner-flange-fits 有警告
+// 訊息），且可在宣告的合法參數範圍內觸發（baseLength/baseWidth 宣告 min=30，
+// 15 < 16.5——宣告下界本身就在退化區內；baseWidth 過大＋lidMargin 過小的組合也
+// 能從 lid 側觸發同一條路徑）。建議後續開一個新不變式（如比照 gusset-b-fits 的
+// 「tongue-flap-fits」）在 perpHalf 過窄時警告，而不是靜默產出自撞幾何。
+//
+// 下面用真正的宣告 min（30）明確斷言 bug 現狀，讓這個缺口留下追蹤——若未來 tray.ts
+// 修好這條路徑，這裡會變紅，屆時應改寫本 describe block（而不是被悄悄遺忘）。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('已知問題（tongueFlap 自撞，src/ 未觸碰、留待後續 task 修——見 task-5-report.md）', () => {
+  it('baseLength=30（宣告 min）：base 片 x 向兩側 tongueFlap 已知自撞（未被任何不變式攔截）', () => {
+    const params = resolveParams(telescope, { baseLength: 30 });
+    const result = telescope.generate(params);
+    const piece = result.pieces!.find((p) => p.id === 'base')!;
+    const cutSegs = result.paths.filter((p) => piece.pathIds.includes(p.id) && p.type === 'cut').flatMap((p) => p.segments);
+    expect(hasSelfIntersection(cutSegs), '已知 bug：perpHalf=15<16.5 門檻，tongueFlap 梯形反轉自撞').toBe(true);
+    for (const inv of telescope.invariants) {
+      expect(inv.check(params, result), `已知 bug：目前無不變式攔截此路徑（${inv.id} 不應標記它）`).toMatchObject({ ok: true });
+    }
+  });
+
+  it('baseLength=33（門檻邊界）乾淨、32 仍自撞——二分搜尋確認精確門檻＝perpHalf 16.5mm', () => {
+    const clean = telescope.generate(resolveParams(telescope, { baseLength: 33 }));
+    const broken = telescope.generate(resolveParams(telescope, { baseLength: 32 }));
+    const cutOf = (r: GenerateResult) => {
+      const piece = r.pieces!.find((p) => p.id === 'base')!;
+      return r.paths.filter((p) => piece.pathIds.includes(p.id) && p.type === 'cut').flatMap((p) => p.segments);
+    };
+    expect(hasSelfIntersection(cutOf(clean)), 'baseLength=33（perpHalf=16.5）應乾淨').toBe(false);
+    expect(hasSelfIntersection(cutOf(broken)), 'baseLength=32（perpHalf=16）應仍自撞').toBe(true);
+  });
+});
