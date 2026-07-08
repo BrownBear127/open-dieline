@@ -1,0 +1,37 @@
+{
+  "note": "Slice 2 Task 5 生產刀模具名槽位對帳 fixture。數值逐槽抄自 .superpowers/sdd/slice2-appendix.md（base/lid 槽位表），比對規則見 spec §4.2：t 無關槽位 x 向 ±0.05／t 相關槽位公式自洽＋x 向 ≤0.15 對量測／corrected 槽只驗公式修正值 ≤0.05 不對量測／y 向只驗公式關係＋序列完整性，不驗與生產品的絕對差。撞到槽位表以外的落差回報、不得放寬容差硬讓測試變綠。",
+  "params": {
+    "baseLength": 179,
+    "baseWidth": 124,
+    "baseHeight": 60,
+    "lidMargin": 13.5,
+    "lidHeight": 45,
+    "basePlatformWidth": 5,
+    "lidPlatformWidth": 0,
+    "thickness": 0.4,
+    "linerEnabled": true,
+    "linerFitGap": 0.5
+  },
+  "slots": [
+    { "name": "base.x.panel", "expected": 124.0, "measured": 124.0, "lineType": "crease（單）", "source": "measured", "tIndependent": true },
+    { "name": "base.x.outerWall", "expected": 59.6, "measured": 59.5, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−t（頂緣平齊修正）" },
+    { "name": "base.x.platform", "expected": 5.0, "measured": 5.0, "lineType": "crease×2", "source": "measured", "tIndependent": true },
+    { "name": "base.x.innerWall", "expected": 58.8, "measured": 58.7, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−3t" },
+    { "name": "base.x.tuckFoldLine", "expected": null, "measured": null, "lineType": "halfcut 中段＋crease 兩端", "source": "measured", "tIndependent": true, "structural": true },
+    { "name": "base.x.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true },
+    { "name": "base.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": false, "note": "t" },
+    { "name": "base.y.outerWall", "expected": 60.0, "measured": 60.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H，自雙 crease 外線起量（不做平齊修正）" },
+    { "name": "base.y.platform", "expected": 5.0, "measured": 5.0, "lineType": "crease×2", "source": "measured", "tIndependent": true },
+    { "name": "base.y.innerWall", "expected": 59.2, "measured": 59.2, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−2t" },
+    { "name": "base.y.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true, "note": "7.5+7.5 梯形" },
+    { "name": "lid.x.panel", "expected": 151.0, "measured": 151.0, "lineType": "crease（單）", "source": "measured", "tIndependent": true, "note": "124+2×13.5" },
+    { "name": "lid.x.outerWall", "expected": 44.6, "measured": 45.0, "lineType": "—", "source": "corrected", "tIndependent": false, "note": "H−t；生產品當年漏做平齊修正，新模組刻意修正為 −t，只對修正值不對量測" },
+    { "name": "lid.x.innerWall", "expected": 43.8, "measured": 44.2, "lineType": "—", "source": "corrected", "tIndependent": false, "note": "H−3t；同上，不對量測" },
+    { "name": "lid.x.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true },
+    { "name": "lid.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": false, "note": "t" },
+    { "name": "lid.y.outerWall", "expected": 45.0, "measured": 45.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H" },
+    { "name": "lid.y.innerWall", "expected": 44.2, "measured": 44.2, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−2t" },
+    { "name": "lid.y.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true, "note": "7.5+7.5" },
+    { "name": "lid.y.panel", "expected": 206.0, "measured": 216.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "y 絕對不對帳（D12：單一等邊 margin 定案已知後果）——僅驗序列與公式" }
+  ]
+}
