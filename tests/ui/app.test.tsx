@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import type { BoxModule, GenerateResult, ResolvedParams } from '@/core/types';
+import type { BoxModule, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
 import { registerBox, _clearRegistry } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { telescope } from '@/boxes/telescope';
 
 // ── 測試專用 harness：ExportBar 的 includeDimensions 改成受控 prop 後（T9 Fix Round 2
 // 修復 3，state 提升到 App.tsx），底下「ExportBar：下載內容與 includeDimensions checkbox
@@ -20,11 +21,13 @@ function ExportBarHarness({
   values,
   result,
   initialIncludeDimensions = true,
+  activePiece,
 }: {
   boxId: string;
   values: ResolvedParams;
   result: GenerateResult;
   initialIncludeDimensions?: boolean;
+  activePiece?: DielinePiece;
 }) {
   const [includeDimensions, setIncludeDimensions] = useState(initialIncludeDimensions);
   return (
@@ -34,6 +37,7 @@ function ExportBarHarness({
       result={result}
       includeDimensions={includeDimensions}
       onIncludeDimensionsChange={setIncludeDimensions}
+      activePiece={activePiece}
     />
   );
 }
@@ -104,8 +108,42 @@ const cascadeBox: BoxModule = {
   }),
 };
 
+// ── 測試專用 fake 盒型 3：兩片 pieces（無 liner），驗證全版／單片視圖切換與單片匯出過濾 ──
+// 幾何刻意寫死常數（不吃 params），讓片內容/bounds 是可預期的固定值，方便斷言過濾邊界
+// （片A：一條水平線＋一個文字標註；片B：一條垂直線、無文字）。
+const piecesBox: BoxModule = {
+  meta: { id: 'test-pieces-box', name: { zh: '測試多片盒' }, intro: { zh: '' }, topology: 'nested' },
+  params: [
+    {
+      key: 'x',
+      label: { zh: 'X 值' },
+      unit: 'mm',
+      default: 10,
+      min: 0,
+      max: 100,
+      step: 1,
+      group: { zh: '測試群組' },
+      description: { zh: '測試參數：本盒型幾何寫死常數，這個參數只用來讓盒型有至少一個宣告，generate() 不消費它' },
+    },
+  ],
+  invariants: [],
+  generate: () => ({
+    paths: [
+      { id: 'a-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+      { id: 'b-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 20, x2: 0, y2: 30 }] },
+    ],
+    texts: [{ id: 'a-t0', x: 5, y: 5, text: 'A標註' }],
+    bounds: { minX: 0, maxX: 10, minY: 0, maxY: 30 },
+    pieces: [
+      { id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
+      { id: 'piece-b', label: { zh: '片B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
+    ],
+  }),
+};
+
 registerBox(failingBox);
 registerBox(cascadeBox);
+registerBox(piecesBox);
 
 describe('App 冒煙測試', () => {
   it('起站→選 RTE→調 L→畫布 path 數不變且幾何改變', async () => {
@@ -139,6 +177,27 @@ describe('App 冒煙測試', () => {
     fireEvent.change(dInput, { target: { value: '200' } });
 
     expect(Number(lidInput.value)).toBeCloseTo(200 * 0.4); // lid 仍未覆寫，隨 D 即時重算為 80
+  });
+
+  // ── Slice 2 Task 6 規格點 4：derivedDefault auto/manual 回歸，用真實 RTE 案例補斷言
+  // （機制本身是 Slice 1 useParams 既有行為，這裡不是在測新程式碼，是把「thickness→
+  // tuckClearance」這組真實生產參數的 cascade 釘成回歸測試，跟上面用假盒型驗證泛用機制互補）。
+  it('RTE 真實案例：調整紙厚→插舌內縮顯示值跟動；手動覆寫插舌內縮後，紙厚變動不再洗掉覆寫值', async () => {
+    render(<App />);
+    const thicknessInput = screen.getByLabelText(/紙厚/) as HTMLInputElement;
+    const tuckClearanceInput = screen.getByLabelText(/插舌內縮/) as HTMLInputElement;
+
+    expect(Number(thicknessInput.value)).toBeCloseTo(0.3); // RTE 預設紙厚
+    expect(Number(tuckClearanceInput.value)).toBeCloseTo(0.8); // derivedDefault = 0.5 + thickness，未覆寫
+
+    fireEvent.change(thicknessInput, { target: { value: '0.5' } });
+    expect(Number(tuckClearanceInput.value)).toBeCloseTo(1.0); // 仍未覆寫，隨紙厚即時重算 = 0.5 + 0.5
+
+    fireEvent.change(tuckClearanceInput, { target: { value: '3' } }); // 手動覆寫
+    expect(Number(tuckClearanceInput.value)).toBeCloseTo(3);
+
+    fireEvent.change(thicknessInput, { target: { value: '0.6' } });
+    expect(Number(tuckClearanceInput.value)).toBeCloseTo(3); // 已覆寫，紙厚再變動也不被洗掉
   });
 
   it('覆寫參數後顯示「↺」重設鈕，點擊後恢復未覆寫的顯示值', async () => {
@@ -293,6 +352,144 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
   });
 });
 
+describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §4.2）', () => {
+  it('result.pieces 存在時顯示「全版」＋按 pieces 序排列的各片按鈕；RTE（pieces undefined）不顯示', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+    // 預設盒型是 RTE：pieces undefined，不該出現任何切換按鈕。
+    expect(screen.queryByRole('button', { name: '全版' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+
+    expect(await screen.findByRole('button', { name: '全版' })).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button', { name: /^(全版|片A|片B)$/ });
+    expect(buttons.map((b) => b.textContent)).toEqual(['全版', '片A', '片B']); // 全版固定第一，其後照 pieces 陣列序
+  });
+
+  it('點選單片按鈕後，畫布只渲染該片的 paths/texts（依 pathIds/textIds 集合過濾，非猜測 index）', async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    await screen.findByRole('button', { name: '全版' });
+
+    // 全版：2 條 path（a-p0/b-p0）＋ 1 個 text（屬於片A 的 a-t0）。
+    expect(document.querySelectorAll('svg path').length).toBe(2);
+    expect(screen.getByText('A標註')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '片A' }));
+    expect(document.querySelectorAll('svg path').length).toBe(1); // 只剩 a-p0
+    expect(screen.getByText('A標註')).toBeInTheDocument(); // a-t0 屬於片A，仍在
+
+    fireEvent.click(screen.getByRole('button', { name: '片B' }));
+    expect(document.querySelectorAll('svg path').length).toBe(1); // 只剩 b-p0
+    expect(screen.queryByText('A標註')).not.toBeInTheDocument(); // a-t0 屬於片A 不屬於片B，應消失
+
+    fireEvent.click(screen.getByRole('button', { name: '全版' }));
+    expect(document.querySelectorAll('svg path').length).toBe(2); // 切回全版，恢復兩片內容
+    expect(screen.getByText('A標註')).toBeInTheDocument();
+  });
+
+  it('單片視圖 viewBox 用該片 bounds 外加邊距；全版視圖仍是 result.bounds 原值、不加邊距', async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    await screen.findByRole('button', { name: '全版' });
+
+    const svg = document.querySelector('svg')!;
+    expect(svg.getAttribute('viewBox')).toBe('0 0 10 30'); // 全版：result.bounds 原值，無邊距
+
+    fireEvent.click(screen.getByRole('button', { name: '片A' }));
+    // 片A bounds={minX:0,maxX:10,minY:0,maxY:5}，PIECE_VIEW_PADDING=20 外擴：
+    // viewBox = "-20 -20 50 45"（width=10+2*20=50, height=5+2*20=45）
+    expect(svg.getAttribute('viewBox')).toBe('-20 -20 50 45');
+  });
+
+  it('切換盒型時視圖重置回全版：選片後切走再切回，不殘留舊 pieceId（規格點 6）', async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    await screen.findByRole('button', { name: '全版' });
+
+    fireEvent.click(screen.getByRole('button', { name: '片A' }));
+    expect(screen.getByRole('button', { name: '片A' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'rte' } });
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+
+    await screen.findByRole('button', { name: '全版' });
+    expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true'); // 重置回全版
+    expect(screen.getByRole('button', { name: '片A' })).toHaveAttribute('aria-pressed', 'false');
+    expect(document.querySelectorAll('svg path').length).toBe(2); // 全版內容，非殘留片A 的過濾內容
+  });
+});
+
+describe('ExportBar：pieces 存在時的「匯出目前視圖」（全版＋單片，Slice 2 Task 6）', () => {
+  const createObjectURLMock = vi.fn((_blob: Blob) => 'blob:mock-url-pieces');
+  const revokeObjectURLMock = vi.fn((_url: string) => undefined);
+
+  beforeEach(() => {
+    (URL as unknown as { createObjectURL: typeof createObjectURLMock }).createObjectURL = createObjectURLMock;
+    (URL as unknown as { revokeObjectURL: typeof revokeObjectURLMock }).revokeObjectURL = revokeObjectURLMock;
+  });
+
+  afterEach(() => {
+    createObjectURLMock.mockClear();
+    revokeObjectURLMock.mockClear();
+  });
+
+  const piecesResult: GenerateResult = {
+    paths: [
+      { id: 'a-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+      { id: 'b-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 20, x2: 0, y2: 30 }] },
+    ],
+    texts: [{ id: 'a-t0', x: 5, y: 5, text: 'A標註' }],
+    bounds: { minX: 0, maxX: 10, minY: 0, maxY: 30 },
+    pieces: [
+      { id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
+      { id: 'piece-b', label: { zh: '片B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
+    ],
+  };
+  const values = { x: 10 };
+
+  it('pieces 存在時按鈕文字為「匯出目前視圖」（不是「下載 SVG」）', () => {
+    render(<ExportBarHarness boxId="test-pieces-box" values={values} result={piecesResult} />);
+    expect(screen.getByRole('button', { name: '匯出目前視圖' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '下載 SVG' })).not.toBeInTheDocument();
+  });
+
+  it('全版視圖（activePiece 未傳）匯出內容含兩片全部 paths/texts——與既有整版行為相同', async () => {
+    render(<ExportBarHarness boxId="test-pieces-box" values={values} result={piecesResult} />);
+    fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖' }));
+    const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+    const text = await blob.text();
+    expect(text).toContain('M0.00,0.00 L10.00,0.00'); // a-p0
+    expect(text).toContain('M0.00,20.00 L0.00,30.00'); // b-p0
+    expect(text).toContain('A標註');
+  });
+
+  it('單片視圖（activePiece=片A）匯出內容只含該片 paths/texts，不含片B', async () => {
+    const pieceA = piecesResult.pieces![0]!;
+    render(<ExportBarHarness boxId="test-pieces-box" values={values} result={piecesResult} activePiece={pieceA} />);
+    fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖' }));
+    const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+    const text = await blob.text();
+    expect(text).toContain('M0.00,0.00 L10.00,0.00'); // a-p0 仍在
+    expect(text).toContain('A標註');
+    expect(text).not.toContain('M0.00,20.00 L0.00,30.00'); // b-p0 不該出現
+  });
+
+  it('單片匯出檔名為 {boxId}-{pieceId}-{L}x{W}.svg（L/W 取片 bounds 尺寸，fmt 2 位小數）', () => {
+    const pieceA = piecesResult.pieces![0]!; // bounds {minX:0,maxX:10,minY:0,maxY:5} → L=10.00 W=5.00
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    render(<ExportBarHarness boxId="test-pieces-box" values={values} result={piecesResult} activePiece={pieceA} />);
+    fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖' }));
+    expect(capturedFilename).toBe('test-pieces-box-piece-a-10.00x5.00.svg');
+    clickSpy.mockRestore();
+  });
+});
+
 describe('useParams：切換盒型時不因殘留 overrides 而 crash（final review 雙 reviewer 獨立重現）', () => {
   // 第二個測試盒型：故意只宣告 x 一個參數（不含 L/W/D），確保從 RTE 切過來時，
   // RTE 殘留的 overrides（如 {L: 80}）一定踩到「新盒型未宣告該 key」分支——
@@ -328,10 +525,15 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     // registry 是模組層級全域 Map；本 describe 額外註冊了 tinyBox，用完清空避免殘留。
     // 清空後 RTE 不會因為重新 import 就恢復註冊（ES module cache——reverseTuckEnd.ts
     // 頂層的 registerBox(reverseTuckEnd) 只在模組第一次載入時執行過一次），這裡直接用
-    // 已在記憶體中的 reverseTuckEnd 物件手動呼叫 registerBox() 補回。本 describe 是
-    // 檔案最後一個 block，此後沒有測試依賴 registry 狀態，此舉純粹是測試衛生。
+    // 已在記憶體中的 reverseTuckEnd 物件手動呼叫 registerBox() 補回。telescope 同一道理
+    // 也要補回（Slice 2 Task 6 新增：本 describe 後面的「RTE↔telescope 真雙盒」測試需要
+    // telescope 存在於 registry——這個 afterEach 在同一個 describe 內每個 it() 之後都會跑，
+    // 若不補回，第一個測試跑完就把 telescope 清掉了，後面的測試會在還沒進到它們自己的
+    // 斷言之前就先讀到「telescope 未註冊」）。本 describe 是檔案最後一個 block，此後沒有
+    // 測試依賴 registry 狀態，此舉純粹是測試衛生。
     _clearRegistry();
     registerBox(reverseTuckEnd);
+    registerBox(telescope);
   });
 
   it('改 override 後切換盒型不 crash：新盒型正常渲染其自身參數', async () => {
@@ -345,5 +547,46 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     }).not.toThrow();
 
     expect(await screen.findByLabelText(/X 值/)).toBeInTheDocument();
+  });
+
+  // ── Slice 2 Task 6 規格點 5：Slice 1 這條切盒 guard 只用過假盒型（tinyBox）驗證過，這裡
+  // 換成真正的兩個已註冊盒型（RTE／telescope）雙向切換，是這條 guard 第一次在真實雙盒場景
+  // 下被實戰驗證——telescope 透過 App.tsx 頂部的 side-effect import 在模組載入時就已註冊，
+  // 不需要額外 registerBox()。
+  it('RTE↔telescope 真雙盒雙向切換不 crash，天地盒的視圖切換按鈕正確渲染（首次雙盒實戰）', async () => {
+    render(<App />);
+    expect(screen.getByLabelText(/長.*L/)).toBeInTheDocument(); // 起始為 RTE
+
+    const select = screen.getByLabelText(/盒型/);
+    expect(() => {
+      fireEvent.change(select, { target: { value: 'telescope' } });
+    }).not.toThrow();
+
+    expect(await screen.findByLabelText(/下盒長度/)).toBeInTheDocument(); // telescope 專屬參數出現
+    // telescope 預設 linerEnabled=true → pieces=[base,lid,liner]，切換按鈕依序：全版/下盒/上蓋/內襯
+    const switchButtons = screen.getAllByRole('button', { name: /^(全版|下盒|上蓋|內襯)$/ });
+    expect(switchButtons.map((b) => b.textContent)).toEqual(['全版', '下盒', '上蓋', '內襯']);
+
+    expect(() => {
+      fireEvent.change(select, { target: { value: 'rte' } });
+    }).not.toThrow();
+    expect(await screen.findByLabelText(/長.*L/)).toBeInTheDocument(); // 切回 RTE，參數面板正確重置
+    expect(screen.queryByRole('button', { name: '全版' })).not.toBeInTheDocument(); // RTE 無切換按鈕
+  });
+
+  it('天地盒選定單片後切走再切回，視圖重置回全版（不殘留舊 pieceId，規格點 6 真盒版）', async () => {
+    render(<App />);
+    const select = screen.getByLabelText(/盒型/);
+    fireEvent.change(select, { target: { value: 'telescope' } });
+    await screen.findByRole('button', { name: '內襯' });
+
+    fireEvent.click(screen.getByRole('button', { name: '內襯' }));
+    expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(select, { target: { value: 'rte' } });
+    fireEvent.change(select, { target: { value: 'telescope' } });
+
+    expect(await screen.findByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'false');
   });
 });
