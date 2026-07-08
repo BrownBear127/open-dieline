@@ -11,6 +11,14 @@
  * 也是 checkbox 顯示值的來源），兩處視覺才會同步——維護者實測發現取消勾選只影響下載的 SVG，
  * 畫布仍照樣顯示標註，就是因為這顆 state 原本沒有被畫布看到。
  *
+ * `selectedPieceId`（Slice 2 Task 6，spec §4.2）：多片盒型（如天地盒）的全版／單片視圖切換，
+ * 跟 `includeDimensions` 同一個提升理由——Canvas（渲染哪些 paths/texts＋viewBox 用哪片
+ * bounds）與 ExportBar（匯出哪些內容＋單片檔名）是平行的兄弟元件，兩者都需要知道「目前選定
+ * 哪一片」，狀態只能放在共同的父層才能同步。這裡只存原始的 `string | null`（null＝全版），
+ * 實際的 `DielinePiece` 物件由下面的 `activePiece`（含「找不到就視為全版」防呆）統一解出，
+ * Canvas／ExportBar 兩邊都吃同一個已解好的值，不必各自重複查找邏輯。切換盒型（`boxId` 變動）
+ * 時同步重置回全版（見 box-select 的 onChange），避免殘留 pieceId 指向新盒型不存在的片。
+ *
  * 佈局與配色為淺色工程風（T9 樣張 gate 驗收後改判：spec D8／開發紀錄 當時
  * 明文寫「深色工程風」並刻意不採前身實際配色，但驗收發現深色畫布會讓刀模行業
  * 慣例色 cut=`#000000`〔`core/styles.ts` LINE_STYLES，不可改〕完全隱形——整個
@@ -40,8 +48,18 @@ export function App() {
   const { mod, values, overriddenKeys, setValue, resetOne, reset } = useParams(boxId);
   const [highlightTags, setHighlightTags] = useState<string[] | null>(null);
   const [includeDimensions, setIncludeDimensions] = useState(true);
+  const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
+
+  // 從 selectedPieceId 解出實際的 piece 物件，含「找不到就視為全版」防呆——涵蓋兩種情況：
+  // ①使用者從未選片（selectedPieceId===null）②選定的片因為參數變動而消失（如天地盒
+  // linerEnabled 關閉導致 'liner' 片不再存在於新的 result.pieces）。只在這裡解一次，Canvas
+  // 與 ExportBar 收到的都是同一個已經防呆過的值。
+  const activePiece = useMemo(
+    () => (selectedPieceId ? result.pieces?.find((p) => p.id === selectedPieceId) : undefined),
+    [result, selectedPieceId],
+  );
 
   const invariantWarnings = useMemo(
     () =>
@@ -73,7 +91,14 @@ export function App() {
           <select
             id="box-select"
             value={boxId}
-            onChange={(e) => setBoxId(e.target.value)}
+            onChange={(e) => {
+              setBoxId(e.target.value);
+              // 切盒型時視圖重置回全版：不同盒型的 pieces id 集合互不相干，殘留舊 selectedPieceId
+              // 可能剛好對不到任何片（activePiece 防呆會擋下 crash），也可能巧合撞到新盒型裡
+              // 同名的 piece id 卻渲染錯的內容——兩種情況都不是使用者切盒型時預期的行為，直接
+              // 重置最單純。
+              setSelectedPieceId(null);
+            }}
             className="w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors"
           >
             {boxes.map((b) => (
@@ -99,6 +124,7 @@ export function App() {
           result={result}
           includeDimensions={includeDimensions}
           onIncludeDimensionsChange={setIncludeDimensions}
+          activePiece={activePiece}
         />
       </aside>
 
@@ -108,6 +134,8 @@ export function App() {
           highlightTags={highlightTags}
           invariantWarnings={invariantWarnings}
           includeDimensions={includeDimensions}
+          activePiece={activePiece}
+          onSelectPiece={setSelectedPieceId}
         />
       </main>
     </div>
