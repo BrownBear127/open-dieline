@@ -3,7 +3,7 @@
 > 印刷刀模產生器，原始碼公開的教育專案（source-available）。參數化生成盒型刀模（dieline），同時是一份「讓人看得懂盒型結構」的教材。
 > 掛 trouver.art。License：PolyForm Noncommercial 1.0.0（歡迎學習改作，商業使用請洽 trouver.art 談授權）。
 
-- **版本**：v1.1（2026-07-07 Codex spec review 19 findings 全數修入；v1.0 同日初稿）
+- **版本**：v1.2（2026-07-08 Slice 2 修訂：紙厚接線＋天地盒三件套，據生產刀模量測 ground truth；修訂記錄見附錄 C。v1.1＝2026-07-07 Codex spec review 19 findings 全數修入；v1.0 同日初稿）
 - **作者**：法蘭（product owner）＋ 小稜（architect）
 - **前身**：`trouver.crm-rebuild/components/Tools/Packaging/`（2025 年底 Gemini 3.5 Pro 產物）——本 spec 是它的剝離重構。前身深度分析：coding-workspace `Coding Projets/research/2026/07/07-trouver-workshop-os-重新審視/`（摘要見附錄 A）。
 
@@ -36,6 +36,9 @@
 | D8 | UI | 沿用前身的流程與外觀（深色工程風、左參數欄＋右畫布），元件化重寫 |
 | D9 | 範例資產 | 一律用本工具生成的刀模；法蘭的生產檔**不進 repo**（防呆見 §9.3） |
 | D10 | 語言 | v1 繁中先行；文字欄位一律 `LocalizedText`（v1 只填 zh）；README 繁中為主＋英文摘要 |
+| D11 | 紙厚接線（2026-07-08） | `thickness` 為真實幾何參數（step 0.1mm、default 0.3mm），所有補償量為 t 的函數、**t=0 時全部歸零**（RTE 等價測試以 t=0 錨定）。補償依據：天地盒生產刀模量測 ground truth（量測表見 coding-workspace 任務夾）＋ RTE 行業標準補償集 |
+| D12 | 天地盒三件套（2026-07-08） | 天地盒＝上蓋＋下盒＋內襯圍框三片（`pieces` 分組）；參數語意＝**主面板**（製造尺寸，與 RTE 一致、與生產刀模直接對帳）；上蓋放大量＝單一等邊 `lidMargin`（生產品 y 向多 5mm 為手調遺留，不重現）；壁款＝每片一個 `platformWidth`（0＝薄壁單線反折、>0＝厚壁平台） |
+| D13 | Slice 切分（2026-07-08） | Slice 2＝幾何完整化（D11＋D12＋樣張 gate）；Slice 3＝overlay＋DXF；Slice 4＝拼版＋公開發布配套 |
 
 ## 3. 架構
 
@@ -118,11 +121,24 @@ interface DielinePath {
   tags?: string[];          // 參數高亮對應（一段幾何可對應多個參數）
 }
 
+interface DielinePiece {          // v1.2：多片盒型（天地盒三件套）的「片」
+  id: string;                     // 盒型自定（如 'lid' | 'base' | 'liner'）
+  label: LocalizedText;
+  pathIds: string[];              // 屬於此片的 path id（不動 DielinePath 介面）
+  textIds: string[];              // 屬於此片的 text id
+  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+}
+
 interface GenerateResult {
   paths: DielinePath[];
   texts: DielineText[];     // { id, x, y, text, rotation?, fontSize?, anchor? }
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  pieces?: DielinePiece[];  // 省略＝單片盒型（RTE 不變、向後相容）
 }
+// pieces 規則：generate 自行決定片的絕對座標排版（片間距用具名常數）；
+// 每個 path/text 必屬於恰好一片（測試強制：pathIds/textIds 聯集＝全集、兩兩不交）；
+// 各片 bounds 涵蓋其成員且兩兩不重疊。
+// UI：畫布提供「全版／單片」切換；SVG 匯出可選整版或單片（樣張列印必需——內襯攤平逾 700mm）。
 
 // ── 參數 ──
 interface BoxParamDef {
@@ -167,24 +183,72 @@ interface BoxModule {
 
 ## 4. v1 盒型規格
 
-### 4.1 RTE 反插盒（移植）
+### 4.1 RTE 反插盒（移植＋v1.2 紙厚接線）
 
-- 幾何邏輯自前身 `ReverseTuckEnd.ts` 移植（該檔為健康的參數化實作，見附錄 A）
+- 幾何邏輯自前身 `ReverseTuckEnd.ts` 移植（該檔為健康的參數化實作，見附錄 A）。**Slice 1 已完成移植**（12 參數、thickness 因前身未接線而排除）；v1.2 把 thickness 正式接回。
 - 移植改造：具名化 3 個容差常數（糊邊導角 5mm、摩擦扣凸高 1.5mm、扣具導角 2mm）；上下週界鏡像重複抽成共用函式；輸出改為結構化 Segment（經 `core/path.ts`）
-- 參數集（照前身平移）：L / W / D / 紙厚 / 插舌深度 / 插舌圓角 / 插舌內縮 / 摩擦扣寬 / 防塵翼深 / 避讓槽寬 / 折線避讓 / 糊邊寬 / **糊邊位置（enum：左｜右）**
+- 參數集：L / W / D / **紙厚 thickness（default 0.3、step 0.1、min 0、max 0.8）** / 插舌深度 / 插舌圓角 / 插舌內縮 / 摩擦扣寬 / 防塵翼深 / 避讓槽寬 / 折線避讓 / 糊邊寬 / **糊邊位置（enum：左｜右）**
 - 每參數補 `description`（教育說明）
-- **等價驗收定義**：與前身輸出在 normalized Segment 層等價——線段化（曲線離散 0.05mm）後端點集合排序比對，容差 0.01mm，忽略 path 順序、id、tag；比對腳本進 tests/
+- **thickness 標準補償集**（全部為 t 的一次函數、t=0 歸零）：
 
-### 4.2 天地盒（參數化重寫）
+  | 補償點 | 公式（預設係數） | 結構理由 |
+  |---|---|---|
+  | 面板圍圈（girth） | 面板寬依摺次遞增 `[+0, +t, +t, +2t]`（第 1 面板名義、其後累計） | 紙繞盒身一圈，外層每過一摺要多走約一個紙厚 |
+  | 插舌內縮 | `derivedDefault = 前身預設 + t`（使用者可覆寫） | 插舌插入處內空因紙厚縮小 |
+  | 防塵翼讓位 | 讓位間隙 `+t` | 翼片摺入時與相鄰面板的紙厚干涉 |
+  | 摩擦扣／糊邊 | 不補 | 黏合面與扣位由手動參數控制，不疊自動項 |
 
-- **前身實作作廢**（bug 清單見附錄 A），僅「上蓋＋底座十字展開」拓撲概念保留
-- 重寫流程（三步、每步有產物）：
-  1. **量測表**：從法蘭生產 SVG 人工量測關鍵尺寸 → 成表（欄位：蓋/底展開寬高、側板高、Hook Tab 寬/深/間距、捲邊深、蓋身間隙、角切偏移與角度）→ **法蘭確認比例關係**後才進下一步
-  2. **fixture 化**：量測表數值寫成公開 fixture（量測數值＝盒型比例知識，進 repo；生產 SVG 檔案本身不進，見 §9.3）
-  3. **generate 實作**：參數全部真接線；Hook Tab 尺寸與間距由參數推導並附「相鄰構件不重疊」不變式
-- **驗收（兩層）**：
-  - CI 層（客觀、可重現）：以量測 fixture 參數生成 → 關鍵尺寸與 fixture 數值對照，**容差 ±0.2mm**（人工量測精度）；全部不變式通過
-  - 法蘭手動 gate（主觀輔助）：本地 overlay 疊生產 SVG 目測 R 角與細部——release checklist 項，不進 CI
+  **係數審核條款**：girth 係數 `[0,1,1,2]` 為行業常規（無前身 ground truth），定稿依據＝Codex review 驗證＋法蘭生產經驗審核＋樣張 gate 實摺；係數以具名常數表集中一處，審核改動不觸幾何代碼。
+- **等價驗收定義（v1.2 改為 t=0 錨定）**：`thickness=0`、其餘參數同前身預設時，與前身輸出在 normalized Segment 層等價——線段化（曲線離散 0.05mm）後端點集合排序比對，容差 0.01mm，忽略 path 順序、id、tag；既有 fixture 不變。t>0 的新行為由 golden（t=0.3）與不變式防守。
+
+### 4.2 天地盒三件套（參數化重寫，v1.2 定稿）
+
+- **前身實作作廢**（bug 清單見附錄 A；前身為膠黏式構造，與生產品的免膠折疊式根本不同）
+- **量測 ground truth 已完成（2026-07-08）**：生產刀模逐線量測＋法蘭確認，量測表在 coding-workspace 任務夾 `feature/2026/07/07-open-dieline/天地盒量測表.md`。量測數值 fixture 化進 repo（比例知識公開；生產 SVG 檔案本身不進，見 §9.3）
+- **構造（量測定案）**：上蓋、下盒同一「免膠雙壁 tray」拓撲——中央面板＋四壁（外壁 →〔壁頂平台〕→ 內壁 → 插底舌 15mm）＋四角撐；左右壁先立（單 crease 根）、前後壁後摺（雙 crease 根、間距 t）；內壁→舌摺線為 halfcut（中段 halfcut、兩端留 crease）。內襯＝L 形斷面落地圍框（四壁帶＋頂緣內翻邊＋黏合 tab），功能＝填上蓋內淨與下盒外圍的間隙、對中（成品由腰封固定，非緊套）
+
+**參數表**（宣告順序；生產品重現值＝括號內）：
+
+| key | default | 說明 |
+|---|---|---|
+| `baseLength` / `baseWidth` | 179 / 124 | 下盒**主面板**尺寸（製造尺寸；D12） |
+| `baseHeight` | 60 | 下盒壁高（＝後摺壁全高；先摺壁自動 −t 頂緣平齊） |
+| `lidMargin` | 13.5 | 上蓋等邊放大：上蓋面板＝下盒面板＋2×margin |
+| `lidHeight` | 45 | 上蓋壁高 |
+| `basePlatformWidth` | 5 | 下盒壁頂平台寬；0＝薄壁單線反折 |
+| `lidPlatformWidth` | 0 | 上蓋壁頂平台寬（生產品＝薄壁） |
+| `thickness` | 0.3 | 紙厚（step 0.1、min 0、max 0.8；生產品黑卡 0.44→輸 0.4） |
+| `linerEnabled` | true | 內襯圍框開關 |
+| `linerFitGap` | 0.5 | 內襯兩側套合間隙（對上蓋、對下盒各留一份） |
+
+固定具名常數（照量測）：插底舌深 15、內襯黏合 tab 15、角撐斜切 5、片間距（版面排列用）。角撐款式跟隨壁款：厚壁（platform>0）配 45° 斜角撐、薄壁配弧形讓位角撐（照生產品兩款各自的畫法）。
+
+**補償公式**（全部為 t 的函數、t=0 歸零；ground truth＝量測表，當年設計以 0.4/0.5 圓整值驗證吻合）：
+
+| 補償點 | 公式 | 量測佐證（t≈0.4） |
+|---|---|---|
+| 內壁高 | 外壁高 − 2t | 60→59.2、45→44.2（8 壁全中） |
+| 後摺壁根部雙 crease | 間距 t | 0.5（4 處全中） |
+| 先摺壁外壁高 | 名義壁高 − t（**頂緣平齊**） | 下盒 59.5 vs 60（上蓋當年漏做，新模組兩款都做） |
+| 上蓋內淨 | 上蓋面板 − 4t | （設計定義式，非直接量測——內淨是折疊後空間值；t=0.44 推算 149.2，與內襯間隙帶反推吻合） |
+| 下盒外圍 | 下盒面板 ＋ 2t | （同上，設計定義式；124→124.9） |
+
+**內襯導出鏈**（無獨立尺寸參數，全部由套合幾何導出）：
+- 圍框外圍 ＝ 上蓋內淨 − 2×fitGap（兩方向各自算）
+- 圍框壁高 ＝ baseHeight（頂緣與下盒口齊平）
+- 翻邊寬（每方向）＝（圍框內空 − 下盒外圍）/2 − fitGap，其中圍框內空＝圍框外圍 − 2t（頂緣向內翻、內緣抵下盒、四角 45° 讓位）
+- 帶狀攤平：tab＋長壁＋短壁＋長壁＋短壁，壁頂翻邊隨段
+- 參照實作：任務夾 `gen_liner.py`＋`內襯圍框-重建.svg`（t=0.44 手算交付版）
+
+**驗收（v1.2 修訂）**：
+- CI 層：
+  1. 全部不變式通過（含 pieces 完整性：path/text 歸屬聯集＝全集且兩兩不交、各片 bounds 不重疊）
+  2. **生產刀模部分對帳**：params＝(179/124/60、margin 13.5、lidHeight 45、platform 5/0、t=0.4、fitGap 0.5) 生成 → 上蓋與下盒的 **x 方向結構尺寸**與量測表比對，**分兩層**：
+     - **t 無關尺寸**（面板 124、平台 5、插底舌 15 等）：逐項 ±0.05mm（量測為腳本聚類非人工）
+     - **t 相關尺寸**（壁高、內壁差、雙 crease）：驗**公式關係**（內壁＝外壁−2t、先摺壁＝名義−t、雙 crease＝t 生成自洽）＋與量測絕對差 ≤0.15mm——當年設計對不同補償點用了不一致的圓整（內壁差 0.8＝2×0.4、先摺壁差 0.5＝0.44 進位），對帳驗的是規則、不複製圓整噪音
+     - **y 方向不對帳**——單一等邊 margin 定案（D12）使 y 向與生產品差 10mm，屬已知非目標
+  3. 內襯公式對帳：t=0.4 golden（攤平尺寸、翻邊、段長）
+- 樣張 gate（release checklist、不進 CI）：法蘭以單片 SVG 匯出列印（縮放或分頁）、試摺三件、互套＋腰封位確認
 
 ## 5. Overlay 對照層
 
@@ -221,12 +285,12 @@ interface BoxModule {
 
 | 層 | 工具 | 內容 |
 |---|---|---|
-| 幾何不變式 | vitest | 每盒型的 `invariants` 在預設參數＋邊界參數組合下全過（含：展開總寬＝Σ面板＋糊邊、蓋板高＝W〔RTE〕、Hook Tab 相鄰不重疊〔天地盒〕、全 Segment 無 NaN、bounds 涵蓋所有 Segment、**不產出 bleed 線型**） |
-| 假旋鈕防範 | vitest | 每個 param key 取兩個有效值（數值＝[min,max] 內兩點；bool＝反轉；enum＝另一選項），生成輸出的 normalized Segment 必須有差異。**定位**：只防「宣告未接線」，語意正確性由不變式＋golden＋fixture 保證 |
+| 幾何不變式 | vitest | 每盒型的 `invariants` 在預設參數＋邊界參數組合下全過（含：展開總寬＝Σ面板＋糊邊、蓋板高＝W〔RTE〕、**頂緣平齊與內外壁對帳〔天地盒〕**、全 Segment 無 NaN、bounds 涵蓋所有 Segment、**pieces 完整性（§3.3 規則）**、**不產出 bleed 線型**） |
+| 假旋鈕防範 | vitest | 每個 param key 取兩個有效值（數值＝[min,max] 內兩點；bool＝反轉；enum＝另一選項），生成輸出的 normalized Segment 必須有差異（**thickness 亦然——宣告即接線**）。**定位**：只防「宣告未接線」，語意正確性由不變式＋golden＋fixture 保證 |
 | derivedDefault 秩序 | vitest | 宣告順序解析、無前向引用、無循環 |
-| Golden 快照 | vitest | 每盒型固定參數組 → **normalized geometry snapshot**（Segment 固定精度 0.01、端點排序穩定、剔除 id 等非幾何欄位）——重構不產生無意義 diff |
-| RTE 等價 | vitest | 對前身輸出之 normalized Segment 比對（§4.1 定義） |
-| 天地盒 fixture | vitest | §4.2 量測 fixture 對照，容差 ±0.2mm |
+| Golden 快照 | vitest | 每盒型固定參數組（**含 t=0.3 預設——錨定補償後的新行為**）→ **normalized geometry snapshot**（Segment 固定精度 0.01、端點排序穩定、剔除 id 等非幾何欄位）——重構不產生無意義 diff |
+| RTE 等價 | vitest | **t=0**、餘參數同前身預設，對前身輸出之 normalized Segment 比對（§4.1 定義；既有 fixture 不變） |
+| 天地盒對帳 | vitest | §4.2 生產刀模部分對帳（x 向序列 ±0.05mm）＋內襯 t=0.4 golden |
 | 樣式同源 | vitest | styles.ts mutation → 畫布與匯出 SVG 同步改變 |
 | DXF | vitest | 可解析、圖層歸屬、離散誤差（§6.2 案例） |
 | 拼版 | vitest | §7 歷史案例 fixture |
@@ -250,9 +314,9 @@ PR：test＋build＋私有資產檢查；main：加 Pages 部署。
 
 ## 10. 驗收條件（可驗證）
 
-1. `npm run dev` 起站：選 RTE／天地盒，調任一參數畫布即時更新；hover 參數高亮 `highlightTags` 對應幾何；不變式 not-ok 時警告條顯示
-2. RTE 等價：§4.1 定義的 normalized Segment 比對通過（容差 0.01mm）
-3. 天地盒：§4.2 CI 層驗收全過（fixture ±0.2mm＋全不變式）；法蘭本地 overlay 目測 gate 過（release checklist）
+1. `npm run dev` 起站：選 RTE／天地盒，調任一參數畫布即時更新；hover 參數高亮 `highlightTags` 對應幾何；不變式 not-ok 時警告條顯示；**天地盒可切「全版／單片」視圖、單片可獨立匯出 SVG**
+2. RTE 等價：§4.1 定義的 t=0 錨定比對通過（容差 0.01mm）；**t>0 時 girth／插舌／防塵翼補償生效且 t 假旋鈕測試過**
+3. 天地盒：§4.2 CI 層驗收全過（生產刀模 x 向對帳 ±0.05mm＋內襯 golden＋全不變式）；**樣張 gate 過（法蘭列印試摺三件互套）**
 4. 匯出同源：樣式 mutation 測試過；SVG 含三線型且與畫布一致；DXF 經 LibreCAD 或等效 viewer 開啟可見三圖層
 5. Overlay：匯入 §5 子集內的 AI 匯出 SVG → 已知長度校準 → 與生成層 1:1 疊圖、透明度可調；含未支援元素的檔案顯示警告清單且不崩潰
 6. 拼版：§7 兩個歷史案例 fixture 通過（相同模數，或更優且原因成立）
@@ -270,12 +334,17 @@ PR：test＋build＋私有資產檢查；main：加 Pages 部署。
 - ❌ 多語 UI 內容（`LocalizedText` 結構已就位，v1 只填 zh）
 - ❌ PWA／離線
 - ❌ 前身 crm-rebuild 的任何其他模組遷移
+- ❌ 瓦楞／厚板（t>0.8mm）補償——本 spec 補償公式為薄卡域，厚板的摺線損耗非線性、另議
+- ❌ 天地盒 y 方向的生產刀模 1:1 重現（D12 單一等邊 margin 定案的已知後果，x 向對帳已足以驗證幾何引擎）
+- ❌ 非矩形／分隔式內襯（v1 內襯＝矩形對中圍框一種）
 
 ## 12. 風險
 
 | 風險 | 對策 |
 |---|---|
-| 天地盒生產 SVG 量測比例理解錯誤 | §4.2 三步流程：量測表先給法蘭確認再寫 generate；overlay 目測為 release gate |
+| ~~天地盒量測比例理解錯誤~~（已解） | 量測表已完成＋法蘭確認（2026-07-08：一對天地、t=0.44 黑卡、內襯＋腰封構造）；殘餘細節由 x 向對帳＋樣張 gate 收口 |
+| RTE girth 補償係數無前身 ground truth | 係數具名常數集中一處＋審核條款（§4.1）；t=0 錨定保證不破壞既有等價；樣張 gate 實摺驗證 |
+| 內襯翻邊咬合力（窄邊 ~10mm 是否夠穩） | 樣張 gate 實摺驗證；fitGap／margin 可調，翻邊寬隨之自動變 |
 | DXF 在刀模廠 CAD 的相容性 | R12 最保守通用；交付前法蘭拿真實廠商流程驗一次 |
 | 生產檔誤入 repo | §9.3 三層防呆（目錄慣例＋gitignore＋CI 檢查） |
 | 前身 UI 手刻 pan/zoom 移植後手感差異 | 樣張 gate：UI 先出可互動版本給法蘭實際操作核可 |
@@ -299,3 +368,13 @@ PR：test＋build＋私有資產檢查；main：加 Pages 部署。
 - `BoxInvariant` 型別與 UI 警告行為定義（原 BLOCKING：型別缺漏）
 - Overlay 支援子集明定＋未支援警告清單（原 BLOCKING：「任一 SVG」不可保證）
 - 假旋鈕測試向量規則與定位釐清；`derivedDefault` 改 resolver＋秩序測試；`unit` 補 enum；`LocalizedText` 即刻定型；DXF 離散演算法明定；拼版 fixture 完整輸入；bleed v1 禁產；RTE 等價定義；gitignore/CI 防呆具體化；source-available 措辭規範
+
+## 附錄 C：v1.1 → v1.2 修訂記錄（2026-07-08 Slice 2 brainstorming，法蘭六題定案）
+
+**觸發**：Slice 1 完結（T9 gate 過）後法蘭兩個新需求——紙厚接線計算（step 0.1／default 0.3）、天地盒內襯參數化（重建內襯時發現的第三件）。
+
+**Ground truth**：天地盒生產刀模逐線量測（`天地盒量測表.md`，coding-workspace 任務夾）＋法蘭確認：一對天地（下盒 124×179×60 厚壁平台款＋上蓋 151×216×45 薄壁款）、黑卡 t=0.44、內襯圍框填隙＋腰封固定。內襯原檔遺失已重建（`gen_liner.py`）。
+
+**六題定案**（D11–D13）：①Slice 2 範圍＝幾何完整化 ②天地盒參數語意＝主面板 ③三件套＝pieces 分組 ④RTE＝標準補償集（t=0 錨定）⑤壁款＝每片 platformWidth ⑥上蓋放大＝單一等邊 lidMargin。
+
+**修訂章節**：§2（D11–D13）、§3.3（DielinePiece／pieces 規則）、§4.1（thickness 補償集＋t=0 等價錨定）、§4.2（全重寫：構造定案／參數表／補償公式／內襯導出鏈／對帳驗收）、§8（等價 t=0、golden t=0.3、pieces 完整性、天地盒對帳）、§10（驗收 1–3 修訂）、§11（＋瓦楞域／y 向 1:1／非矩形內襯三條 non-goal）、§12（風險表更新）。
