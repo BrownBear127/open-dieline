@@ -11,6 +11,7 @@ import { ExportBar } from '@/ui/ExportBar';
 import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
+import { OVERLAY_STROKE } from '@/overlay/state';
 // T1 的 parseDxf 原本 export 於 tests/export/dxf.test.ts，供本檔重用、不重寫解析器；但靜態
 // import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的 describe（Vitest globals 模式下
 // `describe`/`it` 是模組執行當下綁定的全域）——下面「ExportBar：下載 DXF」那組測試跑起來時，
@@ -1071,5 +1072,109 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
     const before = document.querySelectorAll('svg path').length;
     fireEvent.change(input, { target: { value: '80' } });
     expect(document.querySelectorAll('svg path').length).toBe(before);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 3 Task 4（spec §5）：Overlay 狀態層＋匯入/顯示/對齊 UI。獨立疊層——不進
+// GenerateResult、不參與 bounds/fit/hit-test（見 Canvas.tsx 疊繪處與 overlay/state.ts
+// docblock）。fixture SVG 刻意只含一條 <line>（產生 1 個可手算 rawBounds 的 segment）＋
+// 一個 <text>（觸發 parseOverlaySvg 既有的「未支援標籤」警告，見 overlay/parse.ts），
+// 同時涵蓋「匯入成功」與「警告顯示」兩條路徑，不必為每個場景各寫一份 fixture。
+// width="100"（無 mm/pt 字尾）搭配 OverlayPanel 預設 unit='pt'：scale 恆為
+// initialScaleGuess 的 pt 比例（0.352778），不受自動判定分支影響，讓其餘場景的斷言更單純。
+// ─────────────────────────────────────────────────────────────────────────
+describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Task 4，spec §5）', () => {
+  const overlaySvgText =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">' +
+    '<line x1="0" y1="0" x2="100" y2="50" /><text x="10" y="10">ignored</text></svg>';
+
+  function makeOverlayFile(): File {
+    return new File([overlaySvgText], 'overlay.svg', { type: 'image/svg+xml' });
+  }
+
+  /** 匯入 fixture SVG 並等到畫布出現洋紅疊圖 path（FileReader 非同步，見 OverlayPanel.tsx）。 */
+  async function importOverlay(): Promise<void> {
+    const input = screen.getByLabelText(/匯入生產 SVG/) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [makeOverlayFile()] } });
+    await waitFor(() => {
+      expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
+    });
+  }
+
+  it('匯入生產 SVG 後，畫布出現洋紅疊圖：獨立 <g transform> 包一個 fill=none 的 path', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+    await importOverlay();
+
+    const overlayPath = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!;
+    expect(overlayPath).toHaveAttribute('fill', 'none');
+    expect(overlayPath.parentElement?.tagName.toLowerCase()).toBe('g');
+    expect(overlayPath.parentElement).toHaveAttribute('transform', expect.stringContaining('scale('));
+  });
+
+  it('警告清單顯示（parseOverlaySvg 既有的未支援標籤警告，原樣人話呈現）', async () => {
+    render(<App />);
+    await importOverlay();
+    expect(screen.getByText('<text> ×1 未匯入')).toBeInTheDocument();
+  });
+
+  it('透明度 slider 改變 → 疊圖 path 的 stroke-opacity 跟著變（0–1 比例，UI 顯示 0–100%）', async () => {
+    render(<App />);
+    await importOverlay();
+    const readOverlayPath = () => document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!;
+    expect(readOverlayPath()).toHaveAttribute('stroke-opacity', '0.5'); // 預設 50%
+
+    const slider = screen.getByLabelText(/透明度/) as HTMLInputElement;
+    fireEvent.change(slider, { target: { value: '20' } });
+
+    expect(readOverlayPath()).toHaveAttribute('stroke-opacity', '0.2');
+  });
+
+  it('「顯示疊圖」開關取消勾選後疊圖消失，重新勾選後恢復', async () => {
+    render(<App />);
+    await importOverlay();
+
+    const toggle = screen.getByLabelText(/顯示疊圖/) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    fireEvent.click(toggle);
+    expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
+  });
+
+  it('快速對齊「左上」後 offset 生效：疊圖 <g> 的 translate 對齊目前畫布 viewBox 左上角', async () => {
+    render(<App />);
+    await importOverlay();
+
+    // 不硬編 RTE 的 bounds 數字——直接讀目前畫布 viewBox（Canvas.tsx 全版視圖＝result.bounds
+    // 原值），對齊目標與實作用的是同一份資料，斷言才不會因 RTE 預設值調整而變成假紅。
+    const viewBox = document.querySelector('svg')!.getAttribute('viewBox')!;
+    const [vbMinX, vbMinY] = viewBox.split(' ').map(Number);
+
+    fireEvent.click(screen.getByRole('button', { name: '左上' }));
+
+    const overlayGroup = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!;
+    const match = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(overlayGroup.getAttribute('transform') ?? '');
+    expect(match).not.toBeNull();
+    // fixture line 的 rawBounds minX/minY 皆為 0 → offsetX/Y = target.minX/minY − 0×scale = target.minX/minY
+    expect(Number(match![1])).toBeCloseTo(vbMinX!);
+    expect(Number(match![2])).toBeCloseTo(vbMinY!);
+  });
+
+  it('清除後疊圖與其控制項（顯示開關／透明度/對齊鈕）消失，僅剩匯入區塊', async () => {
+    render(<App />);
+    await importOverlay();
+
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+
+    expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/顯示疊圖/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/透明度/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '左上' })).not.toBeInTheDocument();
+    // 匯入區塊本身仍在，清除不等於整個面板消失
+    expect(screen.getByLabelText(/匯入生產 SVG/)).toBeInTheDocument();
   });
 });
