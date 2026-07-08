@@ -170,11 +170,34 @@ function checkResultBoundsMatchesHull(pieces: DielinePiece[], resultBounds: Boun
 }
 
 /**
+ * 總 bounds 必須等於「實際幾何」的包絡（spec §3.3 三向等式的第三邊：GenerateResult.bounds
+ * ＝全片 hull＝全幾何 hull；前一檢查已驗 result.bounds＝全片 hull，此比對閉合等式鏈）。
+ * 沒有這一比對，邊界片把 bounds 向外墊（外側無鄰片、不觸發 overlapping-pieces）、
+ * result.bounds 跟著墊時，宣告層各檢查全過但宣告已與實際幾何脫節（Task 1 review 實證重現）。
+ *
+ * 幾何包絡口徑照 Slice 1 既有語意（reverse-tuck-end.ts 的 bounds-cover 不變式）：
+ * segmentsBounds 對全部 paths 的 segments 計算，texts 不參與——文字是標註不是幾何，
+ * 且此層拿不到字型度量，錨點只是退化的代理值。
+ */
+function checkResultBoundsMatchesGeometry(result: GenerateResult): CheckResult {
+  const geometryHull = segmentsBounds(result.paths.flatMap((p) => p.segments));
+  if (!boundsEqual(geometryHull, result.bounds)) {
+    return {
+      ok: false,
+      message: 'geometry-hull-mismatch: GenerateResult.bounds 與全幾何包絡不一致（宣告的 bounds 跟實際幾何脫節）',
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * pieces 完整性驗證（spec §3.3 全部規則）：
  * id 唯一、每片非空、path/text 歸屬聯集＝全集且兩兩不交、引用的 id 必須存在、
- * 各片 bounds 涵蓋自己的成員且兩兩不重疊、GenerateResult.bounds＝全片 bounds 聯集包絡。
+ * 各片 bounds 涵蓋自己的成員且兩兩不重疊、GenerateResult.bounds＝全片 bounds 聯集包絡
+ * ＝全幾何包絡（三向等式，前兩邊分別由 result-bounds-mismatch／geometry-hull-mismatch 防守）。
  *
- * `result.pieces` 為 `undefined` 時視為單片盒型（如 RTE），直接視為合法，不做任何檢查。
+ * `result.pieces` 為 `undefined` 時視為單片盒型（如 RTE），直接視為合法，不做任何檢查
+ * （RTE 的 bounds 含 ±20mm 畫布邊距、刻意大於幾何包絡——單片盒型不受三向等式約束）。
  */
 export function validatePieces(result: GenerateResult): { ok: true } | { ok: false; message: string } {
   const { pieces } = result;
@@ -204,6 +227,9 @@ export function validatePieces(result: GenerateResult): { ok: true } | { ok: fal
 
   const resultBoundsMatch = checkResultBoundsMatchesHull(pieces, result.bounds);
   if (!resultBoundsMatch.ok) return resultBoundsMatch;
+
+  const geometryHullMatch = checkResultBoundsMatchesGeometry(result);
+  if (!geometryHullMatch.ok) return geometryHullMatch;
 
   return { ok: true };
 }
