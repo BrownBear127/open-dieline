@@ -103,25 +103,32 @@ function nearestDistanceToBezier(b: BezierSeg, px: number, py: number): number {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('toDxfDocument', () => {
-  it('1. line×1（cut）→ ENTITIES 恰 1 個 LINE、layer=CUT、10/20/11/21 值正確', () => {
+  it('1. line×1（cut）→ ENTITIES 恰 1 個 LINE、layer=CUT、10/20/30/11/21/31 值正確（含 Z，F1）', () => {
     const result = makeResult([{ id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 1, y1: 2, x2: 3, y2: 4 }] }]);
-    const parsed = parseDxf(toDxfDocument(result));
+    const dxf = toDxfDocument(result);
+    const parsed = parseDxf(dxf);
     const lines = parsed.entities.filter((e) => e.type === 'LINE');
     expect(lines).toHaveLength(1);
     expect(lines[0]!.layer).toBe('CUT');
     expect(Number(lines[0]!.codes[10]![0])).toBeCloseTo(1, 3);
     expect(Number(lines[0]!.codes[20]![0])).toBeCloseTo(2, 3);
+    expect(Number(lines[0]!.codes[30]![0])).toBeCloseTo(0, 3);
     expect(Number(lines[0]!.codes[11]![0])).toBeCloseTo(3, 3);
     expect(Number(lines[0]!.codes[21]![0])).toBeCloseTo(4, 3);
+    expect(Number(lines[0]!.codes[31]![0])).toBeCloseTo(0, 3);
+    // 直接斷言原始文字（不經 parseDxf helper）：鎖住 30/31 的實際 group code 序與值，
+    // 防止「解析器容忍缺欄位」把漏寫 Z 的迴歸悄悄放過（F1）。
+    expect(dxf).toContain('0\nLINE\n8\nCUT\n10\n1\n20\n2\n30\n0\n11\n3\n21\n4\n31\n0');
   });
 
-  it('2. arc ccw=false（0°→90°）→ ARC 50=0、51=90', () => {
+  it('2. arc ccw=false（0°→90°）→ ARC 50=0、51=90，圓心含 Z=0（30，F1）', () => {
     const result = makeResult([
       { id: 'p-0', type: 'cut', segments: [{ kind: 'arc', cx: 0, cy: 0, r: 5, startAngle: degToRad(0), endAngle: degToRad(90), ccw: false }] },
     ]);
     const parsed = parseDxf(toDxfDocument(result));
     const arcs = parsed.entities.filter((e) => e.type === 'ARC');
     expect(arcs).toHaveLength(1);
+    expect(Number(arcs[0]!.codes[30]![0])).toBeCloseTo(0, 3);
     expect(Number(arcs[0]!.codes[50]![0])).toBeCloseTo(0, 3);
     expect(Number(arcs[0]!.codes[51]![0])).toBeCloseTo(90, 3);
   });
@@ -137,10 +144,33 @@ describe('toDxfDocument', () => {
     expect(Number(arcs[0]!.codes[51]![0])).toBeCloseTo(90, 3);
   });
 
-  it('4. bezier（r=1mm 圓角級曲率）→ POLYLINE＋VERTEX≥3＋SEQEND；頂點皆在原曲線 0.1mm 內、首尾＝端點', () => {
+  it('arc ccw=false 跨 0° 環繞（350°→10°）→ ARC 50=350、51=10（防「排序後輸出」誤實作：min/max 排序在跨圈時會判反方向，F2）', () => {
+    const result = makeResult([
+      { id: 'p-0', type: 'cut', segments: [{ kind: 'arc', cx: 0, cy: 0, r: 5, startAngle: degToRad(350), endAngle: degToRad(10), ccw: false }] },
+    ]);
+    const parsed = parseDxf(toDxfDocument(result));
+    const arcs = parsed.entities.filter((e) => e.type === 'ARC');
+    expect(arcs).toHaveLength(1);
+    expect(Number(arcs[0]!.codes[50]![0])).toBeCloseTo(350, 3);
+    expect(Number(arcs[0]!.codes[51]![0])).toBeCloseTo(10, 3);
+  });
+
+  it('arc ccw=true 跨 0° 環繞（10°→350°，順時針掃過 0°）→ swap 後 50=350、51=10（與上一條互為同一物理弧段，F2）', () => {
+    const result = makeResult([
+      { id: 'p-0', type: 'cut', segments: [{ kind: 'arc', cx: 0, cy: 0, r: 5, startAngle: degToRad(10), endAngle: degToRad(350), ccw: true }] },
+    ]);
+    const parsed = parseDxf(toDxfDocument(result));
+    const arcs = parsed.entities.filter((e) => e.type === 'ARC');
+    expect(arcs).toHaveLength(1);
+    expect(Number(arcs[0]!.codes[50]![0])).toBeCloseTo(350, 3);
+    expect(Number(arcs[0]!.codes[51]![0])).toBeCloseTo(10, 3);
+  });
+
+  it('4. bezier（r=1mm 圓角級曲率）→ POLYLINE＋VERTEX≥3＋SEQEND；頂點皆在原曲線 0.1mm 內、首尾＝端點、x 嚴格遞增、含 Z（F1/F3）', () => {
     const bezier: BezierSeg = { kind: 'bezier', x1: 0, y1: 0, c1x: 0, c1y: 0.55, c2x: 0.45, c2y: 1, x2: 1, y2: 1 };
     const result = makeResult([{ id: 'p-0', type: 'crease', segments: [bezier] }]);
-    const parsed = parseDxf(toDxfDocument(result));
+    const dxf = toDxfDocument(result);
+    const parsed = parseDxf(dxf);
 
     const polylines = parsed.entities.filter((e) => e.type === 'POLYLINE');
     const vertices = parsed.entities.filter((e) => e.type === 'VERTEX');
@@ -158,10 +188,19 @@ describe('toDxfDocument', () => {
     expect(Number(last.codes[10]![0])).toBeCloseTo(bezier.x2, 3);
     expect(Number(last.codes[20]![0])).toBeCloseTo(bezier.y2, 3);
 
+    // POLYLINE header 直接斷言原始文字（不經 parseDxf helper）：鎖住 66 之後、70 之前的
+    // dummy elevation point 10/0 20/0 30/0 群組碼序（F1；parseDxf 的 codes map 不驗順序，
+    // 只有原始字串比對能抓到「值對但位置插錯」這類迴歸）。
+    expect(dxf).toContain('0\nPOLYLINE\n8\nCREASE\n66\n1\n10\n0\n20\n0\n30\n0\n70\n0');
+
+    let prevX = -Infinity;
     for (const v of vertices) {
       const px = Number(v.codes[10]![0]);
       const py = Number(v.codes[20]![0]);
       expect(nearestDistanceToBezier(bezier, px, py)).toBeLessThanOrEqual(0.1 + 1e-6);
+      expect(Number(v.codes[30]![0])).toBeCloseTo(0, 3); // F1：VERTEX 含 Z
+      expect(px).toBeGreaterThan(prevX); // F3：此 bezier 單調遞增，中間頂點不應重排/漏點
+      prevX = px;
     }
   });
 

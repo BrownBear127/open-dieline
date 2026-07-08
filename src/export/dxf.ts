@@ -52,6 +52,15 @@ function fmt(v: number): string {
   return normalized.replace(/0+$/, '').replace(/\.$/, '');
 }
 
+/**
+ * R12 一手規格（AutoCAD Release 12 DXF Reference）：LINE 為 `10,20,30`／`11,21,31`、ARC 圓心
+ * 為 `10,20,30`、VERTEX 為 `10,20,30`——這些 30 群組碼都沒有標 `-optional`，跟同文件裡其他
+ * 明確標 `-optional N` 的欄位對照，代表恆輸出（見 task-1-report.md F1 查證）。本檔座標系是
+ * 純平面（`core/geometry.ts` 的 `Segment` 無 Z 欄位），Z 恆為 0；用具名常數取代散落的字面
+ * `'0'`，同時讓「這是刻意補的 Z，不是漏寫」的意圖可搜尋。
+ */
+const ZERO_Z = '0';
+
 /** 弧度→度，並 normalize 到 [0,360)（DXF ARC 的 50/51 皆為十進位度數）。 */
 function degFromRad(rad: number): number {
   const deg = (rad * 180) / Math.PI;
@@ -64,7 +73,16 @@ function gc(code: number, value: string | number): string {
 }
 
 function lineEntity(layer: string, s: LineSeg): string {
-  return [gc(0, 'LINE'), gc(8, layer), gc(10, fmt(s.x1)), gc(20, fmt(s.y1)), gc(11, fmt(s.x2)), gc(21, fmt(s.y2))].join('\n');
+  return [
+    gc(0, 'LINE'),
+    gc(8, layer),
+    gc(10, fmt(s.x1)),
+    gc(20, fmt(s.y1)),
+    gc(30, ZERO_Z),
+    gc(11, fmt(s.x2)),
+    gc(21, fmt(s.y2)),
+    gc(31, ZERO_Z),
+  ].join('\n');
 }
 
 function arcEntity(layer: string, s: ArcSeg): string {
@@ -78,11 +96,20 @@ function arcEntity(layer: string, s: ArcSeg): string {
   // 掃的 90° 弧，若不交換會被讀成 90°→360° 的 270° 錯誤弧——即「刀模弧翻面」）。必須交換
   // 50=end、51=start，讓 DXF 的遞增掃描重現與原 Segment 完全相同的弧段。
   const [dxfStart, dxfEnd] = s.ccw ? [endDeg, startDeg] : [startDeg, endDeg];
-  return [gc(0, 'ARC'), gc(8, layer), gc(10, fmt(s.cx)), gc(20, fmt(s.cy)), gc(40, fmt(s.r)), gc(50, fmt(dxfStart)), gc(51, fmt(dxfEnd))].join('\n');
+  return [
+    gc(0, 'ARC'),
+    gc(8, layer),
+    gc(10, fmt(s.cx)),
+    gc(20, fmt(s.cy)),
+    gc(30, ZERO_Z),
+    gc(40, fmt(s.r)),
+    gc(50, fmt(dxfStart)),
+    gc(51, fmt(dxfEnd)),
+  ].join('\n');
 }
 
 function vertexEntity(layer: string, x: number, y: number): string {
-  return [gc(0, 'VERTEX'), gc(8, layer), gc(10, fmt(x)), gc(20, fmt(y))].join('\n');
+  return [gc(0, 'VERTEX'), gc(8, layer), gc(10, fmt(x)), gc(20, fmt(y)), gc(30, ZERO_Z)].join('\n');
 }
 
 /** bezier → POLYLINE：flattenBezier 離散（預設 chordTol=0.1／maxSegLen=5，即 spec 值）成折線頂點。 */
@@ -90,7 +117,11 @@ function polylineEntity(layer: string, s: BezierSeg): string {
   const flattened = flattenBezier(s);
   const first = flattened[0]!; // flattenBezier 恆回傳至少一段，見該函式遞迴的 base case
   const vertices = [vertexEntity(layer, first.x1, first.y1), ...flattened.map((seg) => vertexEntity(layer, seg.x2, seg.y2))];
-  const header = [gc(0, 'POLYLINE'), gc(8, layer), gc(66, 1), gc(70, 0)].join('\n');
+  // 66（vertices-follow）之後、70（polyline flags）之前補 dummy elevation point 10/0 20/0
+  // 30/0：R12 一手規格明列 POLYLINE 條目含 10,20,30（"10 和 20 恆為 0、30 才是真正的
+  // elevation"），未標 -optional；本檔無 elevation 概念（純平面座標系），30 恆 0，見上方
+  // ZERO_Z 與 task-1-report.md F1。
+  const header = [gc(0, 'POLYLINE'), gc(8, layer), gc(66, 1), gc(10, ZERO_Z), gc(20, ZERO_Z), gc(30, ZERO_Z), gc(70, 0)].join('\n');
   return [header, ...vertices, gc(0, 'SEQEND')].join('\n');
 }
 
@@ -137,6 +168,16 @@ function entitiesSection(result: GenerateResult): string {
  * 只消費 `result.paths`——`texts` 依上方檔頭規則全數排除；`bounds`/`pieces` 是 UI／SVG 用的
  * 版面中繼資料，DXF 實體本身帶絕對座標，CAD/雷射切割軟體會自行 auto-fit，不需要另外宣告
  * extents（brief 的 HEADER 骨架也只要求 $ACADVER，未要求 $EXTMIN/$EXTMAX）。
+ *
+ * **已知限制（不修，記錄供未來參考——review F4）**：若某 arc Segment 的 `startAngle`／
+ * `endAngle` 恰差 2π 整數倍（即完整圓），`degFromRad` 會把兩者 normalize 到同一角度，
+ * `arcEntity` 因此輸出 50=0、51=0 的零掃掠 ARC（下游讀取器對此的解讀未定義，多半視為退化/
+ * 不可見弧，不保證讀成完整圓）。目前這個輸入不可達：盒型幾何唯一的弧構造點
+ * `PathBuilder.arcTo`（`core/path.ts`）在起訖點重合時直接 throw（見該檔「弦長為 0」錯誤），
+ * 無法產生完整圓 Segment；獨立的 overlay 對照層（`docs/plans/2026-07-09-v1-slice3-overlay-dxf.md`）
+ * 明確不進 `GenerateResult`、不參與匯出。若未來 `GenerateResult` 的來源改變、可能出現真正的
+ * 完整圓 Segment，本函式應先偵測這個情形並改輸出 CIRCLE 實體，而非讓它靜默 collapse 成零
+ * 掃掠 ARC。
  */
 export function toDxfDocument(result: GenerateResult): string {
   return [headerSection(), tablesSection(), entitiesSection(result), gc(0, 'EOF')].join('\n');
