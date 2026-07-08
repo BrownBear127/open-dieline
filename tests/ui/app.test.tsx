@@ -669,7 +669,7 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     fireEvent.click(screen.getByRole('button', { name: '內襯' }));
     expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'true');
 
-    const linerCheckbox = screen.getByLabelText(/內襯圍框/) as HTMLInputElement;
+    const linerCheckbox = screen.getByLabelText(/內襯墊片/) as HTMLInputElement;
     expect(linerCheckbox.checked).toBe(true);
 
     fireEvent.click(linerCheckbox); // 關閉 linerEnabled → 'liner' 片消失，fallback 回全版
