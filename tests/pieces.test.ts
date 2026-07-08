@@ -34,7 +34,7 @@ function legalResult(): GenerateResult {
   return { paths, texts, pieces, bounds: { minX: 0, maxX: 50, minY: 0, maxY: 10 } };
 }
 
-/** 斷言 validatePieces 判定不通過，且 message 含指定關鍵詞（8 種 violation 共用的斷言邏輯）。 */
+/** 斷言 validatePieces 判定不通過，且 message 含指定關鍵詞（各 violation 案例共用的斷言邏輯）。 */
 function expectViolation(result: GenerateResult, keyword: string): void {
   const check = validatePieces(result);
   expect(check.ok, `應偵測到 ${keyword} violation`).toBe(false);
@@ -175,5 +175,24 @@ describe('validatePieces', () => {
     const base = legalResult();
     const result: GenerateResult = { ...base, bounds: { minX: 0, maxX: 999, minY: 0, maxY: 10 } };
     expectViolation(result, 'result-bounds-mismatch');
+  });
+
+  it('宣告層自洽但與實際幾何脫節（邊界片 bounds 外墊、result.bounds 跟著墊）→ geometry-hull-mismatch', () => {
+    // Task 1 review 抓到的漏洞重現（Important finding）：只驗「result.bounds ＝ 全片 bounds
+    // 聯集」抓不到「宣告跟實際幾何整體脫節」——最左片 lid 的 bounds 向左外墊 100（左側無鄰片，
+    // 不觸發 overlapping-pieces；成員仍被涵蓋，不觸發 piece-bounds-mismatch），result.bounds
+    // 跟著墊到同一位置（宣告層聯集一致，不觸發 result-bounds-mismatch）——宣告層檢查全過，
+    // 但 GenerateResult.bounds 已不等於全幾何包絡（spec §3.3 三向等式的第三邊）。
+    const base = legalResult();
+    const result: GenerateResult = {
+      ...base,
+      pieces: [
+        { ...base.pieces![0]!, bounds: { minX: -100, maxX: 10, minY: 0, maxY: 10 } },
+        base.pieces![1]!,
+        base.pieces![2]!,
+      ],
+      bounds: { minX: -100, maxX: 50, minY: 0, maxY: 10 },
+    };
+    expectViolation(result, 'geometry-hull-mismatch');
   });
 });
