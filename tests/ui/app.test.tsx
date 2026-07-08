@@ -1177,4 +1177,23 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     // 匯入區塊本身仍在，清除不等於整個面板消失
     expect(screen.getByLabelText(/匯入生產 SVG/)).toBeInTheDocument();
   });
+
+  // file input 是 uncontrolled 元件：真實瀏覽器對「選了同一個檔案」不會觸發 onChange（value
+  // 沒變）——「清除」若沒有連帶清掉 input 的原生已選檔案記憶，使用者清除後想重新匯入同一份
+  // 檔案會靜默沒反應（自我 review 發現）。這裡驗證修法本身（OverlayPanel.tsx 的 fileInputKey：
+  // 清除時遞增 key 強制重掛載 input）：直接斷言 DOM 節點在清除前後不是同一個——不用
+  // `fireEvent.change` 兩次比對行為，因為 RTL 的 fireEvent 是無條件派送合成事件，不會重現
+  // 「瀏覽器發現 value 沒變就不派送原生 change 事件」這個真實限制，寫成行為測試會通不過
+  // RED（即使拿掉修法，靠 fireEvent 硬派送兩次一樣會成功，驗證不到問題），只有直接斷言
+  // 節點身分（remount 與否）才是這個修法唯一可驗證的部分。
+  it('清除後 file input 重新掛載（key 遞增），清掉原生已選檔案記憶', async () => {
+    render(<App />);
+    const inputBefore = screen.getByLabelText(/匯入生產 SVG/);
+    await importOverlay();
+
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+
+    const inputAfter = screen.getByLabelText(/匯入生產 SVG/);
+    expect(inputAfter).not.toBe(inputBefore); // 不同 DOM 節點＝真的重新掛載，不只是清空 value
+  });
 });
