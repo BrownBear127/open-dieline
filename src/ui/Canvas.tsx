@@ -24,13 +24,13 @@
  * viewBox 的行為，不額外加這層邊距。
  */
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from 'react';
+import type { FormEvent, MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from 'react';
 import type { Bounds } from '@/core/geometry';
 import type { DielinePiece, GenerateResult, LocalizedText } from '@/core/types';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
 import { DIMENSION_LINE_TYPES } from '@/export/svg';
-import { OVERLAY_STROKE } from '@/overlay/state';
+import { OVERLAY_STROKE, calibrateScale, findNearestOverlaySegment } from '@/overlay/state';
 import type { OverlayState } from '@/overlay/state';
 
 export interface CanvasProps {
@@ -60,15 +60,24 @@ export interface CanvasProps {
    */
   onSelectPiece?: (pieceId: string | null) => void;
   /**
-   * 匯入的生產刀模疊圖狀態（Slice 3 Task 4，spec §5）；undefined／null／`visible:false`／
+   * 匯入的生產刀模疊圖狀態（Slice 3 Task 4/5，spec §5）；undefined／null／`visible:false`／
    * 空 segments 皆不渲染。畫在生成層（paths/texts）之後＝視覺最上層，且刻意獨立於本檔其餘
    * 邏輯：不併入 `activeBounds`/`computeFitScale`（bounds/fit 只認生成層幾何，overlay 只是
    * 對照參考，不應該讓匯入的檔案把畫布 fit/viewBox 拉走）、不併入 `highlightSet`/`isHighlighted`
-   * （overlay 沒有 tags，也不是 hover 高亮的對象）、不掛任何 pointer 事件（不參與 hit-test；
-   * T5 校準模式會在 Canvas 另外加點選邏輯，此處不預先攔截，留給 T5 接手）。選填：既有只組
-   * `result`/`highlightTags`/`invariantWarnings` 的 Canvas 單元測試不需要跟著改。
+   * （overlay 沒有 tags，也不是 hover 高亮的對象）。`overlay.calibrating` 為 true 時（T5）
+   * 才對 overlay 線段開放點選 hit-test，其餘時間畫布的既有 pan/zoom 互動不受影響。選填：
+   * 既有只組 `result`/`highlightTags`/`invariantWarnings` 的 Canvas 單元測試不需要跟著改。
    */
   overlay?: OverlayState | null;
+  /**
+   * 校準完成／取消時的回呼（T5）：Canvas 承接使用者在畫布上的點選＋行內輸入互動，但
+   * `OverlayState` 本身提升在 App.tsx（跟 OverlayPanel 共用同一份 state，見該檔 docblock
+   * 「overlayState」段），Canvas 必須把最終結果（新 scale／退出校準模式／Esc 取消）回寫
+   * 上去才會反映到畫面——與 OverlayPanel 收到的 `onOverlayStateChange` 是同一個函式（App.tsx
+   * 傳同一個 `setOverlayState`），這裡只是多一個消費端。選填＋用 `?.()` 呼叫：既有不傳這個
+   * prop 的 Canvas 單元測試（不含校準流程）不受影響。
+   */
+  onOverlayStateChange?: (next: OverlayState | null) => void;
 }
 
 const HIGHLIGHT_STROKE = '#FF6B00';
@@ -94,6 +103,15 @@ const DIMENSION_TEXT_FILL = LINE_STYLES.dimension.stroke;
  * 的視覺呼吸感，不是任意數字。見本檔開頭 docblock 對「為什麼片視圖需要這層邊距」的完整說明。
  */
 const PIECE_VIEW_PADDING = 20;
+/**
+ * 校準模式 hit-test 基準容差（mm，zoom=100% 時的視覺容差，T5）：除以目前 Canvas zoom（下面
+ * 的 `scale` state，CSS transform 的縮放，不要跟 `overlay.scale`〔overlay 原始座標→mm 的
+ * 比例〕搞混）、再除以 `overlay.scale`，換算成 overlay 原始座標系下的容差，維持「畫面上
+ * 固定像素感」——zoom 越大，同樣的螢幕像素對應的 mm/原始座標單位越小，容差跟著縮小（可以
+ * 點得更精準），反之亦然。這也是為什麼校準模式刻意不停用縮放：使用者可以先放大畫面再點選，
+ * 換取更精細的 hit-test 容差。
+ */
+const CALIBRATION_THRESHOLD_MM = 3;
 
 /** 依容器可視尺寸與內容 bounds 算出「剛好塞滿」的 scale——邏輯照前身 handleFitToScreen 移植。 */
 function computeFitScale(containerW: number, containerH: number, bounds: Bounds): number {
@@ -125,11 +143,19 @@ export function Canvas({
   activePiece,
   onSelectPiece,
   overlay,
+  onOverlayStateChange,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
+  // 校準模式（T5）互動狀態——刻意留在 Canvas 的 local state、不進共享 OverlayState：
+  // 「目前選中哪一段待輸入」與「輸入框內容/錯誤訊息」只有本檔渲染提示條/高亮/表單需要，
+  // 退出校準模式（見下方 useEffect）就整批歸零，沒有跨元件同步的必要（跟 calibrating／
+  // calibrated 這兩個「兩個兄弟元件都要讀」的欄位不同，那兩個才需要放進 OverlayState）。
+  const [pickedSegmentIndex, setPickedSegmentIndex] = useState<number | null>(null);
+  const [calibrationInput, setCalibrationInput] = useState('');
+  const [calibrationError, setCalibrationError] = useState<string | null>(null);
 
   // 單片視圖：bounds 外加視覺邊距；全版視圖：沿用 result.bounds 原值（既有行為不變，見 docblock）。
   const activeBounds = activePiece ? expandBounds(activePiece.bounds, PIECE_VIEW_PADDING) : result.bounds;
@@ -160,6 +186,34 @@ export function Canvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMultiPiece]);
 
+  // 校準模式結束時（不論走哪條路徑——Canvas 自己的確認/Esc，或 OverlayPanel「取消校準」鈕
+  // 直接把 overlay.calibrating 切回 false）統一歸零本檔的校準互動 local state。用單一 effect
+  // 涵蓋所有退出路徑，比在每個退出路徑各自手動清一次更不容易漏（見本檔開頭對 T5 local state
+  // 的說明）；這裡不會造成畫面閃爍，因為下方 JSX 對校準提示條/高亮的渲染同時也守著
+  // `overlay?.calibrating`，該值變 false 的同一輪渲染就會先隱藏整塊 UI，這個 effect 只是
+  // 事後把殘留的 local state 打掃乾淨。
+  useEffect(() => {
+    if (!overlay?.calibrating) {
+      setPickedSegmentIndex(null);
+      setCalibrationInput('');
+      setCalibrationError(null);
+    }
+  }, [overlay?.calibrating]);
+
+  // Esc 退出校準模式（不改 scale，見 spec 邊界規則）：全域 keydown，不綁在特定元素上，
+  // 不論使用者當下焦點在畫布本身或行內輸入框都能生效。只在 calibrating 時掛監聽，離開
+  // 模式立刻移除（cleanup），避免非校準狀態下也攔截全站的 Esc 鍵。
+  useEffect(() => {
+    const currentOverlay = overlay;
+    if (!currentOverlay?.calibrating) return;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      onOverlayStateChange?.({ ...currentOverlay, calibrating: false });
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [overlay, onOverlayStateChange]);
+
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -187,6 +241,50 @@ export function Canvas({
   const viewW = maxX - minX || 100;
   const viewH = maxY - minY || 100;
 
+  /**
+   * 校準模式點選 hit-test（T5）：座標鏈——滑鼠事件座標（`e.clientX/clientY`，螢幕像素）→
+   * SVG viewBox 座標（mm，生成層座標系）→ overlay 原始座標系（除 scale 減 offset，即渲染
+   * 變換 `translate(offset) scale(overlay.scale)` 的精確反向：先撤銷平移再撤銷縮放）。
+   *
+   * 第一段轉換用 `getBoundingClientRect()` 取得 svg 元素目前「實際渲染」的螢幕矩形（已經
+   * 包含 pan/zoom 的 CSS transform 與 flex 置中造成的位移/縮放），再用 `rect.width`／
+   * `viewW` 的比例換算回 viewBox 座標——不需要另外手動重算 pan/scale/置中的幾何，瀏覽器
+   * 量測到的矩形已經是最終結果。這個函式在 jsdom 測試環境下依賴呼叫端 mock
+   * `getBoundingClientRect`（原生 jsdom 回傳全 0 矩形），見 tests/ui/app.test.tsx 對應
+   * describe 的說明；生產環境走真實瀏覽器量測。
+   */
+  const handleCalibrationClick = (e: ReactMouseEvent<SVGSVGElement>): void => {
+    if (!overlay?.calibrating || overlay.segments.length === 0) return;
+    if (pickedSegmentIndex !== null) return; // 已選定待輸入中：先確認或 Esc，點擊畫布不重新選取
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return; // 量測不到真實尺寸（如未掛載完成）：放棄本次點擊
+    const svgX = ((e.clientX - rect.left) / rect.width) * viewW;
+    const svgY = ((e.clientY - rect.top) / rect.height) * viewH;
+    const mmX = minX + svgX;
+    const mmY = minY + svgY;
+    const rawX = (mmX - overlay.offsetX) / overlay.scale;
+    const rawY = (mmY - overlay.offsetY) / overlay.scale;
+    // 見 CALIBRATION_THRESHOLD_MM 註解：先除以畫布 zoom（螢幕像素感恆定），再除以
+    // overlay.scale（換算進 overlay 原始座標系，跟 rawX/rawY 同一座標系才能比較距離）。
+    const thresholdRaw = CALIBRATION_THRESHOLD_MM / scale / overlay.scale;
+    const hit = findNearestOverlaySegment(overlay.segments, { x: rawX, y: rawY }, thresholdRaw);
+    if (hit) setPickedSegmentIndex(hit.index);
+  };
+
+  /** 行內輸入表單送出：≤0 不套用＋提示（停在原地讓使用者修正）；>0 套用 calibrateScale 並退出校準模式。 */
+  const handleCalibrationConfirm = (e: FormEvent<HTMLFormElement>): void => {
+    e.preventDefault();
+    if (!overlay || pickedSegmentIndex === null) return;
+    const value = Number(calibrationInput);
+    if (!(value > 0)) {
+      setCalibrationError('請輸入大於 0 的數字');
+      return;
+    }
+    const seg = overlay.segments[pickedSegmentIndex];
+    if (!seg) return; // 理論不會發生：index 來自同一份（未變動過的）segments 陣列的 hit-test 結果
+    onOverlayStateChange?.({ ...overlay, scale: calibrateScale(seg, value), calibrating: false, calibrated: true });
+  };
+
   // 片範圍過濾（pathIds/textIds 集合匹配，不是猜 index）：activePiece 存在時先縮到該片的成員，
   // 再疊加既有的 includeDimensions 可見性過濾——兩層過濾各自獨立、互不影響對方的判斷依據，
   // 單片視圖的尺寸標註仍照 includeDimensions 決定要不要顯示（同一份 predicate，見本檔 docblock）。
@@ -207,6 +305,38 @@ export function Canvas({
           {invariantWarnings.map((w, i) => (
             <div key={i}>{w.message.zh}</div>
           ))}
+        </div>
+      )}
+
+      {/* 校準模式提示條（T5）：z-30 高於上面的不變式警告條（z-20）——校準是使用者主動進入的
+          互動模式，視覺優先權蓋過被動的背景幾何警告，兩者同時出現的機率低且 spec 未特別
+          規範，此處採最簡單的固定 z-index 分層，不做動態疊放位移計算。 */}
+      {overlay && overlay.calibrating && (
+        <div className="absolute top-0 left-0 right-0 z-30 bg-blue-50 text-blue-800 text-sm px-4 py-2 border-b border-blue-300 flex items-center gap-3">
+          {pickedSegmentIndex === null ? (
+            <span>點選 overlay 上一段已知長度的線（Esc 取消校準）</span>
+          ) : (
+            <form onSubmit={handleCalibrationConfirm} className="flex items-center gap-2 flex-wrap">
+              <label htmlFor="calibration-mm-input">該線段實際長度：</label>
+              <input
+                id="calibration-mm-input"
+                type="number"
+                step="any"
+                autoFocus
+                value={calibrationInput}
+                onChange={(e) => {
+                  setCalibrationInput(e.target.value);
+                  setCalibrationError(null);
+                }}
+                className="w-24 border border-blue-300 rounded-sm px-1.5 py-0.5 text-right font-mono focus:outline-none focus:border-blue-600"
+              />
+              <span>mm</span>
+              <button type="submit" className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-sm hover:bg-blue-700 transition-colors">
+                確認
+              </button>
+              {calibrationError && <span className="text-red-600">{calibrationError}</span>}
+            </form>
+          )}
         </div>
       )}
 
@@ -263,7 +393,11 @@ export function Canvas({
 
       <div
         ref={containerRef}
-        className="w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
+        // 校準模式游標改十字準星（spec UI 規格）；pan/zoom 互動本身不停用（見
+        // CALIBRATION_THRESHOLD_MM 註解：容差隨 zoom 換算，使用者可以放大畫面換取更精準的點選）。
+        className={`w-full h-full flex items-center justify-center select-none ${
+          overlay?.calibrating ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+        }`}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
@@ -279,6 +413,7 @@ export function Canvas({
             transition: isDragging ? 'none' : 'transform 0.1s ease-out',
           }}
           className="overflow-visible"
+          onClick={handleCalibrationClick}
         >
           {visiblePaths.map((p) => {
             const style = LINE_STYLES[p.type];
@@ -334,6 +469,18 @@ export function Canvas({
                 strokeOpacity={overlay.opacity}
                 vectorEffect="non-scaling-stroke"
               />
+              {/* 校準模式選中段高亮（T5，spec「選中段高亮＝加粗」）：沿用既有 hover 高亮的
+                  橘色/寬度倍率常數，維持全站「這個東西目前被選定」的視覺語彙一致。 */}
+              {overlay.calibrating && pickedSegmentIndex !== null && overlay.segments[pickedSegmentIndex] && (
+                <path
+                  d={segmentsToSvgD([overlay.segments[pickedSegmentIndex]])}
+                  fill="none"
+                  stroke={HIGHLIGHT_STROKE}
+                  strokeWidth={LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR}
+                  opacity={HIGHLIGHT_OPACITY}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
             </g>
           )}
         </svg>

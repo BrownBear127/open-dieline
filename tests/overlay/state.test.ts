@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { Bounds, Segment } from '@/core/geometry';
 import type { OverlayParseResult } from '@/overlay/parse';
-import { OVERLAY_STROKE, alignOffset, createOverlayState, initialScaleGuess } from '@/overlay/state';
+import {
+  OVERLAY_STROKE,
+  alignOffset,
+  calibrateScale,
+  createOverlayState,
+  findNearestOverlaySegment,
+  initialScaleGuess,
+} from '@/overlay/state';
 
 describe('initialScaleGuess', () => {
   it('沒有 width 字尾時，pt/mm/px 三個下拉值各自回傳對應比例', () => {
@@ -78,7 +85,7 @@ describe('alignOffset', () => {
 });
 
 describe('createOverlayState', () => {
-  it('由 parseOverlaySvg 輸出＋unit 建構初始狀態：segments/warnings 原樣帶入、scale 用 initialScaleGuess、offset 歸零、opacity 預設 0.5、visible 預設開、rawBounds 用 segmentsBounds', () => {
+  it('由 parseOverlaySvg 輸出＋unit 建構初始狀態：segments/warnings 原樣帶入、scale 用 initialScaleGuess、offset 歸零、opacity 預設 0.5、visible 預設開、rawBounds 用 segmentsBounds、calibrating/calibrated 預設 false（T5：尚未進校準模式、尚未校準過）', () => {
     const segments: Segment[] = [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 20 }];
     const parseResult: OverlayParseResult = {
       segments,
@@ -94,6 +101,8 @@ describe('createOverlayState', () => {
     expect(state.opacity).toBe(0.5);
     expect(state.visible).toBe(true);
     expect(state.rawBounds).toEqual({ minX: 0, maxX: 10, minY: 0, maxY: 20 });
+    expect(state.calibrating).toBe(false);
+    expect(state.calibrated).toBe(false);
   });
 
   it('空 segments：rawBounds 回退 segmentsBounds 的空陣列慣例 {0,0,0,0}', () => {
@@ -106,5 +115,105 @@ describe('createOverlayState', () => {
 describe('OVERLAY_STROKE', () => {
   it('固定為 spec 規格值（洋紅），供 Canvas 疊繪與測試共用同一來源', () => {
     expect(OVERLAY_STROKE).toBe('#FF00FF');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 3 Task 5：calibrateScale——線段自身「弦長」（line/bezier 端點距、arc 起訖點弦長，
+// 都不是弧長／曲線長，見 spec「使用者量的是實體兩點間距離」）→ actualMm/rawLength。
+// ─────────────────────────────────────────────────────────────────────────
+describe('calibrateScale', () => {
+  it('line：端點距為 rawLength（3-4-5 直角三角形，弦長=5）', () => {
+    const seg: Segment = { kind: 'line', x1: 0, y1: 0, x2: 3, y2: 4 };
+    expect(calibrateScale(seg, 100)).toBeCloseTo(100 / 5, 6); // 100mm / 5 = 20
+  });
+
+  it('arc：弦長＝起訖點直線距離（非弧長）——半圓（0°→180°，r=5）弦長＝直徑=10', () => {
+    const seg: Segment = { kind: 'arc', cx: 0, cy: 0, r: 5, startAngle: 0, endAngle: Math.PI, ccw: false };
+    // 起點(5,0)、訖點(-5,0)，弦長=10；若誤用弧長（半圓周長=5π≈15.71）結果會不同，藉此區分實作正確性
+    expect(calibrateScale(seg, 25)).toBeCloseTo(25 / 10, 6); // 2.5
+  });
+
+  it('bezier：端點弦長，忽略控制點（控制點差很多但端點相同時，結果不變）', () => {
+    const segA: Segment = { kind: 'bezier', x1: 0, y1: 0, c1x: 1, c1y: 1, c2x: 2, c2y: 2, x2: 6, y2: 8 };
+    const segB: Segment = { kind: 'bezier', x1: 0, y1: 0, c1x: -50, c1y: 80, c2x: 999, c2y: -1, x2: 6, y2: 8 };
+    // 端點距 = sqrt(6²+8²) = 10，兩者端點相同，控制點差異不影響 rawLength
+    expect(calibrateScale(segA, 50)).toBeCloseTo(5, 6); // 50/10
+    expect(calibrateScale(segB, 50)).toBeCloseTo(5, 6);
+  });
+
+  it('零長線段（起訖點重合）→ rawLength=0，回傳 Infinity（不特別防呆——呼叫端 hit-test 已排除零長段可選取，見 findNearestOverlaySegment）', () => {
+    const seg: Segment = { kind: 'line', x1: 5, y1: 5, x2: 5, y2: 5 };
+    expect(calibrateScale(seg, 10)).toBe(Infinity);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 3 Task 5：findNearestOverlaySegment——校準模式 hit-test 純函式，在 overlay 原始座標系
+// 中找最近線段。line 直接算、arc 用 5° 步進折線近似、bezier 用既有 flattenBezier。
+// ─────────────────────────────────────────────────────────────────────────
+describe('findNearestOverlaySegment', () => {
+  const lineSeg: Segment = { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }; // index 0
+  const arcSeg: Segment = { kind: 'arc', cx: 100, cy: 100, r: 10, startAngle: 0, endAngle: Math.PI / 2, ccw: false }; // index 1，起點 (110,100)
+  const bezierSeg: Segment = { kind: 'bezier', x1: 200, y1: 200, c1x: 200.5, c1y: 200, c2x: 201, c2y: 200, x2: 203, y2: 200 }; // index 2，端點共線（y=200）、弦長 3 < maxSegLen(5) → flattenBezier 只會回傳一段折線
+  const zeroSeg: Segment = { kind: 'line', x1: 50, y1: 50, x2: 50, y2: 50 }; // index 3，零長
+
+  it('line：點到線段垂直距離在閾值內 → 命中，distance 為精確垂直距離', () => {
+    const result = findNearestOverlaySegment([lineSeg], { x: 5, y: 0.5 }, 1);
+    expect(result).not.toBeNull();
+    expect(result!.index).toBe(0);
+    expect(result!.distance).toBeCloseTo(0.5, 6);
+  });
+
+  it('line：投影落在端點外時退回端點距離（點在 x=-5，垂足超出線段範圍）', () => {
+    const result = findNearestOverlaySegment([lineSeg], { x: -5, y: 0 }, 10);
+    expect(result).not.toBeNull();
+    expect(result!.distance).toBeCloseTo(5, 6); // 退回到端點 (0,0) 的距離
+  });
+
+  it('距離超過閾值 → null', () => {
+    expect(findNearestOverlaySegment([lineSeg], { x: 5, y: 2 }, 1)).toBeNull();
+  });
+
+  it('閾值邊界：distance 恰等於 threshold → 命中（<=）；threshold 略小於 distance → null', () => {
+    expect(findNearestOverlaySegment([lineSeg], { x: 5, y: 1 }, 1)).not.toBeNull(); // distance=1, threshold=1
+    expect(findNearestOverlaySegment([lineSeg], { x: 5, y: 1 }, 0.99)).toBeNull();
+  });
+
+  it('arc：命中 arc 自身取樣起點（5° 步進折線的第一個點，理論距離為 0）', () => {
+    const result = findNearestOverlaySegment([arcSeg], { x: 110, y: 100 }, 0.01);
+    expect(result).not.toBeNull();
+    expect(result!.index).toBe(0);
+    expect(result!.distance).toBeCloseTo(0, 6);
+  });
+
+  it('bezier：命中端點共線折線（弦上一點，理論距離為 0）', () => {
+    const result = findNearestOverlaySegment([bezierSeg], { x: 201.5, y: 200 }, 0.01);
+    expect(result).not.toBeNull();
+    expect(result!.index).toBe(0);
+    expect(result!.distance).toBeCloseTo(0, 6);
+  });
+
+  it('零長線段：即使點擊位置與零長段完全重合，仍不命中（忽略點擊，呼應 spec 邊界規則）', () => {
+    expect(findNearestOverlaySegment([zeroSeg], { x: 50, y: 50 }, 5)).toBeNull();
+  });
+
+  it('零長線段混在其他線段中：不會被選中，即使空間上它離點擊位置最近', () => {
+    // zeroSeg(index1) 在 (50,50) 距離=0，lineSeg(index0) 距離遠超閾值 5 → 排除零長段後應為 null
+    const result = findNearestOverlaySegment([lineSeg, zeroSeg], { x: 50, y: 50 }, 5);
+    expect(result).toBeNull();
+  });
+
+  it('多線段：回傳距離最近的一段（非陣列順序優先）', () => {
+    const far: Segment = { kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }; // index 0，距 (5,4) 為 4
+    const near: Segment = { kind: 'line', x1: 0, y1: 5, x2: 10, y2: 5 }; // index 1，距 (5,4) 為 1
+    const result = findNearestOverlaySegment([far, near], { x: 5, y: 4 }, 10);
+    expect(result).not.toBeNull();
+    expect(result!.index).toBe(1);
+    expect(result!.distance).toBeCloseTo(1, 6);
+  });
+
+  it('空陣列 → null', () => {
+    expect(findNearestOverlaySegment([], { x: 0, y: 0 }, 100)).toBeNull();
   });
 });

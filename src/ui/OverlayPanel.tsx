@@ -11,10 +11,15 @@
  * 它們是「匯入當下的 UI 選擇/來源資訊」，只有本元件自己的單位下拉切換邏輯需要，Canvas 完全
  * 不消費，混進 `OverlayState` 會違反 overlay/state.ts 文件化的精簡欄位契約（見該檔 docblock）。
  *
- * 單位下拉變更重算 scale：spec 原文「僅在未做過點選校準時」——T4 尚無校準機制（T5 才加
- * `calibrateScale` 與 Canvas 校準 hit-test），這條優先順序在本輪 恆真，因此實作上＝
- * 單位下拉一律直接重算 scale。T5 接手時，`handleUnitChange` 要先判斷 overlayState 是否已被
- * 校準覆寫過，已校準時跳過這段 recompute（下拉變更提示會覆蓋，而不是直接覆蓋）。
+ * 單位下拉變更重算 scale（spec 原文「僅在未做過點選校準時」）：`overlayState.calibrated`
+ * 為 false（T4 既有行為，尚未校準過）時，單位下拉一律直接重算 scale；已校準過（T5，spec
+ * §5）時改為先跳出確認提示（`pendingUnitOverride`），使用者確定要覆蓋才真的重算，取消則
+ * 保留校準值——校準是使用者實測得來的比例，不該被單位下拉無聲蓋掉。
+ *
+ * 「校準」鈕與其提示文字（T5）：進校準模式的 hit-test／頂部提示條／行內輸入都在
+ * Canvas.tsx（點選這個互動必須發生在畫布上），這裡只負責切換 `overlayState.calibrating`
+ * 開關——兩者是平行兄弟元件，透過共同父層 App.tsx 提升的同一份 `overlayState`／
+ * `onOverlayStateChange` 同步（沒有新增額外的跨元件溝通管道）。
  */
 import { useState } from 'react';
 import type { ChangeEvent } from 'react';
@@ -46,6 +51,10 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
   // 「清除」時強制重掛載 input（原生的已選檔案記憶隨舊節點一起卸載），下次選檔一定是全新的
   // change 事件。只在 handleClear 遞增，其餘互動不受影響。
   const [fileInputKey, setFileInputKey] = useState(0);
+  // 單位下拉在「已校準」狀態下變更時，先停在這裡等使用者確認要不要覆蓋（見上方 docblock）；
+  // null＝目前沒有待確認的覆蓋。跟 unit/sourceInfo 同一個理由留在 local state：只有本元件
+  // 自己的下拉互動需要，不放進 OverlayState（精簡欄位契約，見 overlay/state.ts docblock）。
+  const [pendingUnitOverride, setPendingUnitOverride] = useState<OverlayUnit | null>(null);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>): void => {
     const file = e.target.files?.[0];
@@ -55,6 +64,7 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
       const text = typeof reader.result === 'string' ? reader.result : '';
       const parsed = parseOverlaySvg(text);
       setSourceInfo(parsed.sourceInfo);
+      setPendingUnitOverride(null); // 新檔案是全新的 OverlayState，任何殘留的覆蓋提示都不再相關
       onOverlayStateChange(createOverlayState(parsed, unit));
     };
     reader.readAsText(file);
@@ -62,10 +72,31 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
 
   const handleUnitChange = (e: ChangeEvent<HTMLSelectElement>): void => {
     const nextUnit = e.target.value as OverlayUnit;
+    if (overlayState?.calibrated) {
+      setPendingUnitOverride(nextUnit); // 已校準過：不直接覆蓋，跳出確認提示（見下方 JSX）
+      return;
+    }
     setUnit(nextUnit);
     if (overlayState && sourceInfo) {
       onOverlayStateChange({ ...overlayState, scale: initialScaleGuess(sourceInfo, nextUnit) });
     }
+  };
+
+  /** 使用者在覆蓋提示中按下「確定覆蓋」：真正套用新單位的 scale 猜測值，並清掉 calibrated 記號
+   *  （這個 scale 已經不是點選校準的量測值了，改回「單位猜測」狀態）。 */
+  const confirmUnitOverride = (): void => {
+    if (pendingUnitOverride === null || !overlayState || !sourceInfo) return;
+    setUnit(pendingUnitOverride);
+    onOverlayStateChange({ ...overlayState, scale: initialScaleGuess(sourceInfo, pendingUnitOverride), calibrated: false });
+    setPendingUnitOverride(null);
+  };
+
+  const cancelUnitOverride = (): void => setPendingUnitOverride(null);
+
+  /** 「校準」／「取消校準」切換鈕：真正的點選/輸入互動在 Canvas.tsx（見該檔），這裡只切開關。 */
+  const handleCalibrateToggle = (): void => {
+    if (!overlayState) return;
+    onOverlayStateChange({ ...overlayState, calibrating: !overlayState.calibrating });
   };
 
   const handleVisibleChange = (e: ChangeEvent<HTMLInputElement>): void => {
@@ -107,6 +138,7 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
     setSourceInfo(null);
     onOverlayStateChange(null);
     setFileInputKey((k) => k + 1); // 見上方宣告處註解：強制重掛載 file input，清掉原生已選檔案記憶
+    setPendingUnitOverride(null); // 疊圖已清空，任何殘留的覆蓋提示都不再相關
   };
 
   return (
@@ -158,6 +190,28 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
         </select>
       </div>
 
+      {pendingUnitOverride !== null && overlayState && (
+        <div className="flex flex-col gap-1.5 bg-blue-50 border border-blue-200 text-blue-800 text-[11px] rounded-sm p-2">
+          <span>已完成點選校準，切換單位將覆蓋目前校準的比例，確定要覆蓋嗎？</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={confirmUnitOverride}
+              className="px-2 py-1 bg-blue-600 text-white text-xs rounded-sm hover:bg-blue-700 transition-colors"
+            >
+              確定覆蓋
+            </button>
+            <button
+              type="button"
+              onClick={cancelUnitOverride}
+              className="px-2 py-1 bg-white border border-blue-300 text-blue-700 text-xs rounded-sm hover:bg-blue-100 transition-colors"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
       {overlayState && (
         <>
           <label htmlFor="overlay-visible" className="flex items-center gap-2 text-xs text-zinc-600">
@@ -188,6 +242,20 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
               onChange={handleOpacityChange}
               className="w-full accent-blue-600"
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className={LABEL_CLASS}>比例校準</span>
+            <button
+              type="button"
+              onClick={handleCalibrateToggle}
+              className="w-full px-2 py-1.5 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100 text-xs shadow-sm transition-colors"
+            >
+              {overlayState.calibrating ? '取消校準' : '校準'}
+            </button>
+            <p className="text-[10px] text-zinc-400 leading-relaxed">
+              建議先校準比例，再使用下方「快速對齊」——校準後比例更準確，對齊結果才可靠。
+            </p>
           </div>
 
           <div className="flex flex-col gap-1.5">

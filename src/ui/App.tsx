@@ -26,14 +26,23 @@
  * zinc-50/white 主題，讓黑色 cut 線在白底畫布上清楚可見；前身移植的流程/互動
  * 手感〔pan/zoom、分組、hover 高亮〕不受影響，僅呈現層色票改動）。
  *
- * `overlayState`（Slice 3 Task 4，spec §5）：匯入生產刀模 SVG 疊圖的顯示/校準狀態，跟
+ * `overlayState`（Slice 3 Task 4/5，spec §5）：匯入生產刀模 SVG 疊圖的顯示/校準狀態，跟
  * `includeDimensions`/`selectedPieceId` 同一個提升理由——OverlayPanel（控制項）與 Canvas
- * （疊繪）是平行兄弟元件，只有共同父層的 state 才能同步。刻意不隨 `boxId` 切換而重置：
- * overlay 的 segments 是使用者匯入檔案的自包含資料（不像 `selectedPieceId` 指向
+ * （疊繪／T5 校準 hit-test）是平行兄弟元件，只有共同父層的 state 才能同步。刻意不隨 `boxId`
+ * 切換而重置：overlay 的 segments 是使用者匯入檔案的自包含資料（不像 `selectedPieceId` 指向
  * `result.pieces` 的 id，換盒型後可能找不到對應片），沒有殘留失效參照的風險，讓使用者可以
  * 邊切換盒型邊比對同一份疊圖。`overlayTargetBounds`（見下方 `activePiece` 之後定義）是快速
  * 對齊三鈕的對齊目標，用「目前畫布實際顯示的視圖範圍」（單片視圖用該片 bounds、全版用
  * `result.bounds`），跟 Canvas 看到的是同一份資料。
+ *
+ * `<Canvas onOverlayStateChange={setOverlayState}>`（T5 新增，跟傳給 `<OverlayPanel>` 的
+ * 是同一個函式）：T5 的點選校準互動（點選線段→行內輸入 mm→確認）發生在畫布上，Canvas 必須
+ * 能把最終結果（新 scale、退出校準模式、Esc 取消）寫回這份提升狀態，OverlayPanel 才看得到
+ * 校準生效——沒有這行，Canvas 收到的 `overlay` prop 只能讀不能寫，校準鈕點了也不會有任何
+ * 畫面反應。開發紀錄 的「Modify」檔案清單原本沒列 App.tsx（T4 的 spec 有明確列——
+ * 見 開發紀錄），但這個功能結構上必須有 Canvas→App 的回寫管道；這裡只加這一個
+ * prop（重用既有的 `setOverlayState`，不新增任何 state 或邏輯），是能讓 T5 實際運作的
+ * 最小必要改動，已在 開發紀錄 標註為對 spec 檔案清單的刻意偏離，供覆核。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { listBoxes } from '@/core/registry';
@@ -191,6 +200,7 @@ export function App() {
           activePiece={activePiece}
           onSelectPiece={setSelectedPieceId}
           overlay={overlayState}
+          onOverlayStateChange={setOverlayState}
         />
       </main>
 
