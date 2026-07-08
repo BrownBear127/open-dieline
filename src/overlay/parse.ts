@@ -15,6 +15,7 @@
  * 與其測試 `tests/core/path.test.ts` 的數值錨定：sweep=1 ⟺ ccw=false（見下方 svgArcToSegments）。
  */
 import type { Segment } from '@/core/geometry';
+import { hasNaN } from '@/core/geometry';
 
 export interface OverlayParseResult {
   segments: Segment[];
@@ -74,8 +75,9 @@ function rotateMatrix(n: number[]): Matrix {
   return multiplyMatrix(multiplyMatrix(back, rot), toOrigin);
 }
 
-/** 單一 transform 函式名稱＋參數 → 矩陣；spec §5 子集外的函式（如 skewX/skewY）視為單位矩陣。 */
-function transformFnToMatrix(name: string, n: number[]): Matrix {
+/** 單一 transform 函式名稱＋參數 → 矩陣；spec §5 子集外的函式（如 skewX/skewY）視為單位矩陣，
+ *  但透過 warnFn 回報（幾何會錯位，使用者不能只看到「疊圖不準」而毫無線索）。 */
+function transformFnToMatrix(name: string, n: number[], warnFn: (name: string) => void): Matrix {
   if (name === 'translate') return { a: 1, b: 0, c: 0, d: 1, e: n[0] ?? 0, f: n[1] ?? 0 };
   if (name === 'scale') {
     const sx = n[0] ?? 1;
@@ -83,17 +85,18 @@ function transformFnToMatrix(name: string, n: number[]): Matrix {
   }
   if (name === 'rotate') return rotateMatrix(n);
   if (name === 'matrix') return { a: n[0] ?? 1, b: n[1] ?? 0, c: n[2] ?? 0, d: n[3] ?? 1, e: n[4] ?? 0, f: n[5] ?? 0 };
+  warnFn(name);
   return IDENTITY;
 }
 
 const TRANSFORM_FN_RE = /(\w+)\s*\(([^)]*)\)/g;
 
 /** 解析單一元素的 transform 屬性字串：多個函式左到右依序合成（左邊最後套用）。 */
-function parseTransformAttr(value: string | null): Matrix {
+function parseTransformAttr(value: string | null, warnFn: (name: string) => void): Matrix {
   if (!value) return IDENTITY;
   let acc = IDENTITY;
   for (const match of value.matchAll(TRANSFORM_FN_RE)) {
-    acc = multiplyMatrix(acc, transformFnToMatrix(match[1]!, parseNumberList(match[2]!)));
+    acc = multiplyMatrix(acc, transformFnToMatrix(match[1]!, parseNumberList(match[2]!), warnFn));
   }
   return acc;
 }
@@ -241,7 +244,15 @@ function arcSignedSweep(s: ArcSegment): number {
   return s.ccw ? -mag : mag;
 }
 
-/** 矩陣線性部分是否「等比縮放＋旋轉（含鏡射）」：a²+b²＝c²+d² 且 a·c+b·d＝0（brief 判準）。 */
+/**
+ * 矩陣線性部分是否「等比縮放＋旋轉（含鏡射）」：a²+b²＝c²+d² 且 a·c+b·d＝0（brief 判準）。
+ *
+ * 容差刻意用 `EPS × max(norm1,norm2,1)`（等比於矩陣係數量級）而非 brief 字面的固定 `> EPS`：
+ * 固定 EPS 在座標/scale 量級大時（如 scale(1e6)）會把本應視為等比的矩陣誤判為非等比而跑去
+ * 展開成 bezier（純屬多餘），量級小時又可能把非等比誤判為等比。兩種寫法只在矩陣係數量級落在
+ * ~1e6 以上（brief 未定義 EPS 值本身、也不是這類刀模檔案會出現的物理量級）才會分歧，故不影響
+ * 實際生產 SVG 的判定結果；換成座標尺度不變（scale-invariant）的寫法在此範圍內更穩健。
+ */
 function isSimilarityMatrix(m: Matrix): boolean {
   const norm1 = m.a * m.a + m.b * m.b;
   const norm2 = m.c * m.c + m.d * m.d;
@@ -330,11 +341,39 @@ function readNumbers(d: string, start: number, count: number): { args: number[];
 }
 
 /**
+ * A/a 指令專用參數讀取：7 個參數中第 4/5 個（largeArc/sweep flag，索引 3/4）依 SVG path
+ * grammar 的 flag production 是「單一字元、只能是 0 或 1」，不能走通用數字 regex——否則像
+ * `1025,25` 這種合法 compact 寫法（largeArc=1、sweep=0、x=25 緊貼無分隔符）會被貪婪匹配成
+ * 一個數字 1025，使參數總數不足 7 而整段 A 被 tokenizePathData 判為壞檔丟棄（見呼叫端）。
+ * 其餘 5 個參數（rx/ry/x-axis-rotation/x/y）維持一般數字讀法（可含小數/負號/科學記號）。
+ */
+function readArcArgs(d: string, start: number): { args: number[]; next: number } {
+  const args: number[] = [];
+  let i = start;
+  for (let k = 0; k < 7; k++) {
+    while (i < d.length && /[\s,]/.test(d[i]!)) i++;
+    if (k === 3 || k === 4) {
+      if (i >= d.length || (d[i] !== '0' && d[i] !== '1')) break;
+      args.push(Number(d[i]));
+      i++;
+      continue;
+    }
+    NUMBER_STICKY_RE.lastIndex = i;
+    const m = NUMBER_STICKY_RE.exec(d);
+    if (!m) break;
+    args.push(Number(m[0]));
+    i = NUMBER_STICKY_RE.lastIndex;
+  }
+  return { args, next: i };
+}
+
+/**
  * path `d` 字串 → 指令 token 列表；同字母重複出現時可省略字母（隱式重複沿用前一指令），
  * M 的隱式重複視為 L（spec：M 後續座標對＝L）。壞檔容錯：數字不足一組或無法前進即停止
- * （不 throw，回傳已讀到的 token，避免死迴圈）。
+ * （不 throw，回傳已讀到的 token，避免死迴圈）；同時回傳 `rest`＝停止點之後未消費的原始字串，
+ * 供呼叫端判斷是否需要「部分內容未匯入」警告（見 pathToSegments）。
  */
-function tokenizePathData(d: string): PathToken[] {
+function tokenizePathData(d: string): { tokens: PathToken[]; rest: string } {
   const tokens: PathToken[] = [];
   let i = 0;
   let currentCmd = '';
@@ -355,14 +394,14 @@ function tokenizePathData(d: string): PathToken[] {
     }
     if (!currentCmd) break;
     const arity = PATH_ARITY[currentCmd.toUpperCase()]!;
-    const { args, next } = readNumbers(d, i, arity);
+    const { args, next } = currentCmd.toUpperCase() === 'A' ? readArcArgs(d, i) : readNumbers(d, i, arity);
     if (args.length < arity || next === i) break;
     tokens.push({ cmd: currentCmd, args });
     i = next;
     if (currentCmd === 'M') currentCmd = 'L';
     else if (currentCmd === 'm') currentCmd = 'l';
   }
-  return tokens;
+  return { tokens, rest: d.slice(i) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -483,8 +522,12 @@ function num(el: Element, name: string, fallback = 0): number {
   return v === null ? fallback : Number(v);
 }
 
-function pathToSegments(el: Element): Segment[] {
-  return runPathCommands(tokenizePathData(el.getAttribute('d') ?? ''));
+/** 若 tokenizer 中途卡住（壞檔），`d` 尾端會有未消費的非空白殘留——這代表路徑後半段被
+ *  靜默丟棄，須警告（去重計數於呼叫端，見 makeWarningCollector 的「未匯入」樣板）。 */
+function pathToSegments(el: Element, warn: (tag: string) => void): Segment[] {
+  const { tokens, rest } = tokenizePathData(el.getAttribute('d') ?? '');
+  if (rest.trim() !== '') warn('path 資料不完整，部分內容');
+  return runPathCommands(tokens);
 }
 
 function lineToSegments(el: Element): Segment[] {
@@ -543,8 +586,18 @@ function ellipseToSegments(el: Element): Segment[] {
 
 const UNSUPPORTED_TAGS = new Set(['text', 'image', 'use', 'svg']);
 
+/** 三類走訪期間會回報的警告，各自獨立計數／措辭（見 parseOverlaySvgInner 的收集器）：
+ *  unsupported＝未支援 tag／rect 圓角／path 資料不完整（共用「未匯入」樣板）；
+ *  transformFn＝transform 子集外函式名（如 skewX，仍以 identity 匯入元素）；
+ *  classStyle＝元素帶 class/style 屬性（純計數，不分 key，樣式一律不套用）。 */
+type WarnFns = {
+  unsupported: (tag: string) => void;
+  transformFn: (name: string) => void;
+  classStyle: () => void;
+};
+
 function shapeToLocalSegments(el: Element, tag: string, warn: (tag: string) => void): Segment[] | null {
-  if (tag === 'path') return pathToSegments(el);
+  if (tag === 'path') return pathToSegments(el, warn);
   if (tag === 'line') return lineToSegments(el);
   if (tag === 'polyline') return polylineToSegments(el, false);
   if (tag === 'polygon') return polylineToSegments(el, true);
@@ -554,37 +607,49 @@ function shapeToLocalSegments(el: Element, tag: string, warn: (tag: string) => v
   return null; // 未知標籤（defs/title/clipPath 等）：靜默略過、不遞迴其子節點
 }
 
-/** 遞迴走訪：`<g>` 累乘 transform 後遞迴子節點；已知形狀元素套用展平矩陣後收進 out；
- *  text/image/use/嵌套 svg 計警告、不遞迴其內容。 */
-function walkNode(el: Element, matrix: Matrix, warn: (tag: string) => void, out: Segment[]): void {
+/** 遞迴走訪：`<g>` 累乘 transform 後遞迴子節點；已知形狀元素套用展平矩陣後收進 out（帶
+ *  class/style 屬性者計警告但仍匯入，全視為刀線）；text/image/use/嵌套 svg 計警告、不遞迴其內容。 */
+function walkNode(el: Element, matrix: Matrix, warn: WarnFns, out: Segment[]): void {
   const tag = el.tagName.toLowerCase();
   if (UNSUPPORTED_TAGS.has(tag)) {
-    warn(`<${tag}>`);
+    warn.unsupported(`<${tag}>`);
     return;
   }
 
-  const composed = multiplyMatrix(matrix, parseTransformAttr(el.getAttribute('transform')));
+  const composed = multiplyMatrix(matrix, parseTransformAttr(el.getAttribute('transform'), warn.transformFn));
 
   if (tag === 'g') {
     for (const child of Array.from(el.children)) walkNode(child, composed, warn, out);
     return;
   }
 
-  const local = shapeToLocalSegments(el, tag, warn);
-  if (local) out.push(...transformSegments(local, composed));
+  const local = shapeToLocalSegments(el, tag, warn.unsupported);
+  if (local) {
+    if (el.hasAttribute('class') || el.hasAttribute('style')) warn.classStyle();
+    out.push(...transformSegments(local, composed));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // 警告收集與頂層入口
 // ─────────────────────────────────────────────────────────────────────────
 
-/** 未支援元素/屬性去重計數收集器，輸出「<tag> ×N 未匯入」式人話訊息。 */
-function makeWarningCollector() {
+/** 去重計數收集器：同 key 疊加次數，輸出依 format(key,n) 轉人話訊息（預設「<tag> ×N 未匯入」
+ *  樣板，供未支援 tag／rect 圓角／path 資料不完整共用；transform 函式警告另傳 format 覆寫措辭）。 */
+function makeWarningCollector(format: (key: string, n: number) => string = (key, n) => `${key} ×${n} 未匯入`) {
   const counts = new Map<string, number>();
   return {
-    add: (tag: string) => counts.set(tag, (counts.get(tag) ?? 0) + 1),
-    toMessages: () => [...counts.entries()].map(([tag, n]) => `${tag} ×${n} 未匯入`),
+    add: (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1),
+    toMessages: () => [...counts.entries()].map(([key, n]) => format(key, n)),
   };
+}
+
+/** 過濾含 NaN 座標的 segment（生產 SVG 常見寫法如 `x2="10mm"` 讓 Number() 產生 NaN；帶 NaN 的
+ *  幾何寧可丟棄也不能讓「疊圖對照」呈現錯誤位置或憑空消失的線卻毫無提示）。在收集層（所有元素
+ *  展平後）統一過濾一次即可，不需每個 num() 呼叫點各自處理。回傳乾淨 segments 與丟棄數。 */
+function filterNaNSegments(segs: Segment[]): { clean: Segment[]; dropped: number } {
+  const clean = segs.filter((s) => !hasNaN([s]));
+  return { clean, dropped: segs.length - clean.length };
 }
 
 /** 每次呼叫回傳新物件（不共用單一 reference）：避免呼叫端萬一原地改動 sourceInfo 時互相汙染。 */
@@ -600,14 +665,32 @@ function parseOverlaySvgInner(svgText: string): OverlayParseResult {
   }
 
   const collector = makeWarningCollector();
-  const segments: Segment[] = [];
+  const transformCollector = makeWarningCollector((name, n) => `transform ${name} 不支援，已忽略 ×${n}`);
+  let classStyleCount = 0;
+  const warn: WarnFns = {
+    unsupported: collector.add,
+    transformFn: transformCollector.add,
+    classStyle: () => {
+      classStyleCount++;
+    },
+  };
+
+  const rawSegments: Segment[] = [];
   for (const child of Array.from(root.children)) {
-    walkNode(child, IDENTITY, collector.add, segments);
+    walkNode(child, IDENTITY, warn, rawSegments);
   }
+  const { clean, dropped } = filterNaNSegments(rawSegments);
+
+  const warnings = [
+    ...collector.toMessages(),
+    ...transformCollector.toMessages(),
+    ...(dropped > 0 ? [`${dropped} 個線段座標無法解析，已略過`] : []),
+    ...(classStyleCount > 0 ? [`${classStyleCount} 個元素帶 class/style 樣式，樣式不套用（全部視為刀線匯入）`] : []),
+  ];
 
   return {
-    segments,
-    warnings: collector.toMessages(),
+    segments: clean,
+    warnings,
     sourceInfo: { widthAttr: root.getAttribute('width'), viewBox: root.getAttribute('viewBox') },
   };
 }
