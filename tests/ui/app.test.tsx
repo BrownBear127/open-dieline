@@ -11,6 +11,13 @@ import { ExportBar } from '@/ui/ExportBar';
 import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
+// T1 的 parseDxf 匯出於 tests/export/dxf.test.ts（該檔 docblock 明說是為了讓 Task 2 重用、
+// 不重寫解析器）。已知副作用：靜態 import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的
+// describe（Vitest globals 模式下 `describe`/`it` 是模組執行當下綁定的全域，不是這裡新增的
+// 邏輯）——下面「ExportBar：下載 DXF」那組測試跑起來時，dxf.test.ts 自己的 12 個測試會
+// 在本檔案的測試報告裡「重複」出現一次，經驗證兩邊斷言完全一致、無副作用/無 flake，見
+// 開發紀錄「Issues or concerns」。
+import { parseDxf } from '../export/dxf.test';
 
 // ── 測試專用 harness：ExportBar 的 includeDimensions 改成受控 prop 後（T9 Fix Round 2
 // 修復 3，state 提升到 App.tsx），底下「ExportBar：下載內容與 includeDimensions checkbox
@@ -609,6 +616,145 @@ describe('ExportBar：pieces 存在時的「匯出目前視圖」（全版＋單
     expect(capturedFilename, '修前：telescope 無 L/W/D 鍵，全部 fallback 成 "?"').not.toContain('?');
     expect(capturedFilename).toMatch(/^telescope-\d+\.\d{2}x\d+\.\d{2}\.svg$/);
     clickSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 3 Task 2：ExportBar 接 DXF 下載——消費 T1 的 `toDxfDocument`（export/dxf.ts），
+// 與 SVG 按鈕並列。檔名沿用同一套 buildFilename／buildPieceFilename（副檔名參數化為
+// 'dxf'，不重寫檔名邏輯）；下載機制（Blob→object URL→<a download>→click→revoke）也是
+// 同一份共用 helper，不是第二條手刻下載路徑。
+// ─────────────────────────────────────────────────────────────────────────
+describe('ExportBar：下載 DXF（Slice 3 Task 2，接 export/dxf.ts 的 toDxfDocument）', () => {
+  const createObjectURLMock = vi.fn((_blob: Blob) => 'blob:mock-url-dxf');
+  const revokeObjectURLMock = vi.fn((_url: string) => undefined);
+
+  beforeEach(() => {
+    (URL as unknown as { createObjectURL: typeof createObjectURLMock }).createObjectURL = createObjectURLMock;
+    (URL as unknown as { revokeObjectURL: typeof revokeObjectURLMock }).revokeObjectURL = revokeObjectURLMock;
+  });
+
+  afterEach(() => {
+    createObjectURLMock.mockClear();
+    revokeObjectURLMock.mockClear();
+  });
+
+  const result = {
+    paths: [
+      { id: 'p-0', type: 'cut' as const, segments: [{ kind: 'line' as const, x1: 0, y1: 0, x2: 10, y2: 0 }] },
+      { id: 'p-1', type: 'dimension' as const, segments: [{ kind: 'line' as const, x1: 0, y1: 5, x2: 10, y2: 5 }] },
+    ],
+    texts: [{ id: 't-0', x: 5, y: 5, text: '10mm' }],
+    bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+  };
+  const values = { L: 55, W: 55, D: 117 };
+
+  it('全版 DXF 下載觸發：內容含 AC1009 與 CUT 層、dimension/texts 恆被排除（writer 裁決，includeDimensions 對 DXF 無效）、MIME 為 application/dxf', async () => {
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: '下載 DXF' }));
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+    const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+    expect(blob.type).toBe('application/dxf');
+    const text = await blob.text();
+    expect(text).toContain('AC1009');
+    expect(text).toContain('CUT');
+    expect(text).not.toContain('10mm'); // texts 恆排除，即使 includeDimensions=true（受控 prop 預設值）
+  });
+
+  it('下載後 revoke 建立的 object URL（與 SVG 共用同一份下載清理邏輯）', () => {
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: '下載 DXF' }));
+    expect(revokeObjectURLMock).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-url-dxf');
+  });
+
+  it('觸發下載時 <a> 的 download 檔名為 rte-{L}x{W}x{D}.dxf（沿用 buildFilename，副檔名參數化為 dxf）', () => {
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
+    fireEvent.click(screen.getByRole('button', { name: '下載 DXF' }));
+    expect(capturedFilename).toBe('rte-55x55x117.dxf');
+    clickSpy.mockRestore();
+  });
+
+  it('FX1：telescope（無 L/W/D 鍵）DXF 檔名改用 bounds fallback（同 SVG 模式），不退化成含 "?" 的檔名', () => {
+    const params = resolveParams(telescope);
+    const teleResult = telescope.generate(params);
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    render(<ExportBarHarness boxId="telescope" values={params} result={teleResult} />);
+    fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖（DXF）' }));
+    expect(capturedFilename).not.toContain('?');
+    expect(capturedFilename).toMatch(/^telescope-\d+\.\d{2}x\d+\.\d{2}\.dxf$/);
+    clickSpy.mockRestore();
+  });
+
+  describe('單片視圖過濾（同一份 scopeResultToPiece，複用 SVG 單片匯出的過濾邏輯）', () => {
+    const piecesResult: GenerateResult = {
+      paths: [
+        { id: 'a-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+        { id: 'b-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 20, x2: 0, y2: 30 }] },
+      ],
+      texts: [{ id: 'a-t0', x: 5, y: 5, text: 'A標註' }],
+      bounds: { minX: 0, maxX: 10, minY: 0, maxY: 30 },
+      pieces: [
+        { id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
+        { id: 'piece-b', label: { zh: '片B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
+      ],
+    };
+    const pieceA = piecesResult.pieces![0]!;
+
+    it('全版視圖（activePiece 未傳）DXF 內容含兩片全部實體（parseDxf 驗數，對照組）', async () => {
+      render(<ExportBarHarness boxId="test-pieces-box" values={{}} result={piecesResult} />);
+      fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖（DXF）' }));
+      const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+      const text = await blob.text();
+      expect(parseDxf(text).entities).toHaveLength(2); // a-p0 + b-p0
+    });
+
+    it('單片視圖（activePiece=片A）DXF 內容只含該片實體（parseDxf 驗實體數，複用 T1 helper 不重寫解析）', async () => {
+      render(<ExportBarHarness boxId="test-pieces-box" values={{}} result={piecesResult} activePiece={pieceA} />);
+      fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖（DXF）' }));
+      const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+      const text = await blob.text();
+      const parsed = parseDxf(text);
+      expect(parsed.entities).toHaveLength(1); // 只剩 a-p0，b-p0 被過濾掉
+      expect(parsed.entities[0]!.layer).toBe('CUT');
+    });
+
+    it('單片 DXF 檔名沿用 buildPieceFilename、副檔名為 .dxf', () => {
+      let capturedFilename = '';
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(function (this: HTMLAnchorElement) {
+          capturedFilename = this.download;
+        });
+      render(<ExportBarHarness boxId="test-pieces-box" values={{}} result={piecesResult} activePiece={pieceA} />);
+      fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖（DXF）' }));
+      // pieceA 非 dimension 幾何只有 a-p0（y=0 水平線）：length=10、height=0（與既有 SVG 同案例同數值，見 FX3）。
+      expect(capturedFilename).toBe('test-pieces-box-piece-a-10.00x0.00.dxf');
+      clickSpy.mockRestore();
+    });
+  });
+
+  it('pieces 存在時 DXF 按鈕與 SVG 按鈕並列，兩者互不影響（SVG 按鈕文字不受本次改動影響）', () => {
+    const piecesResult: GenerateResult = {
+      paths: [{ id: 'a-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      texts: [],
+      bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 },
+      pieces: [{ id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: [], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } }],
+    };
+    render(<ExportBarHarness boxId="test-pieces-box" values={{}} result={piecesResult} />);
+    expect(screen.getByRole('button', { name: '匯出目前視圖' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '匯出目前視圖（DXF）' })).toBeInTheDocument();
   });
 });
 
