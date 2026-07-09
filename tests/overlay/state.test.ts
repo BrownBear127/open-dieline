@@ -37,6 +37,30 @@ describe('initialScaleGuess', () => {
     const sourceInfo: OverlayParseResult['sourceInfo'] = { widthAttr: '800', viewBox: null };
     expect(initialScaleGuess(sourceInfo, 'px')).toBeCloseTo(25.4 / 96, 6);
   });
+
+  // ── FX6（Slice 3 final review，規格修正）：width 字尾＋viewBox 併存時，scale＝width 換算
+  // 成 mm ÷ viewBox 寬度，不是只看字尾（見 initialScaleGuess 文件的完整推導）。────────────
+  it('FX6：Illustrator 標準 A4 匯出（width="210mm" viewBox="0 0 595.28 841.89"）—— scale＝210÷595.28（viewBox 座標其實是 pt，非「1 使用者單位=1mm」）', () => {
+    const sourceInfo: OverlayParseResult['sourceInfo'] = { widthAttr: '210mm', viewBox: '0 0 595.28 841.89' };
+    // 獨立 node -e 手算核對：210/595.28 ≈ 0.3527751646284102（非任意巧合——viewBox 寬度就是
+    // 拿 210mm 除以「1pt=0.352778mm」反推出來的 72dpi 座標值，非本模組的 UNIT_TO_MM.pt 常數）。
+    expect(initialScaleGuess(sourceInfo, 'px')).toBeCloseTo(210 / 595.28, 6);
+    expect(initialScaleGuess(sourceInfo, 'px')).not.toBeCloseTo(1, 2); // 修前行為（字尾單獨判定 mm→1）不應再出現
+  });
+
+  it('FX6：width 為 pt 字尾＋viewBox 併存時同樣換算（非只有 mm 字尾才處理）——width="100pt" viewBox 寬 50 時 scale=(100×0.352778)/50', () => {
+    const sourceInfo: OverlayParseResult['sourceInfo'] = { widthAttr: '100pt', viewBox: '0 0 50 30' };
+    expect(initialScaleGuess(sourceInfo, 'mm')).toBeCloseTo((100 * 0.352778) / 50, 6);
+  });
+
+  it('FX6：viewBox 格式無法解析（非 4 個數字）時，安全退回修前的字尾判定，不 throw／不產生 NaN', () => {
+    const sourceInfo: OverlayParseResult['sourceInfo'] = { widthAttr: '210mm', viewBox: 'not-a-viewbox' };
+    expect(initialScaleGuess(sourceInfo, 'px')).toBe(1); // 退回 UNIT_TO_MM.mm（同「無 viewBox」分支）
+  });
+
+  // 「無 viewBox 時維持修前字尾判定，不迴歸」已由上方第 2 個既有測試（width="200mm"
+  // viewBox=null → pt 下拉 → 1）逐位元覆蓋，不重複新增——那個案例本身就是 FX6 修法的
+  // 「不迴歸」分支，重寫一份幾乎相同的斷言不會提供新的保護面。
 });
 
 describe('alignOffset', () => {

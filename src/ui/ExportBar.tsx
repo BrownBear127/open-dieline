@@ -39,7 +39,7 @@ import type { Bounds } from '@/core/geometry';
 import { segmentsBounds } from '@/core/geometry';
 import type { DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
 import { toDxfDocument } from '@/export/dxf';
-import { toSvgDocument } from '@/export/svg';
+import { manufacturingBounds, toSvgDocument } from '@/export/svg';
 
 export interface ExportBarProps {
   boxId: string;
@@ -61,13 +61,23 @@ export interface ExportBarProps {
  * brief 給的具體範例 `rte-{L}x{W}x{D}.svg` 是 v1 唯一盒型（boxId='rte'）代入這個
  * 通式後的結果，兩者逐字相符；泛化成 boxId 前綴讓 Slice 2 新盒型不必改這支檔案。
  *
- * FX1（whole-branch review）：telescope 宣告的是 `baseLength`/`baseWidth`/`baseHeight`，
- * 沒有 L/W/D 這三個 key——舊版無條件用 `dim('L')/dim('W')/dim('D')`，telescope 全版匯出
- * 因此退化成 `telescope-?x?x?.svg`（三個都 fallback 成 '?'）。只有「L/W/D 三個 key 都
- * 宣告」的盒型（v1 只有 RTE）才走原本的 `{L}x{W}x{D}` 模式；其餘盒型改用 `result.bounds`
- * 的實際尺寸（比照 `buildPieceFilename` 的 maxX−minX/maxY−minY 模式，兩者共用同一套
- * 「用幾何包絡而非猜測宣告 key」的 fallback 邏輯），格式退化為 `{boxId}-{length}x{width}.{ext}`
- * （2 維，不是 3 維——bounds 天生只有兩個維度，沒有第三個「深度」可取）。
+ * FX1（whole-branch review，Slice 2）：telescope 宣告的是 `baseLength`/`baseWidth`/
+ * `baseHeight`，沒有 L/W/D 這三個 key——舊版無條件用 `dim('L')/dim('W')/dim('D')`，
+ * telescope 全版匯出因此退化成 `telescope-?x?x?.svg`（三個都 fallback 成 '?'）。只有
+ * 「L/W/D 三個 key 都宣告」的盒型（v1 只有 RTE）才走原本的 `{L}x{W}x{D}` 模式；其餘盒型
+ * 改用 `bounds` 參數的實際尺寸（比照 `buildPieceFilename` 的 maxX−minX/maxY−minY 模式，
+ * 兩者共用同一套「用幾何包絡而非猜測宣告 key」的 fallback 邏輯），格式退化為
+ * `{boxId}-{length}x{width}.{ext}`（2 維，不是 3 維——bounds 天生只有兩個維度，沒有第三個
+ * 「深度」可取）。
+ *
+ * FX5（Slice 3 final review）：這裡的 `bounds` 參數，呼叫端（見下方 `exportFilename`）現在
+ * 傳的是 `manufacturingBounds(result)`（`export/svg.ts`），不是 `result.bounds` 原值——後者
+ * 依 spec §3.3 三向等式必須完整涵蓋含尺寸標註線在內的全部幾何，這個 fallback 分支（telescope
+ * 等無 L/W/D 盒型的全版匯出）若直接拿 `result.bounds` 當檔名尺寸，會比實際製造尺寸大一圈
+ * （DXF 是生產交付檔，檔名數字誤導交付）。這是 Slice 2 FX3 當時修了單片
+ * （`pieceManufacturingBounds`）、漏修全版 fallback 這條路徑的既有 bug，本輪一併補上，
+ * SVG／DXF 兩種副檔名都受影響。`hasDeclaredLWD` 分支（v1 目前只有 RTE）不受影響：那條
+ * 路徑完全不讀 `bounds` 參數，直接用 `values` 裡宣告的 L/W/D。
  *
  * `ext`（Slice 3 Task 2 新增）：SVG／DXF 下載共用這份檔名邏輯，只有副檔名不同，因此抽成參數
  * 而不是複製一份幾乎一樣的 builder——呼叫端傳 `'svg'` 或 `'dxf'`。
@@ -164,11 +174,17 @@ function downloadBlob(content: string, mimeType: string, filename: string): void
   document.body.removeChild(link);
 }
 
-/** 單片／全版檔名的分流本身也是 SVG／DXF 共用邏輯，只有 ext 不同——收斂成一個函式，兩個下載 handler 各呼叫一次。 */
+/**
+ * 單片／全版檔名的分流本身也是 SVG／DXF 共用邏輯，只有 ext 不同——收斂成一個函式，兩個下載
+ * handler 各呼叫一次。FX5（Slice 3 final review）：全版分支改傳 `manufacturingBounds(result)`
+ * （`export/svg.ts`，排除 dimension/annotation 後的幾何包絡）取代原本的 `result.bounds`——
+ * 見上方 `buildFilename` docblock 的完整根因說明。單片分支（`pieceManufacturingBounds`）
+ * 不在本輪修復範圍內，維持原樣。
+ */
 function exportFilename(boxId: string, values: ResolvedParams, result: GenerateResult, activePiece: DielinePiece | undefined, ext: 'svg' | 'dxf'): string {
   return activePiece
     ? buildPieceFilename(boxId, activePiece.id, pieceManufacturingBounds(result, activePiece), ext)
-    : buildFilename(boxId, values, result.bounds, ext);
+    : buildFilename(boxId, values, manufacturingBounds(result), ext);
 }
 
 export function ExportBar({ boxId, values, result, includeDimensions, onIncludeDimensionsChange, activePiece }: ExportBarProps) {

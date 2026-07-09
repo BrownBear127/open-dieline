@@ -4,8 +4,9 @@
  *
  * `overlayState` 是受控 prop、提升到 App.tsx（與 `includeDimensions`/`selectedPieceId` 同一個
  * 提升理由——Canvas 疊繪與這裡的控制項是平行兄弟元件，只有共同父層的 state 才能同步）；
- * `null`＝尚未匯入或已清除。`targetBounds` 是快速對齊三鈕的對齊目標（App.tsx 用
- * `activePiece?.bounds ?? result.bounds` 解出，跟 Canvas 目前實際顯示的視圖範圍一致）。
+ * `null`＝尚未匯入或已清除。`targetBounds` 是快速對齊三鈕的對齊目標（App.tsx 算出，跟 Canvas
+ * 目前實際顯示的視圖範圍一致；FX3，Slice 3 final review：改用「製造 bounds」而非
+ * `activePiece?.bounds ?? result.bounds` 原值，排除尺寸標註線外擴，見 App.tsx 該處註解）。
  *
  * `unit`／`sourceInfo` 刻意留在本元件的 local state，不提升、也不放進 `OverlayState`——
  * 它們是「匯入當下的 UI 選擇/來源資訊」，只有本元件自己的單位下拉切換邏輯需要，Canvas 完全
@@ -19,7 +20,9 @@
  * 「校準」鈕與其提示文字（T5）：進校準模式的 hit-test／頂部提示條／行內輸入都在
  * Canvas.tsx（點選這個互動必須發生在畫布上），這裡只負責切換 `overlayState.calibrating`
  * 開關——兩者是平行兄弟元件，透過共同父層 App.tsx 提升的同一份 `overlayState`／
- * `onOverlayStateChange` 同步（沒有新增額外的跨元件溝通管道）。
+ * `onOverlayStateChange` 同步（沒有新增額外的跨元件溝通管道）。FX2（Slice 3 final review）：
+ * 鈕本身在 `overlayState.visible` 為 false 時 disabled——修前隱藏疊圖仍可進校準模式、對著
+ * 看不見的線段盲點改 scale，見按鈕旁註解。
  */
 import { useState } from 'react';
 import type { ChangeEvent } from 'react';
@@ -246,10 +249,19 @@ export function OverlayPanel({ overlayState, onOverlayStateChange, targetBounds 
 
           <div className="flex flex-col gap-1.5">
             <span className={LABEL_CLASS}>比例校準</span>
+            {/* FX2（Slice 3 final review）：隱藏疊圖（visible=false）時 disabled——修前使用者
+                可以先取消「顯示疊圖」再按「校準」，對著畫布上根本看不見的線段盲點，改出一個
+                無從驗證對不對的 scale。disabled 用 `!overlayState.visible`，不額外判斷
+                `calibrating`：已在校準模式中途才關閉「顯示疊圖」的邊角案例，這裡會連「取消
+                校準」鈕也一併鎖住，但 Esc（Canvas.tsx 既有、不看 visible）仍可退出，不會卡死；
+                Canvas.tsx 的 hit-test 入口另有一道防禦性 gate（雙保險，見該檔
+                handleCalibrationClick）。 */}
             <button
               type="button"
               onClick={handleCalibrateToggle}
-              className="w-full px-2 py-1.5 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100 text-xs shadow-sm transition-colors"
+              disabled={!overlayState.visible}
+              title={overlayState.visible ? undefined : '先開啟顯示疊圖'}
+              className="w-full px-2 py-1.5 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100 text-xs shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
             >
               {overlayState.calibrating ? '取消校準' : '校準'}
             </button>

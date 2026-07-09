@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { BoxModule, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
-import { registerBox, _clearRegistry, resolveParams } from '@/core/registry';
+import { registerBox, _clearRegistry, listBoxes, resolveParams } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
@@ -12,6 +12,7 @@ import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
 import { OVERLAY_STROKE } from '@/overlay/state';
+import { manufacturingBounds } from '@/export/svg';
 // T1 的 parseDxf 原本 export 於 tests/export/dxf.test.ts，供本檔重用、不重寫解析器；但靜態
 // import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的 describe（Vitest globals 模式下
 // `describe`/`it` 是模組執行當下綁定的全域）——下面「ExportBar：下載 DXF」那組測試跑起來時，
@@ -151,9 +152,66 @@ const piecesBox: BoxModule = {
   }),
 };
 
+// ── 測試專用 fake 盒型 4（FX3/FX5 回歸，Slice 3 final review）：無 pieces、無 L/W/D 宣告
+// key，cut 幾何很小，但一條 dimension 線外擴出遠大於 cut hull 的 bounds——用來驗證①疊圖
+// 快速對齊改用「製造 bounds」而非含標註外擴的 result.bounds（FX3）②全版檔名 fallback
+// （無 L/W/D 時）同樣改用製造 bounds（FX5）。cut hull（唯一非 dimension path）＝
+// x∈[0,20]、y∈[0,10]；宣告的 bounds 依三向等式含 dimension 外擴到 x∈[-30,50]、y∈[-30,40]
+// （寬 80×高 70，若修前行為直接用 bounds 會得到這組偏大很多的數字）。
+const dimBoundsBox: BoxModule = {
+  meta: { id: 'test-dim-bounds-box', name: { zh: '測試標註外擴盒' }, intro: { zh: '' }, topology: 'linear' },
+  params: [
+    {
+      key: 'x',
+      label: { zh: 'X 值' },
+      unit: 'mm',
+      default: 10,
+      min: 0,
+      max: 100,
+      step: 1,
+      group: { zh: '測試群組' },
+      description: { zh: '測試參數：本盒型幾何寫死常數，generate() 不消費它' },
+    },
+  ],
+  invariants: [],
+  generate: () => ({
+    paths: [
+      {
+        id: 'cut-0',
+        type: 'cut',
+        segments: [
+          { kind: 'line', x1: 0, y1: 0, x2: 20, y2: 0 },
+          { kind: 'line', x1: 20, y1: 0, x2: 20, y2: 10 },
+        ],
+      },
+      // 模擬尺寸標註線外擴出遠大於 cut hull 的包絡（同 Slice 2 FX3 教訓的現象，這裡刻意
+      // 放大差距讓斷言不必依賴接近浮點誤差的容差）。
+      { id: 'dim-0', type: 'dimension', segments: [{ kind: 'line', x1: -30, y1: -30, x2: 50, y2: 40 }] },
+    ],
+    texts: [],
+    bounds: { minX: -30, maxX: 50, minY: -30, maxY: 40 }, // 依三向等式，含 dimension 的全幾何 hull
+  }),
+};
+
 registerBox(failingBox);
 registerBox(cascadeBox);
+registerBox(dimBoundsBox);
 registerBox(piecesBox);
+
+/**
+ * 冪等註冊：`registerBox` 對重複 id 會 throw（見 registry.ts），但下方「useParams：切換
+ * 盒型時...」describe 的 `afterEach` 會 `_clearRegistry()` 後只手動補回 RTE／telescope
+ * （那個 describe 只需要 tinyBox 一次性存在，其餘 fake 盒型不是它的責任範圍）——這個副作用
+ * 會連帶清掉本檔其他 `registerBox(...)` 呼叫註冊的盒型，任何宣告在該 describe **之後**的
+ * 測試若要用到 `piecesBox`/`dimBoundsBox` 等透過 `<App/>` 的盒型下拉切換（而非像
+ * `ExportBarHarness` 那樣繞過 registry 直接呼叫 `.generate()`），必須自己確保已重新註冊。
+ * 用 `listBoxes()` 檢查存在與否，而非 try/catch 吞例外——只擋「已存在」這一種已知情況，
+ * 其餘驗證錯誤（如未來不慎改壞 dimBoundsBox 的參數宣告）仍會照常拋出，不被靜默吃掉。
+ */
+function ensureRegistered(box: BoxModule): void {
+  if (listBoxes().some((b) => b.meta.id === box.meta.id)) return;
+  registerBox(box);
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // 全域測試 hook（v0.2.0 宣告視窗 AnnouncementModal）：預設 localStorage 為「已關閉」，
@@ -418,6 +476,23 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
     render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(capturedFilename).toBe('rte-55x55x117.svg');
+    clickSpy.mockRestore();
+  });
+
+  it('FX5：無 L/W/D 盒型的全版檔名 fallback 排除標註外擴，改用製造 bounds（cut hull 20×10，非含 dimension 的 bounds 80×70；Slice 2 FX3 當時只修了單片，這裡補上全版 fallback）', () => {
+    const dimParams = resolveParams(dimBoundsBox);
+    const dimResult = dimBoundsBox.generate(dimParams);
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    render(<ExportBarHarness boxId="test-dim-bounds-box" values={dimParams} result={dimResult} />);
+    fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
+    // 製造 bounds（排除 dim-0）＝cut hull：x∈[0,20]、y∈[0,10] → 20.00×10.00；
+    // 修前行為（直接用 result.bounds，含 dimension 外擴至 [-30,50]x[-30,40]）會得到 80.00×70.00。
+    expect(capturedFilename).toBe('test-dim-bounds-box-20.00x10.00.svg');
     clickSpy.mockRestore();
   });
 });
@@ -696,6 +771,21 @@ describe('ExportBar：下載 DXF（Slice 3 Task 2，接 export/dxf.ts 的 toDxfD
     fireEvent.click(screen.getByRole('button', { name: '匯出目前視圖（DXF）' }));
     expect(capturedFilename).not.toContain('?');
     expect(capturedFilename).toMatch(/^telescope-\d+\.\d{2}x\d+\.\d{2}\.dxf$/);
+    clickSpy.mockRestore();
+  });
+
+  it('FX5：無 L/W/D 盒型的全版 DXF 檔名 fallback 同樣排除標註外擴（與 SVG 共用 buildFilename／manufacturingBounds，見 ExportBar.tsx exportFilename）', () => {
+    const dimParams = resolveParams(dimBoundsBox);
+    const dimResult = dimBoundsBox.generate(dimParams);
+    let capturedFilename = '';
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedFilename = this.download;
+      });
+    render(<ExportBarHarness boxId="test-dim-bounds-box" values={dimParams} result={dimResult} />);
+    fireEvent.click(screen.getByRole('button', { name: '下載 DXF' }));
+    expect(capturedFilename).toBe('test-dim-bounds-box-20.00x10.00.dxf');
     clickSpy.mockRestore();
   });
 
@@ -1113,6 +1203,24 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     expect(overlayPath.parentElement).toHaveAttribute('transform', expect.stringContaining('scale('));
   });
 
+  it('FX1：匯入含 <circle> 的 SVG → 疊圖 path 的 d 非空、含兩段 A 指令弧（修前 full-circle 單一 arc 在 SVG A 指令語意下起訖點重合＝零渲染，畫布上完全隱形；見 overlay/parse.ts circleToSegments 文件）', async () => {
+    const circleSvgText = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="5"/></svg>';
+    const circleFile = new File([circleSvgText], 'circle.svg', { type: 'image/svg+xml' });
+
+    render(<App />);
+    await screen.findByText('open-dieline');
+    const input = screen.getByLabelText(/匯入生產 SVG/) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [circleFile] } });
+    await waitFor(() => {
+      expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
+    });
+
+    const d = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.getAttribute('d')!;
+    expect(d.length).toBeGreaterThan(0);
+    const arcCommandCount = (d.match(/A/g) ?? []).length;
+    expect(arcCommandCount).toBe(2); // 兩個半圓 arc，各自投影成一個 SVG A 指令
+  });
+
   it('警告清單顯示（parseOverlaySvg 既有的未支援標籤警告，原樣人話呈現）', async () => {
     render(<App />);
     await importOverlay();
@@ -1145,14 +1253,34 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
   });
 
-  it('快速對齊「左上」後 offset 生效：疊圖 <g> 的 translate 對齊目前畫布 viewBox 左上角', async () => {
+  it('FX2：「顯示疊圖」取消勾選後，「校準」鈕 disabled，避免對隱藏疊圖進行校準改 scale', async () => {
     render(<App />);
     await importOverlay();
 
-    // 不硬編 RTE 的 bounds 數字——直接讀目前畫布 viewBox（Canvas.tsx 全版視圖＝result.bounds
-    // 原值），對齊目標與實作用的是同一份資料，斷言才不會因 RTE 預設值調整而變成假紅。
-    const viewBox = document.querySelector('svg')!.getAttribute('viewBox')!;
-    const [vbMinX, vbMinY] = viewBox.split(' ').map(Number);
+    const calibrateButton = screen.getByRole('button', { name: '校準' });
+    expect(calibrateButton).not.toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText(/顯示疊圖/));
+    expect(calibrateButton).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText(/顯示疊圖/));
+    expect(calibrateButton).not.toBeDisabled();
+  });
+
+  it('快速對齊「左上」後 offset 生效：疊圖 <g> 的 translate 對齊目前畫布的製造 bounds 左上角（FX3 修正後的必要更新，見下方說明）', async () => {
+    render(<App />);
+    await importOverlay();
+
+    // FX3（Slice 3 final review）修前：這裡直接讀 Canvas 畫布的 viewBox（全版視圖＝
+    // result.bounds 原值）當對齊目標，跟當時的實作用同一份資料。FX3 修正後，對齊目標改成
+    // `manufacturingBounds(result, activePiece)`（排除 dimension/annotation 路徑）——RTE
+    // 預設參數下這兩者確實不同（RTE 自己的尺寸標註線延伸到 cut/crease 幾何之外，見
+    // App.tsx FX3 註解），沿用舊斷言（讀 viewBox）會誤判「對齊到含標註外擴的框」為正確。
+    // 這裡改成獨立呼叫 RTE 的 generate() 重算同一份 manufacturingBounds，不硬編數字——
+    // 沿用既有測試原本的用意（斷言不因 RTE 預設值調整而變成假紅），只是資料來源從
+    // 「讀 DOM viewBox」換成「獨立重算 FX3 實際使用的同一份製造 bounds」。
+    const rteResult = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
+    const target = manufacturingBounds(rteResult);
 
     fireEvent.click(screen.getByRole('button', { name: '左上' }));
 
@@ -1160,8 +1288,26 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     const match = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(overlayGroup.getAttribute('transform') ?? '');
     expect(match).not.toBeNull();
     // fixture line 的 rawBounds minX/minY 皆為 0 → offsetX/Y = target.minX/minY − 0×scale = target.minX/minY
-    expect(Number(match![1])).toBeCloseTo(vbMinX!);
-    expect(Number(match![2])).toBeCloseTo(vbMinY!);
+    expect(Number(match![1])).toBeCloseTo(target.minX);
+    expect(Number(match![2])).toBeCloseTo(target.minY);
+  });
+
+  it('FX3：快速對齊目標排除標註外擴——切到 cut hull 遠小於宣告 bounds 的測試盒，「左上」對齊到製造 bounds（0,0）而非含 dimension 的 bounds（-30,-30）', async () => {
+    ensureRegistered(dimBoundsBox); // 見宣告處註解：本測試宣告在「useParams：切換盒型時...」describe 之後，該 describe 的 afterEach 會清掉這個盒型
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-dim-bounds-box' } });
+    await screen.findByLabelText(/X 值/);
+    await importOverlay();
+
+    fireEvent.click(screen.getByRole('button', { name: '左上' }));
+
+    const overlayGroup = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!;
+    const match = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(overlayGroup.getAttribute('transform') ?? '');
+    expect(match).not.toBeNull();
+    // 製造 bounds（排除 dim-0）＝cut hull 的 minX/minY＝(0,0)；若沿用修前行為（含 dimension
+    // 的 result.bounds）會是 (-30,-30)。fixture rawBounds minX/minY 皆為 0 → offset=target.min。
+    expect(Number(match![1])).toBeCloseTo(0);
+    expect(Number(match![2])).toBeCloseTo(0);
   });
 
   it('清除後疊圖與其控制項（顯示開關／透明度/對齊鈕）消失，僅剩匯入區塊', async () => {
@@ -1317,6 +1463,22 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
     expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument(); // 模式已退出
     expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '校準' })).toBeInTheDocument(); // 鈕字回「校準」
+  });
+
+  it('FX2：校準模式中途關閉「顯示疊圖」後，畫布 hit-test 不再命中疊圖線段（防禦性 gate，OverlayPanel 的鈕本身此時已 disabled，這裡驗證 Canvas 端獨立的第二道防線）', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+
+    fireEvent.click(screen.getByLabelText(/顯示疊圖/)); // 校準模式中途隱藏疊圖（checkbox 不因 calibrating 而 disabled）
+
+    clickFixtureLineMidpoint();
+
+    // 修前：hit-test 沒 gate visible，仍會命中線段、跳出行內輸入表單。修後：不命中，
+    // 提示條停在「請點選」狀態，沒有任何段被選中。
+    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
+    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
   });
 
   it('F1：pan 拖曳放開不誤觸校準點選（mousedown 遠處→mousemove→mouseup/click 落在線段 hit-test 容差內）', async () => {
