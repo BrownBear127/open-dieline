@@ -89,7 +89,8 @@ function groupToSvg(key: GeneratedLayerKey, children: string[]): string {
  *   圖層，可個別隱藏/鎖定/刪除）；空桶不輸出 `<g>`（AI 圖層面板不出現空群組）。g 內每個
  *   `DielinePath` 仍是一個 `<path>`、每個 `DielineText` 仍是一個 `<text>`，樣式/座標/排序與
  *   分組前完全一致——`pathToSvg`/`textToSvg` 本身不變，這裡只是多包一層容器。
- * - texts 全部歸 `dimensions` 桶（v1 texts 只來自標註，見上方 `DIMENSION_LINE_TYPES` 註解）。
+ * - texts 全部歸 `dimensions` 桶（v1 texts 只來自標註，見 `core/bounds.ts` 的
+ *   `DIMENSION_LINE_TYPES` 註解——該常數已於 2026-07-10 遷移，本檔僅 re-export）。
  * - **恆全量輸出**（Slice 3 gate round 1 T4 plan 裁決）：`includeDimensions` opts 參數已退役，
  *   不再有「剔除標註」這個匯出模式，viewBox/寬高也恆用含標註的全 bounds。畫布圖層可見性
  *   （`LayersState.generatedVisible`）只影響畫面顯示，不影響匯出檔內容；使用者若想要不含
