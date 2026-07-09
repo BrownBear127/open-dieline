@@ -3,3 +3,4 @@ dist/
 refs/
 *.ai
 *.eps
+.vercel
