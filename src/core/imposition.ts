@@ -43,6 +43,18 @@ export const MAX_PREVIEW_INSTANCES = 500;
 /** 刀線間距硬下限（表廠規·spec 輸入 domain，F3）：低於此值視為 domain error，不予計算。 */
 export const MIN_GAP_MM = 3;
 
+/**
+ * 尺寸安全界（T2 review F1）：「finite」不足以保證可安全計算——JS 的 finite 輸入仍可能
+ * 上溢／下溢／超出整數精度。反例：`paperW=paperH=1e20`（gripper=0、piece=1、gap=3 皆合法）
+ * 會讓 `fitCount` 的初值落在 IEEE-754 `n+1===n` 精度極限，上修迴圈永不終止；
+ * `paperW=paperH=pieceW=pieceH=1e-200` 則讓兩方向 utilization 的分母（`sheet.w*sheet.h`）
+ * 與分子都下溢為 0，變成 `0/0=NaN` 流出。`MAX_DIMENSION_MM=1e6`（1km）已遠超任何真實
+ * 紙張／刀模；`MIN_DIMENSION_MM=0.01`（0.01mm）已遠小於任何真實可裁切尺寸，
+ * 兩者都是安全餘裕很大的界，不影響任何實務輸入。
+ */
+export const MIN_DIMENSION_MM = 0.01;
+export const MAX_DIMENSION_MM = 1e6;
+
 export type SheetOrientation = 'portrait' | 'landscape';
 export type SheetMode = 'full' | 'halfV' | 'halfH';
 
@@ -76,7 +88,7 @@ export interface DirectionResult {
 
 export type ImpositionFieldError = {
   field: 'paperW' | 'paperH' | 'pieceW' | 'pieceH' | 'gripper' | 'gap';
-  reason: 'not-finite' | 'not-positive' | 'below-min';
+  reason: 'not-finite' | 'not-positive' | 'below-min' | 'out-of-range';
 };
 
 export type ImpositionResult =
@@ -130,28 +142,54 @@ export function fitCount(available: number, piece: number, gap: number): number 
 
   let n = Math.max(0, Math.floor((available + gap) / (piece + gap)));
   while (n > 0 && !fits(n)) n--; // 防浮點高估
-  while (fits(n + 1)) n++; // 防浮點低估（30/3.1/228.6 案例）
+  // 防浮點低估（30/3.1/228.6 案例）＋無進展防護（T2 review F1 深度防禦）：
+  // domain 已將呼叫端的 available/piece/gap 限制在 [MIN_DIMENSION_MM, MAX_DIMENSION_MM]
+  // 內，正常情況下 n 不會大到觸及 IEEE-754 精度極限；但 fitCount 是 export 的公開函式，
+  // 呼叫端可能繞過 computeImposition 的 domain 驗證直接餵極端值（如 Infinity 或 1e20），
+  // 此時 n 逼近 2^53 附近會出現 `n+1===n`（浮點無法表示下一個整數），若不防護會永久迴圈。
+  while (fits(n + 1)) {
+    const next = n + 1;
+    if (next === n) break;
+    n = next;
+  }
   return n;
 }
 
-/** paper*／piece* 欄位：finite 且 > 0（domain 表：兩者皆由生成器/使用者輸入，同一套規則）。 */
-function checkPositive(value: number): ImpositionFieldError['reason'] | null {
+/**
+ * paper*／piece* 欄位：finite、> 0、且落在 `[MIN_DIMENSION_MM, MAX_DIMENSION_MM]`
+ * 尺寸安全界內（domain 表：兩者皆由生成器/使用者輸入，同一套規則；T2 review F1）。
+ * 三層檢查刻意分開、不合併：`not-finite`／`not-positive` 是既有分類（0、負值、
+ * NaN、Infinity 沿用既有 reason，不因新增尺寸界而改變既有行為／既有測試斷言）；
+ * `out-of-range` 只抓「finite 且 > 0，但太小或太大」這個新增的中間地帶
+ * （如 `1e-200`：> 0 為真，但遠小於 MIN_DIMENSION_MM；`1e20`：> 0 為真，但遠大於
+ * MAX_DIMENSION_MM）。
+ */
+function checkDimension(value: number): ImpositionFieldError['reason'] | null {
   if (!Number.isFinite(value)) return 'not-finite';
   if (!(value > 0)) return 'not-positive';
+  if (value < MIN_DIMENSION_MM || value > MAX_DIMENSION_MM) return 'out-of-range';
   return null;
 }
 
-/** 咬口：finite 且 ≥ 0——0 合法（四邊不咬口），跟 paper*／piece* 的「必須 > 0」不同。 */
+/**
+ * 咬口：finite 且 `0 ≤ x ≤ MAX_DIMENSION_MM`——0 合法（四邊不咬口），跟 paper*／piece*
+ * 的「必須 > 0」不同，故無 MIN_DIMENSION_MM 下限；上限沿用尺寸安全界（T2 review F1）。
+ */
 function checkGripper(value: number): ImpositionFieldError['reason'] | null {
   if (!Number.isFinite(value)) return 'not-finite';
   if (value < 0) return 'not-positive';
+  if (value > MAX_DIMENSION_MM) return 'out-of-range';
   return null;
 }
 
-/** gap：finite 且 ≥ MIN_GAP_MM——硬下限本身已涵蓋「非正」情況，統一歸類 below-min。 */
+/**
+ * gap：finite 且 `MIN_GAP_MM ≤ x ≤ MAX_DIMENSION_MM`——硬下限本身已涵蓋「非正」情況，
+ * 統一歸類 below-min；上限沿用尺寸安全界（T2 review F1）。
+ */
 function checkGap(value: number): ImpositionFieldError['reason'] | null {
   if (!Number.isFinite(value)) return 'not-finite';
   if (value < MIN_GAP_MM) return 'below-min';
+  if (value > MAX_DIMENSION_MM) return 'out-of-range';
   return null;
 }
 
@@ -162,10 +200,10 @@ function collectDomainErrors(input: ImpositionInput): ImpositionFieldError[] {
     if (reason) errors.push({ field, reason });
   };
 
-  record('pieceW', checkPositive(input.pieceW));
-  record('pieceH', checkPositive(input.pieceH));
-  record('paperW', checkPositive(input.paperW));
-  record('paperH', checkPositive(input.paperH));
+  record('pieceW', checkDimension(input.pieceW));
+  record('pieceH', checkDimension(input.pieceH));
+  record('paperW', checkDimension(input.paperW));
+  record('paperH', checkDimension(input.paperH));
   record('gripper', checkGripper(input.gripper));
   record('gap', checkGap(input.gap));
 
@@ -185,10 +223,27 @@ function computeDirection(sheet: WorkingSheet, pieceForCols: number, pieceForRow
   return { cols, rows, count, utilization };
 }
 
+/** `DirectionResult` 四欄是否全為 finite（T2 review F1 深度防禦，見 `computeImposition`）。 */
+function isFiniteDirectionResult(direction: DirectionResult): boolean {
+  return (
+    Number.isFinite(direction.cols) &&
+    Number.isFinite(direction.rows) &&
+    Number.isFinite(direction.count) &&
+    Number.isFinite(direction.utilization)
+  );
+}
+
 /**
  * 拼版主計算：先 domain 驗證（逐欄收集所有欄位的錯誤，不是找到第一個就短路）——
  * 有任何錯誤就直接回傳 `{ok:false, errors}`，不繼續算 sheet/deg0/deg90；全部合法
  * 才進 `resolveWorkingSheet` → 0°/90° 兩方向 `fitCount`（90° 為 pieceW/pieceH 互換）。
+ *
+ * 回傳前再驗證 deg0/deg90 全為 finite（T2 review F1 深度防禦）：domain 已把
+ * paperW/paperH、pieceW/pieceH、gripper、gap 限制在 `[MIN_DIMENSION_MM, MAX_DIMENSION_MM]`
+ * （或其子集）內，理論上不會再算出非 finite 結果；但這是「domain 已擋、仍須有」的第二道防線，不讓
+ * NaN/Infinity 有任何路徑流到 UI。命中時視為內部錯誤而非特定欄位的錯——`field` 選
+ * `'paperW'` 只是型別要求下的代表值（`ImpositionFieldError` 沒有「內部錯誤」變體），
+ * 不代表真正肇因就是紙張欄位，見 task-2-report.md「Fix Round 1」的裁量記錄。
  */
 export function computeImposition(input: ImpositionInput): ImpositionResult {
   const errors = collectDomainErrors(input);
@@ -199,6 +254,10 @@ export function computeImposition(input: ImpositionInput): ImpositionResult {
   const sheet = resolveWorkingSheet(input.paperW, input.paperH, input.orientation, input.mode, input.gripper);
   const deg0 = computeDirection(sheet, input.pieceW, input.pieceH, input.gap);
   const deg90 = computeDirection(sheet, input.pieceH, input.pieceW, input.gap);
+
+  if (!isFiniteDirectionResult(deg0) || !isFiniteDirectionResult(deg90)) {
+    return { ok: false, errors: [{ field: 'paperW', reason: 'out-of-range' }] };
+  }
 
   return { ok: true, sheet, deg0, deg90 };
 }
