@@ -149,7 +149,17 @@ export function LayersPanel({
   };
 
   const handleSelectToggle = (id: string): void => {
-    onLayersChange({ ...layers, selectedOverlayId: layers.selectedOverlayId === id ? null : id });
+    const willDeselect = layers.selectedOverlayId === id;
+    onLayersChange({ ...layers, selectedOverlayId: willDeselect ? null : id });
+    // FF1（final review round 2，2026-07-09）：取消選中（選中→null）時若正在校準，一併關閉
+    // 校準模式——不然會卡在殭屍狀態：Canvas 的校準提示條只看 `calibrating`（見 Canvas.tsx
+    // JSX，不看有沒有選中層），選中層消失後提示條仍顯示；點畫布因 handleCalibrationClick 的
+    // `!selectedLayer` early return 沒有任何反應；這裡的「校準」鈕又因未選中變成 disabled——
+    // 三處疊加，使用者除了按 Esc 別無退路。切到「另一層」（`willDeselect` 為 false）則沿用
+    // 既有行為：校準模式維持開啟、對象換成新選中層（Canvas.tsx 既有的 T2 F1 歸零 effect 會
+    // 清空 pickedSegmentIndex 讓使用者重新點選，不是這裡要處理的事）。與 `handleDelete`
+    // 「刪除選中層時一併關閉校準」是同一個殭屍狀態理由，寫法也對稱（見下方該函式）。
+    if (willDeselect && calibrating) onCalibratingChange(false);
   };
 
   const handleVisibleChange = (id: string, visible: boolean): void => {

@@ -11,10 +11,10 @@
  * 排版軟體通常會自行翻面。是否需要加翻轉選項，留待實際送檔流程驗證後再決定（T6 gate）。
  *
  * **圖層排除規則（生產檔裁決）**：dimension/annotation 線型與全部 `texts` 一律不輸出到 DXF——
- * 口徑與 `export/svg.ts` 的 `DIMENSION_LINE_TYPES` 一致（該檔 `includeDimensions=false` 排除的
- * 就是這兩型），但本檔選擇不額外 import：`DXF_LAYER_BY_LINETYPE` 只映射 cut/crease/halfcut
- * 三型，任何不在這張表裡的線型（dimension/annotation，以及受 no-bleed 不變式保證不會實際出現
- * 的 bleed）在 `pathEntities` 就被防禦性跳過，效果等價、少一個跨檔 import。
+ * 口徑與 `export/svg.ts` 的 `DIMENSION_LINE_TYPES`（`manufacturingBounds` 排除標註取幾何包絡
+ * 用的同一份集合）一致，但本檔選擇不額外 import：`DXF_LAYER_BY_LINETYPE` 只映射 cut/crease/
+ * halfcut 三型，任何不在這張表裡的線型（dimension/annotation，以及受 no-bleed 不變式保證不會
+ * 實際出現的 bleed）在 `pathEntities` 就被防禦性跳過，效果等價、少一個跨檔 import。
  */
 
 import type { Segment } from '@/core/geometry';
