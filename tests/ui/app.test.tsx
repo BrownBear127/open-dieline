@@ -1250,6 +1250,39 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
     fireEvent.click(svg, { clientX: 20 * 0.352778 - vbMinX, clientY: 0 - vbMinY });
   }
 
+  /**
+   * F1 review finding 修復：pan 拖曳放開的瞬間，native browser 的 click 事件只要
+   * mousedown／mouseup 落在同一元素就會 fire——不管中間游標移動多遠（DOM 規格既定行為）。
+   * jsdom 的 `fireEvent` 不會像真實瀏覽器一樣從一段拖曳序列自動合成/抑制 click，所以要手動
+   * 模擬完整序列：mousedown(遠處)→mousemove(終點)→mouseup(終點)→click(終點)，落點選在
+   * fixture 線段中點（沒有 guard 的話會落在 hit-test 容差內、被誤判成一次點選）。起點與終點
+   * 相距 50 螢幕像素，遠超過拖曳判定門檻（Canvas.tsx DRAG_CLICK_THRESHOLD_PX，~4px 級）。
+   */
+  function dragThenClickFixtureLineMidpoint(): void {
+    const { vbMinX, vbMinY } = mockSvgRectToViewBox();
+    const svg = document.querySelector('svg')!;
+    const targetX = 20 * 0.352778 - vbMinX;
+    const targetY = 0 - vbMinY;
+    fireEvent.mouseDown(svg, { clientX: targetX - 50, clientY: targetY - 50 });
+    fireEvent.mouseMove(svg, { clientX: targetX, clientY: targetY });
+    fireEvent.mouseUp(svg, { clientX: targetX, clientY: targetY });
+    fireEvent.click(svg, { clientX: targetX, clientY: targetY });
+  }
+
+  /**
+   * F1 對照組：同座標的 mousedown→mouseup→click（無位移）——完整模擬「這其實是一次單純點擊」
+   * 的滑鼠序列，用來驗證 guard 只擋「有位移的拖曳」，不誤傷既有的點選行為。
+   */
+  function clickFixtureLineMidpointViaFullSequence(): void {
+    const { vbMinX, vbMinY } = mockSvgRectToViewBox();
+    const svg = document.querySelector('svg')!;
+    const targetX = 20 * 0.352778 - vbMinX;
+    const targetY = 0 - vbMinY;
+    fireEvent.mouseDown(svg, { clientX: targetX, clientY: targetY });
+    fireEvent.mouseUp(svg, { clientX: targetX, clientY: targetY });
+    fireEvent.click(svg, { clientX: targetX, clientY: targetY });
+  }
+
   function readOverlayScale(): number {
     const transform = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!.getAttribute('transform') ?? '';
     return Number(/scale\(([-\d.]+)\)/.exec(transform)![1]);
@@ -1284,6 +1317,30 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
     expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument(); // 模式已退出
     expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '校準' })).toBeInTheDocument(); // 鈕字回「校準」
+  });
+
+  it('F1：pan 拖曳放開不誤觸校準點選（mousedown 遠處→mousemove→mouseup/click 落在線段 hit-test 容差內）', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+
+    dragThenClickFixtureLineMidpoint();
+
+    // 沒有任何段被選中：行內輸入表單未出現，提示條仍是「請點選」而非顯示已選段。
+    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
+    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+  });
+
+  it('F1 對照組：無位移的 mousedown→mouseup→click（同座標）仍正常選中線段，既有點選行為不迴歸', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByRole('button', { name: '校準' }));
+    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+
+    clickFixtureLineMidpointViaFullSequence();
+
+    expect(await screen.findByLabelText(/該線段實際長度/)).toBeInTheDocument(); // 有選中線段，表單出現
   });
 
   it('Esc 退出校準模式：scale 不變（未套用任何校準結果）', async () => {

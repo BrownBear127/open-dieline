@@ -112,6 +112,17 @@ const PIECE_VIEW_PADDING = 20;
  * 換取更精細的 hit-test 容差。
  */
 const CALIBRATION_THRESHOLD_MM = 3;
+/**
+ * 校準模式「拖曳結束誤觸點選」guard 門檻（螢幕像素，review finding F1）：native browser 的
+ * click 事件只要 mousedown／mouseup 落在同一元素，不論中間游標移動多遠都會 fire——這是 DOM
+ * 規格既定行為，不是這裡的 bug。校準模式刻意不停用 pan/zoom（見上方 CALIBRATION_THRESHOLD_MM
+ * 註解），使用者放開 pan 手勢的滑鼠位置若剛好落在某段 overlay 線的 hit-test 容差內，沒有這層
+ * guard 就會被誤判成一次有意義的點選、靜默選中錯誤的線段（無任何錯誤提示）。這個門檻量的是
+ * 「滑鼠移動了多少螢幕像素」，跟 CALIBRATION_THRESHOLD_MM（量「點多準」的 mm 容差、且隨畫布
+ * zoom 換算）是完全不同的兩件事，故意各自獨立成常數：拖曳判定應與 zoom 無關（螢幕上移動 4px
+ * 就是移動 4px，不因目前縮放多少而改變「這是不是一次拖曳」的判斷）。
+ */
+const DRAG_CLICK_THRESHOLD_PX = 4;
 
 /** 依容器可視尺寸與內容 bounds 算出「剛好塞滿」的 scale——邏輯照前身 handleFitToScreen 移植。 */
 function computeFitScale(containerW: number, containerH: number, bounds: Bounds): number {
@@ -156,6 +167,12 @@ export function Canvas({
   const [pickedSegmentIndex, setPickedSegmentIndex] = useState<number | null>(null);
   const [calibrationInput, setCalibrationInput] = useState('');
   const [calibrationError, setCalibrationError] = useState<string | null>(null);
+  // 校準模式「拖曳結束誤觸點選」guard（review F1）：記錄最近一次 mousedown 的螢幕座標
+  // （e.clientX/clientY），handleCalibrationClick 用它判斷這次 click 之前是否發生過有意義的
+  // 位移。用 ref 不用 state——這個值只有 click handler 內部讀取比較一次，不需要觸發重新渲染。
+  // null 代表「這次 click 之前沒有觀察到 mousedown」（例如測試直接 fireEvent.click 不經過
+  // mousedown/mouseup），視為非拖曳、照舊放行，既有的點選路徑不受影響。
+  const dragStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // 單片視圖：bounds 外加視覺邊距；全版視圖：沿用 result.bounds 原值（既有行為不變，見 docblock）。
   const activeBounds = activePiece ? expandBounds(activePiece.bounds, PIECE_VIEW_PADDING) : result.bounds;
@@ -224,7 +241,10 @@ export function Canvas({
     }
   };
 
-  const handleMouseDown = () => setIsDragging(true);
+  const handleMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+  };
   const handleMouseUp = () => setIsDragging(false);
   const handleMouseLeave = () => setIsDragging(false);
   const handleMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -256,6 +276,15 @@ export function Canvas({
   const handleCalibrationClick = (e: ReactMouseEvent<SVGSVGElement>): void => {
     if (!overlay?.calibrating || overlay.segments.length === 0) return;
     if (pickedSegmentIndex !== null) return; // 已選定待輸入中：先確認或 Esc，點擊畫布不重新選取
+    // 拖曳結束誤觸點選 guard（review F1）：native click 在 mousedown/mouseup 落在同一元素時，
+    // 不管中間移動多遠都會 fire——pan 手勢放開的瞬間若剛好落在線段 hit-test 容差內，沒有這層
+    // 判斷就會被誤判成使用者「特意點了這一段」。dragStartPosRef 為 null（這次 click 之前沒有
+    // 觀察到 mousedown）視為非拖曳，照舊放行。
+    const dragStart = dragStartPosRef.current;
+    if (dragStart) {
+      const movedPx = Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y);
+      if (movedPx > DRAG_CLICK_THRESHOLD_PX) return; // 視為拖曳（pan），不是一次有意義的點選
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return; // 量測不到真實尺寸（如未掛載完成）：放棄本次點擊
     const svgX = ((e.clientX - rect.left) / rect.width) * viewW;
