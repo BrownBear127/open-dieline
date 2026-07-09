@@ -87,8 +87,10 @@ export interface DirectionResult {
 }
 
 export type ImpositionFieldError = {
-  field: 'paperW' | 'paperH' | 'pieceW' | 'pieceH' | 'gripper' | 'gap';
-  reason: 'not-finite' | 'not-positive' | 'below-min' | 'out-of-range';
+  /** `'result'`＝內部錯誤的專屬歸因（不對應任何輸入欄位），只與 `reason:'internal'` 成對出現。 */
+  field: 'paperW' | 'paperH' | 'pieceW' | 'pieceH' | 'gripper' | 'gap' | 'result';
+  /** `'internal'`＝計算結果驗證失敗（非使用者輸入錯），UI 應走整體錯誤顯示、不標任何輸入框。 */
+  reason: 'not-finite' | 'not-positive' | 'below-min' | 'out-of-range' | 'internal';
 };
 
 export type ImpositionResult =
@@ -238,25 +240,40 @@ function isFiniteDirectionResult(direction: DirectionResult): boolean {
  * 有任何錯誤就直接回傳 `{ok:false, errors}`，不繼續算 sheet/deg0/deg90；全部合法
  * 才進 `resolveWorkingSheet` → 0°/90° 兩方向 `fitCount`（90° 為 pieceW/pieceH 互換）。
  *
- * 回傳前再驗證 deg0/deg90 全為 finite（T2 review F1 深度防禦）：domain 已把
- * paperW/paperH、pieceW/pieceH、gripper、gap 限制在 `[MIN_DIMENSION_MM, MAX_DIMENSION_MM]`
- * （或其子集）內，理論上不會再算出非 finite 結果；但這是「domain 已擋、仍須有」的第二道防線，不讓
- * NaN/Infinity 有任何路徑流到 UI。命中時視為內部錯誤而非特定欄位的錯——`field` 選
- * `'paperW'` 只是型別要求下的代表值（`ImpositionFieldError` 沒有「內部錯誤」變體），
- * 不代表真正肇因就是紙張欄位，見 開發紀錄「Fix Round 1」的裁量記錄。
+ * 進場先建立 input snapshot（每個屬性恰讀一次的 plain object）：JS 物件屬性可以是
+ * getter、每次讀值可以不同（T2 re-review 的反例——`gap` getter 第一次回 3 通過 domain
+ * 驗證、之後回 Infinity 進計算），snapshot 讓 domain 驗證與計算保證看到同一組值，
+ * 「防禦分支不可達」的數值上界證明（單軸 count < 6.65e5、總 count < 4.42e11 < 2^53）
+ * 才真正成立。
+ *
+ * 回傳前再驗證 deg0/deg90 全為 finite（T2 review F1 深度防禦）：snapshot＋domain 上下界
+ * 後理論上不可達，但這是「domain 已擋、仍須有」的第二道防線，不讓 NaN/Infinity 有任何
+ * 路徑流到 UI。命中時回 `{field:'result', reason:'internal'}`——內部錯誤專屬歸因，
+ * 不把沒有超界的輸入欄位標成肇因（T2 re-review 裁決）。
  */
 export function computeImposition(input: ImpositionInput): ImpositionResult {
-  const errors = collectDomainErrors(input);
+  const snapshot: ImpositionInput = {
+    pieceW: input.pieceW,
+    pieceH: input.pieceH,
+    paperW: input.paperW,
+    paperH: input.paperH,
+    orientation: input.orientation,
+    mode: input.mode,
+    gripper: input.gripper,
+    gap: input.gap,
+  };
+
+  const errors = collectDomainErrors(snapshot);
   if (errors.length > 0) {
     return { ok: false, errors };
   }
 
-  const sheet = resolveWorkingSheet(input.paperW, input.paperH, input.orientation, input.mode, input.gripper);
-  const deg0 = computeDirection(sheet, input.pieceW, input.pieceH, input.gap);
-  const deg90 = computeDirection(sheet, input.pieceH, input.pieceW, input.gap);
+  const sheet = resolveWorkingSheet(snapshot.paperW, snapshot.paperH, snapshot.orientation, snapshot.mode, snapshot.gripper);
+  const deg0 = computeDirection(sheet, snapshot.pieceW, snapshot.pieceH, snapshot.gap);
+  const deg90 = computeDirection(sheet, snapshot.pieceH, snapshot.pieceW, snapshot.gap);
 
   if (!isFiniteDirectionResult(deg0) || !isFiniteDirectionResult(deg90)) {
-    return { ok: false, errors: [{ field: 'paperW', reason: 'out-of-range' }] };
+    return { ok: false, errors: [{ field: 'result', reason: 'internal' }] };
   }
 
   return { ok: true, sheet, deg0, deg90 };
