@@ -1,14 +1,17 @@
 /**
- * Overlay 狀態層（Slice 3 Task 4/5，spec §5）：管理使用者匯入的生產刀模 SVG 疊圖的顯示/校準
- * 狀態。純函式、UI 無關——OverlayPanel（匯入/控制項）與 Canvas（疊繪/校準 hit-test）負責把
- * 這裡的資料接到畫面，本檔不 import React 或任何 UI。
+ * Overlay 純函式層（Slice 3 Task 4/5，spec §5；Slice 3 gate round 1 T2 起單一疊圖模型退役）：
+ * 比例猜測／對齊／點選校準的純函式，供 `overlay/layers.ts` 的 `OverlayLayer`（多層資料模型，
+ * 取代本檔曾有的單一 `OverlayState`/`createOverlayState`）與 UI（LayersPanel 控制項、Canvas
+ * 疊繪/校準 hit-test）共同消費。純函式、UI 無關，本檔不 import React 或任何 UI。
  *
- * OverlayState 是 session 級：不進 localStorage、不進匯出、不影響 GenerateResult（T3 的
- * `parseOverlaySvg` 輸出獨立疊在畫布最上層，是純顯示層，見 Canvas.tsx 疊繪處）。
+ * 這些函式描述的資料是 session 級：不進 localStorage、不進匯出、不影響 GenerateResult
+ * （`parseOverlaySvg` 輸出獨立疊在畫布最上層，是純顯示層，見 Canvas.tsx 疊繪處）。
  *
- * T5（點選校準，spec §5）在這裡加 `calibrateScale`（點選一段已知長度的線段定比例）與
- * `findNearestOverlaySegment`（校準模式 hit-test 純函式，供 Canvas.tsx 的點選事件呼叫）；
- * OverlayState 新增 `calibrating`／`calibrated` 兩個欄位（見下方型別定義）。
+ * `calibrateScale`（點選一段已知長度的線段定比例）與 `findNearestOverlaySegment`（校準模式
+ * hit-test 純函式，供 Canvas.tsx 的點選事件呼叫）為 T5 加入；「calibrating」（是否處於校準
+ * 互動模式）與「calibrated」（是否已完成過校準）這兩個狀態欄位，在多層模型下分別搬到
+ * App.tsx 的獨立 `calibrating` state（跨層共用同一個開關，T1 的 `LayersState` 未收錄這個
+ * 欄位）與 `OverlayLayer.calibrated`（逐層各自紀錄，見 `overlay/layers.ts`）。
  */
 import type { Bounds, Segment } from '@/core/geometry';
 import { flattenBezier, segmentsBounds } from '@/core/geometry';
@@ -22,37 +25,6 @@ import type { OverlayParseResult } from './parse';
  * 任何盒型生成過，不構成實際疊色衝突，見 開發紀錄 concerns。）
  */
 export const OVERLAY_STROKE = '#FF00FF';
-
-/** 透明度滑桿的預設值（0–1 比例，UI 顯示為 50%）。 */
-const DEFAULT_OVERLAY_OPACITY = 0.5;
-
-export interface OverlayState {
-  /** parse 原始輸出，不預先套用 scale/offset——渲染時（Canvas 的 `<g transform>`）才套用，
-   *  維持「segments 是使用者匯入檔案的忠實記錄」不變式，方便切換單位或（T5）重新校準時
-   *  重算顯示位置，不需要重新解析 SVG 檔案。 */
-  segments: Segment[];
-  warnings: string[];
-  /** overlay 座標 → mm 的比例。未校準過時＝ `initialScaleGuess` 的猜測值；點選校準完成後
-   *  （T5，`calibrated` 為 true）＝ `calibrateScale` 算出的量測值。 */
-  scale: number;
-  /** mm，套在 scale 之後（見 `alignOffset` 與 Canvas 疊繪 transform 的套用順序：先 scale 再平移）。 */
-  offsetX: number;
-  offsetY: number;
-  /** 0–1，預設 0.5。 */
-  opacity: number;
-  visible: boolean;
-  /** `segmentsBounds(segments)`——未套 scale/offset 前的原始包絡，`alignOffset` 對齊計算用。 */
-  rawBounds: Bounds;
-  /** 是否處於「點選校準」互動模式（T5，spec §5）。校準模式的開關本身也存進這份共享狀態，
-   *  因為 OverlayPanel（校準鈕）與 Canvas（hit-test／頂部提示條／游標）是平行兄弟元件，
-   *  只有共同父層的 state 才能同步（跟 `scale`/`rawBounds` 等既有欄位同一個提升理由）。
-   *  true 時 Canvas 對 overlay 線段開放點選 hit-test；false 時點選不做任何事。 */
-  calibrating: boolean;
-  /** 是否已完成過至少一次點選校準。影響單位下拉變更的優先順序（見 OverlayPanel.tsx
-   *  `handleUnitChange`）：尚未校準時單位下拉直接重算 `scale`（T4 既有行為）；已校準後
-   *  改為先提示使用者確認，避免無聲蓋掉量測得來的比例。 */
-  calibrated: boolean;
-}
 
 const UNIT_TO_MM: Record<'pt' | 'mm' | 'px', number> = {
   pt: 0.352778,
@@ -165,31 +137,11 @@ export function alignOffset(
   return { offsetX: target.minX - raw.minX * scale, offsetY: target.minY - raw.minY * scale };
 }
 
-/**
- * 從 `parseOverlaySvg` 的輸出建構初始 `OverlayState`：scale 用 `initialScaleGuess`（呼叫當下
- * unit 下拉的選擇）、offset 歸零（尚未對齊）、opacity 用預設 0.5、visible 預設開、rawBounds
- * 用 `core/geometry.ts` 既有的 `segmentsBounds`——RTE 的 bounds 計算與 ExportBar 的單片製造
- * 尺寸（`pieceManufacturingBounds`）都已經在用同一函式，不另外自寫一份：它對 line/arc 給出
- * 精確包絡、對 bezier 給出控制多邊形包絡，精度已優於「對齊用途不需 tight bounds」的最低要求
- * （見 開發紀錄 的 rawBounds 決策記錄）。
- *
- * 不是 spec 字面列出的兩個函式之一，但屬於同一份「純函式、UI 無關」的 state 建構邏輯——
- * 抽出來讓 OverlayPanel.tsx 的檔案匯入 handler 保持薄，且這段邏輯本身可獨立單元測試。
- */
-export function createOverlayState(parseResult: OverlayParseResult, unit: 'pt' | 'mm' | 'px'): OverlayState {
-  return {
-    segments: parseResult.segments,
-    warnings: parseResult.warnings,
-    scale: initialScaleGuess(parseResult.sourceInfo, unit),
-    offsetX: 0,
-    offsetY: 0,
-    opacity: DEFAULT_OVERLAY_OPACITY,
-    visible: true,
-    rawBounds: segmentsBounds(parseResult.segments),
-    calibrating: false,
-    calibrated: false,
-  };
-}
+// createOverlayState（單一 OverlayState 建構函式）已於 Slice 3 gate round 1 T2 隨 OverlayPanel
+// →LayersPanel 遷移退役——等價邏輯（scale/rawBounds/opacity/visible/calibrated 預設值＋
+// segments 不預變換）由 `overlay/layers.ts` 的 `createOverlayLayer` 取代（多一個置中 offset
+// 與 id 參數，見該檔文件）。`initialScaleGuess`／`segmentsBounds` 兩個純函式本身不受影響，
+// 繼續被 `createOverlayLayer` 消費。
 
 // ─────────────────────────────────────────────────────────────────────────
 // Slice 3 Task 5：點選校準（spec §5「點選一段線、輸入實際 mm」）

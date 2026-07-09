@@ -6,15 +6,17 @@
  * values 或 result 變動時重新跑全部 `mod.invariants`，not-ok 的收集成
  * `invariantWarnings` 往下傳給 Canvas（畫警告條＋高亮 tags）。
  *
- * `includeDimensions`（T9 樣張 gate 第二輪維護者反饋修復 3）：state 提升到這裡（原本只活在
- * ExportBar 內部），同時傳給 Canvas（控制畫布是否畫尺寸標註）與 ExportBar（控制下載內容、
- * 也是 checkbox 顯示值的來源），兩處視覺才會同步——維護者實測發現取消勾選只影響下載的 SVG，
- * 畫布仍照樣顯示標註，就是因為這顆 state 原本沒有被畫布看到。
+ * `includeDimensions`（T9 樣張 gate 第二輪維護者反饋修復 3，已於 Slice 3 gate round 1 T2 退役）：
+ * 曾經 state 提升到這裡（原本只活在 ExportBar 內部），同時傳給 Canvas（控制畫布是否畫尺寸
+ * 標註）與 ExportBar（控制下載內容、也是 checkbox 顯示值的來源），兩處視覺才會同步——維護者
+ * 實測發現取消勾選只影響下載的 SVG，畫布仍照樣顯示標註，就是因為這顆 state 原本沒有被畫布
+ * 看到。這顆 state 本身已不存在：尺寸標註的畫布顯示開關現在是 `layersState.generatedVisible.
+ * dimensions`（見下方「layersState」段），匯出則恆全量、不再讀任何可見性 state（plan 裁決）。
  *
  * `selectedPieceId`（Slice 2 Task 6，spec §4.2）：多片盒型（如天地盒）的全版／單片視圖切換，
- * 跟 `includeDimensions` 同一個提升理由——Canvas（渲染哪些 paths/texts＋viewBox 用哪片
- * bounds）與 ExportBar（匯出哪些內容＋單片檔名）是平行的兄弟元件，兩者都需要知道「目前選定
- * 哪一片」，狀態只能放在共同的父層才能同步。這裡只存原始的 `string | null`（null＝全版），
+ * 跟 `layersState`/`calibrating`（見下方）同一個提升理由——Canvas（渲染哪些 paths/texts＋
+ * viewBox 用哪片 bounds）與 ExportBar（匯出哪些內容＋單片檔名）是平行的兄弟元件，兩者都需要
+ * 知道「目前選定哪一片」，狀態只能放在共同的父層才能同步。這裡只存原始的 `string | null`（null＝全版），
  * 實際的 `DielinePiece` 物件由下面的 `activePiece`（含「找不到就視為全版」防呆）統一解出，
  * Canvas／ExportBar 兩邊都吃同一個已解好的值，不必各自重複查找邏輯。切換盒型（`boxId` 變動）
  * 時同步重置回全版（見 box-select 的 onChange），避免殘留 pieceId 指向新盒型不存在的片。
@@ -26,25 +28,25 @@
  * zinc-50/white 主題，讓黑色 cut 線在白底畫布上清楚可見；前身移植的流程/互動
  * 手感〔pan/zoom、分組、hover 高亮〕不受影響，僅呈現層色票改動）。
  *
- * `overlayState`（Slice 3 Task 4/5，spec §5）：匯入生產刀模 SVG 疊圖的顯示/校準狀態，跟
- * `includeDimensions`/`selectedPieceId` 同一個提升理由——OverlayPanel（控制項）與 Canvas
- * （疊繪／T5 校準 hit-test）是平行兄弟元件，只有共同父層的 state 才能同步。刻意不隨 `boxId`
- * 切換而重置：overlay 的 segments 是使用者匯入檔案的自包含資料（不像 `selectedPieceId` 指向
- * `result.pieces` 的 id，換盒型後可能找不到對應片），沒有殘留失效參照的風險，讓使用者可以
- * 邊切換盒型邊比對同一份疊圖。`overlayTargetBounds`（見下方 `activePiece` 之後定義）是快速
- * 對齊三鈕的對齊目標，用「目前畫布實際顯示的視圖範圍」（單片視圖用該片 bounds、全版用
- * `result.bounds`），跟 Canvas 看到的是同一份資料。
+ * `layersState`（Slice 3 gate round 1 T2，取代 Task 4/5 的 `overlayState`/`includeDimensions`）：
+ * 生成 4 層可見性＋使用者匯入的多份疊圖圖層，跟 `selectedPieceId` 同一個提升理由——
+ * LayersPanel（控制項）與 Canvas（分桶渲染／疊繪／校準 hit-test）是平行兄弟元件，只有
+ * 共同父層的 state 才能同步。刻意不隨 `boxId` 切換而重置：overlay 的 segments 是使用者
+ * 匯入檔案的自包含資料（不像 `selectedPieceId` 指向 `result.pieces` 的 id，換盒型後可能
+ * 找不到對應片），沒有殘留失效參照的風險，讓使用者可以邊切換盒型邊比對同一份疊圖清單。
+ * `overlayTargetBounds`（見下方 `activePiece` 之後定義）是「重新置中」鈕與新匯入層置中
+ * 預設的對齊目標，用「目前畫布實際顯示的視圖範圍」（單片視圖用該片 bounds、全版用
+ * `result.bounds`，皆排除尺寸標註外擴），跟 Canvas 看到的是同一份資料。
  *
- * `<Canvas onOverlayStateChange={setOverlayState}>`（T5 新增，跟傳給 `<OverlayPanel>` 的
- * 是同一個函式）：T5 的點選校準互動（點選線段→行內輸入 mm→確認）發生在畫布上，Canvas 必須
- * 能把最終結果（新 scale、退出校準模式、Esc 取消）寫回這份提升狀態，OverlayPanel 才看得到
- * 校準生效——沒有這行，Canvas 收到的 `overlay` prop 只能讀不能寫，校準鈕點了也不會有任何
- * 畫面反應。開發紀錄 的「Modify」檔案清單原本沒列 App.tsx（T4 的 spec 有明確列——
- * 見 開發紀錄），但這個功能結構上必須有 Canvas→App 的回寫管道；這裡只加這一個
- * prop（重用既有的 `setOverlayState`，不新增任何 state 或邏輯），是能讓 T5 實際運作的
- * 最小必要改動，已在 開發紀錄 標註為對 spec 檔案清單的刻意偏離，供覆核。
+ * `calibrating`（校準模式開關）獨立於 `layersState` 提升：多層模型下「目前是否在校準模式」
+ * 不是任一層的欄位（`OverlayLayer`/`LayersState` 的 T1 契約未收錄），是 LayersPanel 與
+ * Canvas 都要讀的跨層開關，只能放共同父層——跟舊版 `overlayState.calibrating` 同一個
+ * 提升理由，只是欄位搬出複合物件變成獨立 state。`overlayIdCounterRef` 用 `useRef` 遞增
+ * 產生 `overlay-${n}` 形式的圖層 id（不用 `Date.now()`——確定性，方便測試與重播疊圖清單，
+ * 見 `overlay/layers.ts` `createOverlayLayer` 文件的既有理由）；用 ref 而非 state 是因為
+ * 計數器遞增本身不需要觸發重渲染，只有呼叫端（LayersPanel 匯入 handler）讀取當下值。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { listBoxes } from '@/core/registry';
 // side-effect import：觸發 RTE 於模組載入時自我註冊（registry.ts 的 registerBox）。
 // 沒有這行 listBoxes() 恆為空、整個 App 沒有盒型可渲染——registry.ts 的設計是
@@ -54,13 +56,14 @@ import { listBoxes } from '@/core/registry';
 import '@/boxes/reverse-tuck-end';
 import '@/boxes/telescope';
 import type { LocalizedText } from '@/core/types';
-import type { OverlayState } from '@/overlay/state';
+import { initialLayersState } from '@/overlay/layers';
+import type { LayersState } from '@/overlay/layers';
 import { manufacturingBounds } from '@/export/svg';
 import { useParams } from '@/ui/useParams';
 import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
-import { OverlayPanel } from '@/ui/OverlayPanel';
+import { LayersPanel } from '@/ui/LayersPanel';
 import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
 
 export function App() {
@@ -69,10 +72,17 @@ export function App() {
   const [boxId, setBoxId] = useState<string>(() => boxes[0]!.meta.id);
   const { mod, values, overriddenKeys, setValue, resetOne, reset } = useParams(boxId);
   const [highlightTags, setHighlightTags] = useState<string[] | null>(null);
-  const [includeDimensions, setIncludeDimensions] = useState(true);
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
-  const [overlayState, setOverlayState] = useState<OverlayState | null>(null);
-  // v0.2.0 宣告視窗：跟 includeDimensions/selectedPieceId 同一個提升理由——header 的
+  const [layersState, setLayersState] = useState<LayersState>(() => initialLayersState());
+  const [calibrating, setCalibrating] = useState(false);
+  // 見上方 docblock「calibrating」段：只有 useRef 本身遞增，讀取當下值才需要呼叫這個函式，
+  // 遞增這個動作不需要觸發重渲染（跟 layersState/calibrating 兩個真正驅動畫面的 state 不同）。
+  const overlayIdCounterRef = useRef(0);
+  const createOverlayId = (): string => {
+    overlayIdCounterRef.current += 1;
+    return `overlay-${overlayIdCounterRef.current}`;
+  };
+  // v0.2.0 宣告視窗：跟 layersState/selectedPieceId 同一個提升理由——header 的
   // 「關於」鈕與 modal 本體是平行的兄弟位置（一個在 aside 頂部，一個要蓋在整個畫面上），
   // 只能靠共同父層的 state 同步開關。惰性初始值只在掛載當下讀一次 localStorage：
   // 首次訪問（未關過）預設開啟，關過的訪客重新整理後不會再自動彈出。
@@ -89,8 +99,9 @@ export function App() {
     [result, selectedPieceId],
   );
 
-  // 疊圖快速對齊三鈕的目標 bounds：跟 Canvas 目前實際顯示的視圖範圍一致（單片視圖用該片
-  // 幾何、全版用整版幾何），不是 Canvas 的 activeBounds（那個為單片視圖額外烘了
+  // 疊圖「重新置中」鈕與新匯入層置中預設的目標 bounds（Slice 3 gate round 1 T2：取代退役
+  // 的快速對齊三鈕，見 LayersPanel.tsx）：跟 Canvas 目前實際顯示的視圖範圍一致（單片視圖用
+  // 該片幾何、全版用整版幾何），不是 Canvas 的 activeBounds（那個為單片視圖額外烘了
   // PIECE_VIEW_PADDING 顯示邊距，是「畫布留白多少」的呈現層決定，不是「刀模實際幾何範圍」——
   // 對齊疊圖要對齊到真實幾何，不該把留白邊距也算進對齊目標）。
   //
@@ -188,16 +199,17 @@ export function App() {
           onHighlight={setHighlightTags}
         />
 
-        <OverlayPanel overlayState={overlayState} onOverlayStateChange={setOverlayState} targetBounds={overlayTargetBounds} />
-
-        <ExportBar
-          boxId={boxId}
-          values={values}
+        <LayersPanel
+          layers={layersState}
+          onLayersChange={setLayersState}
+          targetBounds={overlayTargetBounds}
           result={result}
-          includeDimensions={includeDimensions}
-          onIncludeDimensionsChange={setIncludeDimensions}
-          activePiece={activePiece}
+          calibrating={calibrating}
+          onCalibratingChange={setCalibrating}
+          createOverlayId={createOverlayId}
         />
+
+        <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
       </aside>
 
       <main className="flex-1 flex">
@@ -205,11 +217,12 @@ export function App() {
           result={result}
           highlightTags={highlightTags}
           invariantWarnings={invariantWarnings}
-          includeDimensions={includeDimensions}
           activePiece={activePiece}
           onSelectPiece={setSelectedPieceId}
-          overlay={overlayState}
-          onOverlayStateChange={setOverlayState}
+          layers={layersState}
+          onLayersChange={setLayersState}
+          calibrating={calibrating}
+          onCalibratingChange={setCalibrating}
         />
       </main>
 

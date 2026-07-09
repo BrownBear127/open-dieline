@@ -14,6 +14,14 @@
  * 亮色」，而是白底畫布上與黑 cut／綠 crease／黃 halfcut／藍 dimension 四色仍保持清楚對比的
  * 高對比互動色，換底色後對比關係不受影響。
  *
+ * 生成側圖層可見性（Slice 3 gate round 1 T2，取代舊 `includeDimensions` prop）：每個 path
+ * 渲染前先查 `layers.generatedVisible[layerKeyForLineType(p.type)]`，texts 則查
+ * `generatedVisible.dimensions`（v1 texts 全部來自標註，見 `overlay/layers.ts` 該函式文件）。
+ * 這個過濾只決定「畫不畫」，不影響 `activeBounds`/`computeFitScale`/`highlightSet`——
+ * invariant 警告高亮、hover、fit/bounds 邏輯完全不讀圖層可見性，所以某個線型被隱藏時，
+ * 即使它剛好是目前高亮的目標，也只是「畫布上看不到那個高亮」，不會連帶影響 fit 或 viewBox
+ * 跟著重算（可接受的行為，plan 裁決：生成層可見性純顯示層級的開關，不是幾何層級的變更）。
+ *
  * pieces 全版／單片視圖切換（Slice 2 Task 6，spec §4.2）：`activePiece` 有值時只渲染該片的
  * paths/texts（依 `pathIds`/`textIds` 集合過濾，不是猜測 index），viewBox 改用該片 bounds
  * 外加 `PIECE_VIEW_PADDING` 邊距。這個邊距是必要的：T1 定案「多片盒型的片 bounds 不烘邊距，
@@ -29,22 +37,14 @@ import type { Bounds } from '@/core/geometry';
 import type { DielinePiece, GenerateResult, LocalizedText } from '@/core/types';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
-import { DIMENSION_LINE_TYPES } from '@/export/svg';
 import { OVERLAY_STROKE, calibrateScale, findNearestOverlaySegment } from '@/overlay/state';
-import type { OverlayState } from '@/overlay/state';
+import { initialLayersState, layerKeyForLineType, updateOverlayLayer } from '@/overlay/layers';
+import type { LayersState } from '@/overlay/layers';
 
 export interface CanvasProps {
   result: GenerateResult;
   highlightTags: string[] | null;
   invariantWarnings: { message: LocalizedText; tags?: string[] }[];
-  /**
-   * 是否顯示尺寸標註線與文字；預設 true。T9 樣張 gate 第二輪維護者反饋修復 3：ExportBar 的
-   * 「含尺寸標註」checkbox 原本只控制下載 SVG、畫布永遠顯示標註——這裡改成畫布也接受同一個
-   * （已提升到 App.tsx 的）state，false 時比照 export/svg.ts 的 toSvgDocument 過濾規則
-   * （剔除 DIMENSION_LINE_TYPES 線型路徑與全部 texts），讓畫布與下載內容視覺同步。
-   * 選填＋預設 true：既有只關注幾何/高亮的 Canvas 單元測試不需要跟著改。
-   */
-  includeDimensions?: boolean;
   /**
    * 目前選定要單獨顯示的片；undefined＝全版視圖。呼叫端（App.tsx）負責用 selectedPieceId 對
    * `result.pieces` 做 `.find()` 解出這個值——包含「找不到時視為全版」的防呆（例如切換參數讓
@@ -60,27 +60,36 @@ export interface CanvasProps {
    */
   onSelectPiece?: (pieceId: string | null) => void;
   /**
-   * 匯入的生產刀模疊圖狀態（Slice 3 Task 4/5，spec §5）；undefined／null／`visible:false`／
-   * 空 segments 皆不渲染。畫在生成層（paths/texts）之後＝視覺最上層，且刻意獨立於本檔其餘
-   * 邏輯：不併入 `activeBounds`/`computeFitScale`（bounds/fit 只認生成層幾何，overlay 只是
-   * 對照參考，不應該讓匯入的檔案把畫布 fit/viewBox 拉走）、不併入 `highlightSet`/`isHighlighted`
-   * （overlay 沒有 tags，也不是 hover 高亮的對象）。`overlay.calibrating` 且 `overlay.visible`
-   * 皆為 true 時（T5；FX2，Slice 3 final review 補上 `visible` 這個條件——修前只看
-   * `calibrating`，隱藏疊圖時仍可點擊命中看不見的線段改 scale，見 `handleCalibrationClick`
-   * 內的完整說明）才對 overlay 線段開放點選 hit-test，其餘時間畫布的既有 pan/zoom 互動不受
-   * 影響。選填：既有只組 `result`/`highlightTags`/`invariantWarnings` 的 Canvas 單元測試不
-   * 需要跟著改。
+   * 圖層狀態（Slice 3 gate round 1 T2，取代 Task 4/5 的單一 `OverlayState`）：
+   * `generatedVisible` 驅動生成側 paths/texts 過濾（見上方檔頭 docblock）；`overlays`
+   * 陣列逐層 `<g transform>` 疊繪，畫在生成層之後＝視覺最上層，且刻意獨立於本檔其餘幾何
+   * 邏輯：不併入 `activeBounds`/`computeFitScale`（overlay 只是對照參考，不該讓匯入的檔案
+   * 把畫布 fit/viewBox 拉走）、不併入 `highlightSet`/`isHighlighted`（overlay 沒有 tags）。
+   * 只有 `visible && segments.length > 0` 的層才渲染；`selectedOverlayId` 指到的那一層
+   * stroke 加粗（沿用既有校準高亮的加粗樣式，作為「這層目前被選中」的視覺）。選填＋預設
+   * `initialLayersState()`（全部生成層可見、無 overlay）：既有只組 `result`/`highlightTags`/
+   * `invariantWarnings` 的 Canvas 單元測試不需要跟著改。
    */
-  overlay?: OverlayState | null;
+  layers?: LayersState;
   /**
-   * 校準完成／取消時的回呼（T5）：Canvas 承接使用者在畫布上的點選＋行內輸入互動，但
-   * `OverlayState` 本身提升在 App.tsx（跟 OverlayPanel 共用同一份 state，見該檔 docblock
-   * 「overlayState」段），Canvas 必須把最終結果（新 scale／退出校準模式／Esc 取消）回寫
-   * 上去才會反映到畫面——與 OverlayPanel 收到的 `onOverlayStateChange` 是同一個函式（App.tsx
-   * 傳同一個 `setOverlayState`），這裡只是多一個消費端。選填＋用 `?.()` 呼叫：既有不傳這個
+   * 校準完成／取消時的回呼：Canvas 承接使用者在畫布上的點選＋行內輸入互動，把結果（更新
+   * 選中層的 scale／calibrated）寫回 `layers.overlays`。選填＋用 `?.()` 呼叫：既有不傳這個
    * prop 的 Canvas 單元測試（不含校準流程）不受影響。
    */
-  onOverlayStateChange?: (next: OverlayState | null) => void;
+  onLayersChange?: (next: LayersState) => void;
+  /**
+   * 是否處於「點選校準」互動模式（T5，spec §5）。多層模型下這個開關不是任一層的欄位
+   * （`OverlayLayer`/`LayersState` 的 T1 契約皆未收錄），改由 App.tsx 提升成獨立 state，
+   * 與 LayersPanel 的「校準」鈕共用同一份，維持「平行兄弟元件需要共同父層 state 才能同步」
+   * 的既有理由（舊版 `OverlayState.calibrating` 就是同一個道理）。`true` 且選中層
+   * `visible` 皆為 true 時（FX2，Slice 3 final review 沿用：隱藏疊圖時仍可點擊命中看不見
+   * 的線段改 scale 是修前 bug，見 `handleCalibrationClick` 內的完整說明）才對選中層的線段
+   * 開放點選 hit-test。選填，預設 `false`。
+   */
+  calibrating?: boolean;
+  /** 切換／退出校準模式的回呼（LayersPanel 的「校準」鈕、Canvas 自己的 Esc／確認皆呼叫）。
+   *  選填＋用 `?.()` 呼叫：既有不傳這個 prop 的 Canvas 單元測試不受影響。 */
+  onCalibratingChange?: (next: boolean) => void;
 }
 
 const HIGHLIGHT_STROKE = '#FF6B00';
@@ -108,8 +117,8 @@ const DIMENSION_TEXT_FILL = LINE_STYLES.dimension.stroke;
 const PIECE_VIEW_PADDING = 20;
 /**
  * 校準模式 hit-test 基準容差（mm，zoom=100% 時的視覺容差，T5）：除以目前 Canvas zoom（下面
- * 的 `scale` state，CSS transform 的縮放，不要跟 `overlay.scale`〔overlay 原始座標→mm 的
- * 比例〕搞混）、再除以 `overlay.scale`，換算成 overlay 原始座標系下的容差，維持「畫面上
+ * 的 `scale` state，CSS transform 的縮放，不要跟 `selectedLayer.scale`〔overlay 原始座標→mm
+ * 的比例〕搞混）、再除以 `selectedLayer.scale`，換算成 overlay 原始座標系下的容差，維持「畫面上
  * 固定像素感」——zoom 越大，同樣的螢幕像素對應的 mm/原始座標單位越小，容差跟著縮小（可以
  * 點得更精準），反之亦然。這也是為什麼校準模式刻意不停用縮放：使用者可以先放大畫面再點選，
  * 換取更精細的 hit-test 容差。
@@ -153,20 +162,21 @@ export function Canvas({
   result,
   highlightTags,
   invariantWarnings,
-  includeDimensions = true,
   activePiece,
   onSelectPiece,
-  overlay,
-  onOverlayStateChange,
+  layers = initialLayersState(),
+  onLayersChange,
+  calibrating = false,
+  onCalibratingChange,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  // 校準模式（T5）互動狀態——刻意留在 Canvas 的 local state、不進共享 OverlayState：
+  // 校準模式（T5）互動狀態——刻意留在 Canvas 的 local state、不進共享的 `layers` prop：
   // 「目前選中哪一段待輸入」與「輸入框內容/錯誤訊息」只有本檔渲染提示條/高亮/表單需要，
-  // 退出校準模式（見下方 useEffect）就整批歸零，沒有跨元件同步的必要（跟 calibrating／
-  // calibrated 這兩個「兩個兄弟元件都要讀」的欄位不同，那兩個才需要放進 OverlayState）。
+  // 退出校準模式（見下方 useEffect）就整批歸零，沒有跨元件同步的必要（跟 `calibrating`
+  // 這個「LayersPanel 與 Canvas 都要讀」的開關不同，那個才提升到 App.tsx 的獨立 state）。
   const [pickedSegmentIndex, setPickedSegmentIndex] = useState<number | null>(null);
   const [calibrationInput, setCalibrationInput] = useState('');
   const [calibrationError, setCalibrationError] = useState<string | null>(null);
@@ -206,33 +216,32 @@ export function Canvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMultiPiece]);
 
-  // 校準模式結束時（不論走哪條路徑——Canvas 自己的確認/Esc，或 OverlayPanel「取消校準」鈕
-  // 直接把 overlay.calibrating 切回 false）統一歸零本檔的校準互動 local state。用單一 effect
+  // 校準模式結束時（不論走哪條路徑——Canvas 自己的確認/Esc，或 LayersPanel「取消校準」鈕
+  // 直接把 calibrating 切回 false）統一歸零本檔的校準互動 local state。用單一 effect
   // 涵蓋所有退出路徑，比在每個退出路徑各自手動清一次更不容易漏（見本檔開頭對 T5 local state
   // 的說明）；這裡不會造成畫面閃爍，因為下方 JSX 對校準提示條/高亮的渲染同時也守著
-  // `overlay?.calibrating`，該值變 false 的同一輪渲染就會先隱藏整塊 UI，這個 effect 只是
-  // 事後把殘留的 local state 打掃乾淨。
+  // `calibrating`，該值變 false 的同一輪渲染就會先隱藏整塊 UI，這個 effect 只是事後把
+  // 殘留的 local state 打掃乾淨。
   useEffect(() => {
-    if (!overlay?.calibrating) {
+    if (!calibrating) {
       setPickedSegmentIndex(null);
       setCalibrationInput('');
       setCalibrationError(null);
     }
-  }, [overlay?.calibrating]);
+  }, [calibrating]);
 
   // Esc 退出校準模式（不改 scale，見 spec 邊界規則）：全域 keydown，不綁在特定元素上，
   // 不論使用者當下焦點在畫布本身或行內輸入框都能生效。只在 calibrating 時掛監聽，離開
   // 模式立刻移除（cleanup），避免非校準狀態下也攔截全站的 Esc 鍵。
   useEffect(() => {
-    const currentOverlay = overlay;
-    if (!currentOverlay?.calibrating) return;
+    if (!calibrating) return;
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
-      onOverlayStateChange?.({ ...currentOverlay, calibrating: false });
+      onCalibratingChange?.(false);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [overlay, onOverlayStateChange]);
+  }, [calibrating, onCalibratingChange]);
 
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.metaKey) {
@@ -260,6 +269,12 @@ export function Canvas({
   const highlightSet = new Set<string>([...(highlightTags ?? []), ...invariantWarnings.flatMap((w) => w.tags ?? [])]);
   const isHighlighted = (tags?: string[]): boolean => (tags ?? []).some((t) => highlightSet.has(t));
 
+  // 校準對象（Slice 3 gate round 1 T2）：選中層，取代舊版單體 overlay。未選中時為
+  // undefined——下面 handleCalibrationClick／handleCalibrationConfirm 的 early return
+  // 沿用舊有防禦寫法（`!selectedLayer` 取代 `!overlay`），「未選中時校準鈕已 disabled
+  // 故不可達」是 UI 層的第一道防線，這裡是第二道。
+  const selectedLayer = layers.overlays.find((o) => o.id === layers.selectedOverlayId);
+
   const { minX, minY, maxX, maxY } = activeBounds;
   const viewW = maxX - minX || 100;
   const viewH = maxY - minY || 100;
@@ -267,7 +282,7 @@ export function Canvas({
   /**
    * 校準模式點選 hit-test（T5）：座標鏈——滑鼠事件座標（`e.clientX/clientY`，螢幕像素）→
    * SVG viewBox 座標（mm，生成層座標系）→ overlay 原始座標系（除 scale 減 offset，即渲染
-   * 變換 `translate(offset) scale(overlay.scale)` 的精確反向：先撤銷平移再撤銷縮放）。
+   * 變換 `translate(offset) scale(selectedLayer.scale)` 的精確反向：先撤銷平移再撤銷縮放）。
    *
    * 第一段轉換用 `getBoundingClientRect()` 取得 svg 元素目前「實際渲染」的螢幕矩形（已經
    * 包含 pan/zoom 的 CSS transform 與 flex 置中造成的位移/縮放），再用 `rect.width`／
@@ -277,12 +292,12 @@ export function Canvas({
    * describe 的說明；生產環境走真實瀏覽器量測。
    */
   const handleCalibrationClick = (e: ReactMouseEvent<SVGSVGElement>): void => {
-    // FX2（Slice 3 final review，防禦性雙保險之二）：`overlay.visible` 也要 gate——第一道
-    // 防線是 OverlayPanel.tsx 的「校準」鈕在 !visible 時 disabled（擋住「一開始」進校準模式），
-    // 但 `overlayState.calibrating` 一旦已經是 true，使用者仍可能在校準模式中途另外把
+    // FX2（Slice 3 final review，防禦性雙保險之二）：`selectedLayer.visible` 也要 gate——
+    // 第一道防線是 LayersPanel.tsx 的「校準」鈕在 !visible 時 disabled（擋住「一開始」進
+    // 校準模式），但 `calibrating` 一旦已經是 true，使用者仍可能在校準模式中途另外把
     // 「顯示疊圖」關掉（那顆 checkbox 不因 calibrating 而 disabled）；沒有這行，hit-test 依然
     // 會命中一段畫布上根本看不見的疊圖線段，改出一個無從視覺驗證的 scale。
-    if (!overlay?.calibrating || !overlay.visible || overlay.segments.length === 0) return;
+    if (!calibrating || !selectedLayer || !selectedLayer.visible || selectedLayer.segments.length === 0) return;
     if (pickedSegmentIndex !== null) return; // 已選定待輸入中：先確認或 Esc，點擊畫布不重新選取
     // 拖曳結束誤觸點選 guard（review F1）：native click 在 mousedown/mouseup 落在同一元素時，
     // 不管中間移動多遠都會 fire——pan 手勢放開的瞬間若剛好落在線段 hit-test 容差內，沒有這層
@@ -299,41 +314,46 @@ export function Canvas({
     const svgY = ((e.clientY - rect.top) / rect.height) * viewH;
     const mmX = minX + svgX;
     const mmY = minY + svgY;
-    const rawX = (mmX - overlay.offsetX) / overlay.scale;
-    const rawY = (mmY - overlay.offsetY) / overlay.scale;
+    const rawX = (mmX - selectedLayer.offsetX) / selectedLayer.scale;
+    const rawY = (mmY - selectedLayer.offsetY) / selectedLayer.scale;
     // 見 CALIBRATION_THRESHOLD_MM 註解：先除以畫布 zoom（螢幕像素感恆定），再除以
-    // overlay.scale（換算進 overlay 原始座標系，跟 rawX/rawY 同一座標系才能比較距離）。
-    const thresholdRaw = CALIBRATION_THRESHOLD_MM / scale / overlay.scale;
-    const hit = findNearestOverlaySegment(overlay.segments, { x: rawX, y: rawY }, thresholdRaw);
+    // selectedLayer.scale（換算進 overlay 原始座標系，跟 rawX/rawY 同一座標系才能比較距離）。
+    const thresholdRaw = CALIBRATION_THRESHOLD_MM / scale / selectedLayer.scale;
+    const hit = findNearestOverlaySegment(selectedLayer.segments, { x: rawX, y: rawY }, thresholdRaw);
     if (hit) setPickedSegmentIndex(hit.index);
   };
 
   /** 行內輸入表單送出：≤0 不套用＋提示（停在原地讓使用者修正）；>0 套用 calibrateScale 並退出校準模式。 */
   const handleCalibrationConfirm = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
-    if (!overlay || pickedSegmentIndex === null) return;
+    if (!selectedLayer || pickedSegmentIndex === null) return;
     const value = Number(calibrationInput);
     if (!(value > 0)) {
       setCalibrationError('請輸入大於 0 的數字');
       return;
     }
-    const seg = overlay.segments[pickedSegmentIndex];
+    const seg = selectedLayer.segments[pickedSegmentIndex];
     if (!seg) return; // 理論不會發生：index 來自同一份（未變動過的）segments 陣列的 hit-test 結果
-    onOverlayStateChange?.({ ...overlay, scale: calibrateScale(seg, value), calibrating: false, calibrated: true });
+    onLayersChange?.({
+      ...layers,
+      overlays: updateOverlayLayer(layers.overlays, selectedLayer.id, { scale: calibrateScale(seg, value), calibrated: true }),
+    });
+    onCalibratingChange?.(false);
   };
 
   // 片範圍過濾（pathIds/textIds 集合匹配，不是猜 index）：activePiece 存在時先縮到該片的成員，
-  // 再疊加既有的 includeDimensions 可見性過濾——兩層過濾各自獨立、互不影響對方的判斷依據，
-  // 單片視圖的尺寸標註仍照 includeDimensions 決定要不要顯示（同一份 predicate，見本檔 docblock）。
+  // 再疊加生成圖層可見性過濾（Slice 3 gate round 1 T2，取代舊 includeDimensions）——兩層
+  // 過濾各自獨立、互不影響對方的判斷依據，單片視圖的尺寸標註仍照 generatedVisible.dimensions
+  // 決定要不要顯示（同一份 predicate，見本檔開頭 docblock）。
   const activePathIds = activePiece ? new Set(activePiece.pathIds) : null;
   const activeTextIds = activePiece ? new Set(activePiece.textIds) : null;
   const pieceScopedPaths = activePathIds ? result.paths.filter((p) => activePathIds.has(p.id)) : result.paths;
   const pieceScopedTexts = activeTextIds ? result.texts.filter((t) => activeTextIds.has(t.id)) : result.texts;
 
   // 只過濾「畫什麼」，不動 bounds/viewBox——bounds 是 generate() 保證涵蓋全部路徑的權威範圍
-  // （見 core/types.ts 的 bounds-cover 不變式），隱藏標註不應該連帶讓視窗跟著縮放/位移。
-  const visiblePaths = includeDimensions ? pieceScopedPaths : pieceScopedPaths.filter((p) => !DIMENSION_LINE_TYPES.has(p.type));
-  const visibleTexts = includeDimensions ? pieceScopedTexts : [];
+  // （見 core/types.ts 的 bounds-cover 不變式），隱藏某個生成圖層不應該連帶讓視窗跟著縮放/位移。
+  const visiblePaths = pieceScopedPaths.filter((p) => layers.generatedVisible[layerKeyForLineType(p.type)]);
+  const visibleTexts = layers.generatedVisible.dimensions ? pieceScopedTexts : [];
 
   return (
     <div className="relative flex-1 h-full bg-white overflow-hidden">
@@ -348,7 +368,7 @@ export function Canvas({
       {/* 校準模式提示條（T5）：z-30 高於上面的不變式警告條（z-20）——校準是使用者主動進入的
           互動模式，視覺優先權蓋過被動的背景幾何警告，兩者同時出現的機率低且 spec 未特別
           規範，此處採最簡單的固定 z-index 分層，不做動態疊放位移計算。 */}
-      {overlay && overlay.calibrating && (
+      {calibrating && (
         <div className="absolute top-0 left-0 right-0 z-30 bg-blue-50 text-blue-800 text-sm px-4 py-2 border-b border-blue-300 flex items-center gap-3">
           {pickedSegmentIndex === null ? (
             <span>點選 overlay 上一段已知長度的線（Esc 取消校準）</span>
@@ -433,7 +453,7 @@ export function Canvas({
         // 校準模式游標改十字準星（spec UI 規格）；pan/zoom 互動本身不停用（見
         // CALIBRATION_THRESHOLD_MM 註解：容差隨 zoom 換算，使用者可以放大畫面換取更精準的點選）。
         className={`w-full h-full flex items-center justify-center select-none ${
-          overlay?.calibrating ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+          calibrating ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
         }`}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
@@ -492,34 +512,45 @@ export function Canvas({
               {t.text}
             </text>
           ))}
-          {overlay && overlay.visible && overlay.segments.length > 0 && (
-            // 疊圖獨立圖層：一個 <g transform> 套 scale+offset（不逐段換算，見 overlay/state.ts
-            // docblock 的座標套用順序：先 scale 再平移）。全段固定 OVERLAY_STROKE，線寬沿用
-            // LINE_STYLES.cut（生成層最常見的結構線寬，spec「線寬同生成層」的具體取值——
-            // overlay 的原始 Segment[] 沒有 LineType 可對應，取單一代表值而非逐段猜測型別）。
-            <g transform={`translate(${overlay.offsetX} ${overlay.offsetY}) scale(${overlay.scale})`}>
-              <path
-                d={segmentsToSvgD(overlay.segments)}
-                fill="none"
-                stroke={OVERLAY_STROKE}
-                strokeWidth={LINE_STYLES.cut.strokeWidth}
-                strokeOpacity={overlay.opacity}
-                vectorEffect="non-scaling-stroke"
-              />
-              {/* 校準模式選中段高亮（T5，spec「選中段高亮＝加粗」）：沿用既有 hover 高亮的
-                  橘色/寬度倍率常數，維持全站「這個東西目前被選定」的視覺語彙一致。 */}
-              {overlay.calibrating && pickedSegmentIndex !== null && overlay.segments[pickedSegmentIndex] && (
-                <path
-                  d={segmentsToSvgD([overlay.segments[pickedSegmentIndex]])}
-                  fill="none"
-                  stroke={HIGHLIGHT_STROKE}
-                  strokeWidth={LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR}
-                  opacity={HIGHLIGHT_OPACITY}
-                  vectorEffect="non-scaling-stroke"
-                />
-              )}
-            </g>
-          )}
+          {layers.overlays
+            .filter((o) => o.visible && o.segments.length > 0)
+            .map((o) => {
+              const isSelected = o.id === layers.selectedOverlayId;
+              return (
+                // 疊圖獨立圖層：一個 <g transform> 套 scale+offset（不逐段換算，見 overlay/state.ts
+                // docblock 的座標套用順序：先 scale 再平移）。全段固定 OVERLAY_STROKE，線寬沿用
+                // LINE_STYLES.cut（生成層最常見的結構線寬，spec「線寬同生成層」的具體取值——
+                // overlay 的原始 Segment[] 沒有 LineType 可對應，取單一代表值而非逐段猜測型別）。
+                // 選中層 stroke 加粗（Slice 3 gate round 1 T2，spec「選中層 stroke 加粗」）：
+                // 沿用既有校準高亮的寬度倍率常數（HIGHLIGHT_WIDTH_FACTOR），但顏色仍是
+                // OVERLAY_STROKE 洋紅——這是「這層目前被選中」的視覺，跟下面「校準模式選中段」
+                // 的橘色高亮是兩件不同的事（一個標記整層、一個標記層內某一段），因此不共用
+                // HIGHLIGHT_STROKE 顏色，避免使用者混淆兩種不同語意的加粗。
+                <g key={o.id} transform={`translate(${o.offsetX} ${o.offsetY}) scale(${o.scale})`}>
+                  <path
+                    d={segmentsToSvgD(o.segments)}
+                    fill="none"
+                    stroke={OVERLAY_STROKE}
+                    strokeWidth={isSelected ? LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR : LINE_STYLES.cut.strokeWidth}
+                    strokeOpacity={o.opacity}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {/* 校準模式選中段高亮（T5，spec「選中段高亮＝加粗」）：沿用既有 hover 高亮的
+                      橘色/寬度倍率常數，維持全站「這個東西目前被選定」的視覺語彙一致。校準對象
+                      恆為選中層，故只在 `isSelected` 這一筆渲染這段高亮。 */}
+                  {calibrating && isSelected && pickedSegmentIndex !== null && o.segments[pickedSegmentIndex] && (
+                    <path
+                      d={segmentsToSvgD([o.segments[pickedSegmentIndex]])}
+                      fill="none"
+                      stroke={HIGHLIGHT_STROKE}
+                      strokeWidth={LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR}
+                      opacity={HIGHLIGHT_OPACITY}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  )}
+                </g>
+              );
+            })}
         </svg>
       </div>
     </div>

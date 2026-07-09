@@ -1,16 +1,20 @@
 /**
- * ExportBar：「下載 SVG」（或「匯出目前視圖」）＋「含尺寸標註」checkbox。
+ * ExportBar：「下載 SVG」（或「匯出目前視圖」）。
  *
  * 下載流程（Blob → object URL → 隱藏 <a download> → click）移植自前身
  * `Packaging/index.tsx` 的 `handleDownload`。與前身不同：SVG 內容改由
  * `export/svg.ts` 的 `toSvgDocument()` 產生（與畫布共用 LINE_STYLES 同一來源，
  * 不再是第二條手刻序列化路徑——這正是 spec §3.2 要修正的前身「漂移」問題）。
  *
- * `includeDimensions` 是受控 prop（T9 樣張 gate 第二輪維護者反饋修復 3）：這裡原本自己
- * `useState` 管這顆 checkbox，只影響下載內容、跟畫布顯示脫鉤（維護者實測發現：取消勾選只
- * 影響下載的 SVG，畫布還是照樣畫出尺寸標註）。state 提升到 App.tsx 後同時餵給 Canvas，
- * 兩處視覺才會同步；ExportBar 改成純受控元件，checkbox 的顯示值＝`includeDimensions`
- * prop，onChange 呼叫 `onIncludeDimensionsChange` 把新值交回父層。
+ * 「含尺寸標註」checkbox 已於 Slice 3 gate round 1 T2 退役（原本 T9 樣張 gate 第二輪維護者
+ * 反饋修復 3 把這顆 checkbox 的 state 提升到 App.tsx、同時餵給 Canvas，讓下載內容與畫布
+ * 顯示同步）。gate round 1 維護者反饋把「顯示哪些線型」升級成 LayersPanel 的圖層可見性
+ * （`layersState.generatedVisible`，純畫布顯示層級的開關），而匯出這邊改為 plan 明文
+ * 裁決「匯出恆全量」：`toSvgDocument(exportResult)` 不傳 `includeDimensions` opts（沿用該
+ * 函式預設值 `true`），畫布圖層可見性完全不影響匯出內容——理由是匯出檔要完整，「忘了開層
+ * 就匯出殘缺刀模」是生產事故；使用者若想要不含標註的檔案，在 Illustrator 裡對匯出後的
+ * 分層 SVG 自行隱藏/刪除該圖層（T4 才接手 g 分組，本輪 尚未分組，SVG 匯出內容暫時
+ * 仍是平鋪、恆含標註）。
  *
  * `activePiece`（Slice 2 Task 6，spec §4.2）：`result.pieces` 存在時，按鈕文字改為
  * 「匯出目前視圖」——語意跟著 Canvas 目前顯示的視圖走：`activePiece` 為 undefined（全版
@@ -28,9 +32,11 @@
  * **DXF 下載（Slice 3 Task 2）**：與 SVG 按鈕並列，消費 T1 的 `export/dxf.ts` `toDxfDocument()`。
  * 檔名沿用同一套 `buildFilename`/`buildPieceFilename`，副檔名改抽成參數（`ext`）共用同一份邏輯，
  * 不複製第二份檔名 builder。下載機制（Blob→object URL→`<a download>`→click→revoke）也抽成
- * `downloadBlob()` 共用，SVG／DXF 都走同一份清理邏輯。`includeDimensions` 這顆 checkbox 對 DXF
- * 下載無效：`toDxfDocument` 依 spec（生產檔裁決）恆排除 dimension/annotation 線型與全部
- * `texts`，因此 DXF 的下載呼叫不傳這個 flag；UI 不另外加提示（spec 明列不需要）。MIME 選
+ * `downloadBlob()` 共用，SVG／DXF 都走同一份清理邏輯。DXF 下載恆排除尺寸標註：`toDxfDocument`
+ * 依 spec（生產檔裁決）恆排除 dimension/annotation 線型與全部 `texts`，不受任何可見性
+ * 設定影響（跟 SVG「匯出恆全量」是同一個「匯出不讀畫布可見性」精神，只是 DXF 這邊連
+ * `includeDimensions` 這種 opts 參數都沒有——`toDxfDocument` 從一開始就不接受這個選項）。
+ * MIME 選
  * `application/dxf`——`application/dxf` 比 `text/plain` 更精確描述內容型別，即使非 IANA 正式
  * 登錄，這裡的 MIME 只影響〈使用者手動處理 blob URL〉這類邊角案例，不影響 `<a download>`
  * 這條下載路徑本身（download 屬性已強制指定副檔名／檔名）。
@@ -45,8 +51,6 @@ export interface ExportBarProps {
   boxId: string;
   values: ResolvedParams;
   result: GenerateResult;
-  includeDimensions: boolean;
-  onIncludeDimensionsChange: (value: boolean) => void;
   /**
    * 目前選定要單獨匯出的片；undefined＝匯出全版（既有行為）。語意與傳給 Canvas 的同名 prop
    * 一致——App.tsx 用同一個 selectedPieceId 對 `result.pieces` 解出同一個值，下傳給 Canvas
@@ -187,21 +191,24 @@ function exportFilename(boxId: string, values: ResolvedParams, result: GenerateR
     : buildFilename(boxId, values, manufacturingBounds(result), ext);
 }
 
-export function ExportBar({ boxId, values, result, includeDimensions, onIncludeDimensionsChange, activePiece }: ExportBarProps) {
+export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps) {
   const hasPieces = result.pieces !== undefined;
-  // exportResult 在 render 期計算（而非各自 handler 內才算）是 T2 的刻意變更：SVG／DXF
-  // 兩個 handler 共用同一份已過濾結果，不必各自呼叫 scopeResultToPiece。scopeResultToPiece
-  // 是純函式，行為與「handler 內即時算」功能等價；代價是未點擊匯出按鈕的 render 也會多跑
-  // 一次過濾（result 的 paths/texts 量體小，可忽略）。
+  // exportResult 在 render 期計算（而非各自 handler 內才算）是 T2（Slice 2）的刻意變更：
+  // SVG／DXF 兩個 handler 共用同一份已過濾結果，不必各自呼叫 scopeResultToPiece。
+  // scopeResultToPiece 是純函式，行為與「handler 內即時算」功能等價；代價是未點擊匯出按鈕
+  // 的 render 也會多跑一次過濾（result 的 paths/texts 量體小，可忽略）。
   const exportResult = activePiece ? scopeResultToPiece(result, activePiece) : result;
 
+  // 不傳 opts：toSvgDocument 的 includeDimensions 預設 true（見 export/svg.ts），SVG 匯出
+  // 恆全量（Slice 3 gate round 1 T2 plan 裁決，見本檔開頭 docblock）；T4 才接手依圖層分
+  // <g> 分組，本輪 尚未動 export/svg.ts。
   const handleSvgDownload = () => {
-    const svg = toSvgDocument(exportResult, { includeDimensions });
+    const svg = toSvgDocument(exportResult);
     downloadBlob(svg, 'image/svg+xml;charset=utf-8', exportFilename(boxId, values, result, activePiece, 'svg'));
   };
 
-  // includeDimensions 對 DXF 無效：toDxfDocument 恆排除 dimension/annotation 線型與全部
-  // texts（生產檔裁決，見 export/dxf.ts 檔頭），這裡故意不把這個 flag 傳進去。
+  // toDxfDocument 恆排除 dimension/annotation 線型與全部 texts（生產檔裁決，見
+  // export/dxf.ts 檔頭），這個函式從一開始就沒有 includeDimensions 這種 opts 參數。
   const handleDxfDownload = () => {
     const dxf = toDxfDocument(exportResult);
     downloadBlob(dxf, 'application/dxf', exportFilename(boxId, values, result, activePiece, 'dxf'));
@@ -209,16 +216,6 @@ export function ExportBar({ boxId, values, result, includeDimensions, onIncludeD
 
   return (
     <div className="flex flex-col gap-3 pt-4 border-t border-zinc-200">
-      <label htmlFor="include-dimensions" className="flex items-center gap-2 text-xs text-zinc-400">
-        <input
-          id="include-dimensions"
-          type="checkbox"
-          checked={includeDimensions}
-          onChange={(e) => onIncludeDimensionsChange(e.target.checked)}
-          className="h-4 w-4 accent-blue-600"
-        />
-        含尺寸標註
-      </label>
       <div className="flex gap-2">
         <button
           type="button"
