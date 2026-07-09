@@ -18,14 +18,16 @@ import type { GeneratedLayerKey } from '@/core/layers';
 
 // v1 的 texts 只有一個來源：boxes/*.ts 呼叫 core/primitives.ts 的 dimensionLine() 產生的
 // 尺寸標註數字（見 reverse-tuck-end.ts 的 addDim）。DielineText 型別本身沒有 type/LineType
-// 欄位可供逐條分類「這是不是標註文字」，所以 includeDimensions 只能整批保留或整批剔除文字，
-// 沒有中間地帶——這與「v1 texts 全部來自標註」的事實剛好一致，不是缺陷。若未來出現非標註
-// 文字（例如面板名稱標籤），需要先幫 DielineText 加分類欄位才談得上細分，現在加是沒有消費者
-// 的臆測性欄位（YAGNI）。
+// 欄位可供逐條分類「這是不是標註文字」——這與「v1 texts 全部來自標註」的事實剛好一致，不是
+// 缺陷。若未來出現非標註文字（例如面板名稱標籤），需要先幫 DielineText 加分類欄位才談得上
+// 細分，現在加是沒有消費者的臆測性欄位（YAGNI）。
 //
 // export（供 ui/Canvas.tsx 共用，T9 Fix Round 2 修復 3）：畫布顯示與下載內容必須用同一份
 // 「哪些線型算尺寸標註」定義，避免兩處各自維護一份字面量集合而在未來悄悄漂移（spec §3.2
-// 樣式單一來源的同一種精神，此處套用在「過濾規則」而非「樣式數值」）。
+// 樣式單一來源的同一種精神，此處套用在「過濾規則」而非「樣式數值」）。這份定義現在的唯一
+// 消費者是 `manufacturingBounds`（排除標註後取幾何包絡，供疊圖對齊／檔名尺寸使用，見該函式
+// 文件）——`toSvgDocument` 的 `includeDimensions` opts 已於 Slice 3 gate round 1 T4 退役，
+// SVG 匯出恆全量，不再有「保留或剔除文字」這個分支可言。
 export const DIMENSION_LINE_TYPES: ReadonlySet<LineType> = new Set(['dimension', 'annotation']);
 
 /**

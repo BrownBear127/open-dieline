@@ -292,6 +292,28 @@ export function Canvas({
   // 不無中生有加這層 gate。
   const canDragOverlay = !calibrating && !!selectedLayer && selectedLayer.visible;
 
+  // FF2（final review round 2，2026-07-09）：選中層被隱藏（visible: true→false）時立刻清空
+  // 校準表單暫存 state——刻意獨立成另一個 effect，不併入上面 T2 F1 那個無條件全清的 effect：
+  // F1 的兩個觸發點（`calibrating`／`layers.selectedOverlayId` 改變）語意都是「開始新的一輪
+  // 點選」，無條件清空才對；但「隱藏」與「顯示」是同一層、同一輪校準內的可見性切換，不是
+  // 新的一輪——只有「藏起來」這個方向需要清空（使用者看不到線段，表單留著沒有意義，還會讓
+  // 看不到線段驗證的 scale 被送出，見下方 handleCalibrationConfirm 的對稱 guard），「顯示
+  // 回來」不該連帶重新清一次。若只是把 `selectedLayer?.visible` 塞進上面 F1 的依賴陣列了事，
+  // 兩個方向都會無條件觸發清空——false→true 那個方向在目前實作下剛好是 no-op（顯示前 state
+  // 理應已經是空的），但那是巧合、不是設計，不該把正確性建立在「反正已經是空的」這個巧合上。
+  // 改用條件判斷明確表達「只有 hidden 才清」，讓 false→true 這個方向根本不執行清空動作，
+  // 不依賴任何巧合。宣告位置必須在 `selectedLayer` 之後（上面）：依賴陣列裡的
+  // `selectedLayer?.visible` 是在呼叫 `useEffect` 當下就同步求值的一般運算式，不是 effect
+  // callback 內部才讀取的延遲值——寫在 `selectedLayer` 宣告之前會是不折不扣的 TDZ
+  // ReferenceError，不只是風格問題。
+  useEffect(() => {
+    if (calibrating && selectedLayer && !selectedLayer.visible) {
+      setPickedSegmentIndex(null);
+      setCalibrationInput('');
+      setCalibrationError(null);
+    }
+  }, [calibrating, selectedLayer?.visible]);
+
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -414,7 +436,12 @@ export function Canvas({
   /** 行內輸入表單送出：≤0 不套用＋提示（停在原地讓使用者修正）；>0 套用 calibrateScale 並退出校準模式。 */
   const handleCalibrationConfirm = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
-    if (!selectedLayer || pickedSegmentIndex === null) return;
+    // FF2（final review round 2，2026-07-09，與 handleCalibrationClick 的 FX2 guard 對稱）：
+    // 選中層在「已選段、表單開著」之後才被隱藏——上面的清空 effect 通常已經把
+    // pickedSegmentIndex 歸零、表單本身也因此消失，這裡理論上不可達；保留這道 guard 當最後
+    // 防線，避免任何未來繞過清空 effect 的路徑（例如 effect 執行順序被改動）仍讓「看不到
+    // 線段」驗證的 scale 被寫入。
+    if (!selectedLayer || !selectedLayer.visible || pickedSegmentIndex === null) return;
     const value = Number(calibrationInput);
     if (!(value > 0)) {
       setCalibrationError('請輸入大於 0 的數字');
