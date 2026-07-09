@@ -83,11 +83,22 @@
 
 | 輸入 | 有效域 | 無效時的行為 |
 |---|---|---|
-| 紙 W/H（自訂） | finite 且 > 0 | 欄位錯誤標示＋兩卡結果顯示「—」＋不渲染排列 |
-| 件 W/H | finite 且 > 0（由製造 bounds 導出，生成器保證） | 同上（防禦性） |
-| 咬口 | finite 且 ≥ 0 | 同上 |
-| gap | **finite 且 ≥ 3**（定案表廠規為硬下限；0–2.9mm 的非標準情況不示範） | 同上 |
+| 紙 W/H（自訂） | `MIN_DIMENSION_MM ≤ x ≤ MAX_DIMENSION_MM` | 欄位錯誤標示＋兩卡結果顯示「—」＋不渲染排列 |
+| 件 W/H | 同上（由製造 bounds 導出，生成器保證；防禦性檢查） | 同上 |
+| 咬口 | finite 且 `0 ≤ x ≤ MAX_DIMENSION_MM` | 同上 |
+| gap | **`3 ≤ x ≤ MAX_DIMENSION_MM`**（定案表廠規為硬下限；0–2.9mm 的非標準情況不示範） | 同上 |
 | 咬口過大（可用區 ≤ 0） | 屬**合法輸入** | 0 模＋「放不下」狀態（不是錯誤） |
+
+尺寸安全界（T2 review F1——「finite」不足以保證可安全計算：JS 的 finite 輸入
+仍可上溢／下溢／超出整數精度，`1e20` 會讓 fitCount 在 `n+1===n` 精度極限死循環、
+`1e-200` 會讓利用率面積下溢成 `0/0=NaN`）：
+
+- `MIN_DIMENSION_MM = 0.01`、`MAX_DIMENSION_MM = 1e6`（具名常數；1e6mm＝1km，
+  任何真實紙張／刀模都在界內）
+- 超界 reason：`out-of-range`
+- 深度防禦（domain 已擋、仍須有）：fitCount 上修迴圈加無進展防護
+  （`n+1===n` 時 break）；`computeImposition` 回傳前驗證 cols／rows／count／
+  utilization 全 finite，否則視為內部錯誤回 invalid
 
 純函式契約：無效輸入回傳 typed invalid result（discriminated union），
 不讓 NaN／Infinity 流到 UI。
