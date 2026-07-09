@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - `LINE_STYLES` 不可改；`tests/fixtures/*.json` 不可改；RTE/telescope golden 與等價測試零影響（golden 斷幾何層、本輪只動渲染/匯出/UI——任何 `src/core/` 或 `src/boxes/` 改動都是越界）。
-- **匯出恆全量**（plan 裁決、gate 驗收）：畫布圖層可見性純顯示，SVG 匯出恆含全部 4 層 g（AI 裡自行隱藏/刪除）、DXF 恆排除標註（既有裁決不變）。理由：匯出檔要完整，「忘了開層就匯出殘缺刀模」是生產事故。
+- **匯出恆全量**（plan 裁決、gate 驗收）：畫布圖層可見性純顯示，SVG 匯出恆含全部線型內容（AI 裡自行隱藏/刪除）、DXF 恆排除標註（既有裁決不變）。理由：匯出檔要完整，「忘了開層就匯出殘缺刀模」是生產事故。（勘誤 2026-07-09 final review：原文「恆含全部 4 層 g」與 T4「空桶不輸出 g」矛盾——語意以「內容恆全量、空桶不輸出空 g」為準，Codex final pass 抓到、controller 裁決。）
 - `OVERLAY_STROKE` 常數與洋紅色值不變（gate 另案）；overlay 不進 `GenerateResult`、不進匯出、不 localStorage。
 - 校準（T5 既有）語意不變：作用於**選中的** overlay 層；4px drag guard、Esc、visible gate 全保留。
 - 程式風格：immutability、函式 <50 行、檔 <800 行、繁中註解僅記代碼看不出的約束。
