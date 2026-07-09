@@ -64,9 +64,12 @@ export interface CanvasProps {
    * 空 segments 皆不渲染。畫在生成層（paths/texts）之後＝視覺最上層，且刻意獨立於本檔其餘
    * 邏輯：不併入 `activeBounds`/`computeFitScale`（bounds/fit 只認生成層幾何，overlay 只是
    * 對照參考，不應該讓匯入的檔案把畫布 fit/viewBox 拉走）、不併入 `highlightSet`/`isHighlighted`
-   * （overlay 沒有 tags，也不是 hover 高亮的對象）。`overlay.calibrating` 為 true 時（T5）
-   * 才對 overlay 線段開放點選 hit-test，其餘時間畫布的既有 pan/zoom 互動不受影響。選填：
-   * 既有只組 `result`/`highlightTags`/`invariantWarnings` 的 Canvas 單元測試不需要跟著改。
+   * （overlay 沒有 tags，也不是 hover 高亮的對象）。`overlay.calibrating` 且 `overlay.visible`
+   * 皆為 true 時（T5；FX2，Slice 3 final review 補上 `visible` 這個條件——修前只看
+   * `calibrating`，隱藏疊圖時仍可點擊命中看不見的線段改 scale，見 `handleCalibrationClick`
+   * 內的完整說明）才對 overlay 線段開放點選 hit-test，其餘時間畫布的既有 pan/zoom 互動不受
+   * 影響。選填：既有只組 `result`/`highlightTags`/`invariantWarnings` 的 Canvas 單元測試不
+   * 需要跟著改。
    */
   overlay?: OverlayState | null;
   /**
@@ -274,7 +277,12 @@ export function Canvas({
    * describe 的說明；生產環境走真實瀏覽器量測。
    */
   const handleCalibrationClick = (e: ReactMouseEvent<SVGSVGElement>): void => {
-    if (!overlay?.calibrating || overlay.segments.length === 0) return;
+    // FX2（Slice 3 final review，防禦性雙保險之二）：`overlay.visible` 也要 gate——第一道
+    // 防線是 OverlayPanel.tsx 的「校準」鈕在 !visible 時 disabled（擋住「一開始」進校準模式），
+    // 但 `overlayState.calibrating` 一旦已經是 true，使用者仍可能在校準模式中途另外把
+    // 「顯示疊圖」關掉（那顆 checkbox 不因 calibrating 而 disabled）；沒有這行，hit-test 依然
+    // 會命中一段畫布上根本看不見的疊圖線段，改出一個無從視覺驗證的 scale。
+    if (!overlay?.calibrating || !overlay.visible || overlay.segments.length === 0) return;
     if (pickedSegmentIndex !== null) return; // 已選定待輸入中：先確認或 Esc，點擊畫布不重新選取
     // 拖曳結束誤觸點選 guard（review F1）：native click 在 mousedown/mouseup 落在同一元素時，
     // 不管中間移動多遠都會 fire——pan 手勢放開的瞬間若剛好落在線段 hit-test 容差內，沒有這層

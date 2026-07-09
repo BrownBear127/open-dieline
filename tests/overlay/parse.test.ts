@@ -49,9 +49,12 @@ describe('parseOverlaySvg — 基本形狀元素（各 ×1）', () => {
     expect(r.warnings).toEqual(['rect 圓角（rx/ry） ×1 未匯入']);
   });
 
-  it('circle → 完整圓 arc（startAngle=0/endAngle=2π/ccw=false，spec 明定）', () => {
+  it('circle → 兩個半圓 arc（0→π、π→2π，ccw=false；FX1 修正：單一 full-circle arc 起訖點座標相同，Canvas 的 SVG A 指令渲染起訖點重合＝零渲染，見 parse.ts circleToSegments 文件的探針推導）', () => {
     const r = parseOverlaySvg(svg('<circle cx="5" cy="5" r="3"/>'));
-    expect(r.segments).toEqual([{ kind: 'arc', cx: 5, cy: 5, r: 3, startAngle: 0, endAngle: 2 * Math.PI, ccw: false }]);
+    expect(r.segments).toEqual([
+      { kind: 'arc', cx: 5, cy: 5, r: 3, startAngle: 0, endAngle: Math.PI, ccw: false },
+      { kind: 'arc', cx: 5, cy: 5, r: 3, startAngle: Math.PI, endAngle: 2 * Math.PI, ccw: false },
+    ]);
   });
 
   it('ellipse → 4 段 a2c bezier（獨立推導：rx=4,ry=2,第一段 0°→90° 手算控制點）', () => {
@@ -437,6 +440,22 @@ describe('parseOverlaySvg — class/style 屬性（spec 明列不支援樣式繼
   it('帶 style 屬性同樣觸發警告（class／style 共用同一計數，不分別計）', () => {
     const r = parseOverlaySvg(svg('<line x1="0" y1="0" x2="1" y2="1" style="stroke:red"/>'));
     expect(r.warnings).toEqual(['1 個元素帶 class/style 樣式，樣式不套用（全部視為刀線匯入）']);
+  });
+
+  it('FX4：<g class="layer"> 包裹的 line → 警告存在（修前 g 分支在檢查前就 return，被忽略；Illustrator 圖層樣式常掛在 g 上）', () => {
+    const r = parseOverlaySvg(svg('<g class="layer"><line x1="0" y1="0" x2="10" y2="10"/></g>'));
+    expect(r.segments).toEqual([{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 10 }]);
+    expect(r.warnings).toEqual(['1 個元素帶 class/style 樣式，樣式不套用（全部視為刀線匯入）']);
+  });
+
+  it('FX4：<g style="display:none"> 同樣觸發警告（同一 g/shape 判斷邏輯，style 屬性名不分別計）', () => {
+    const r = parseOverlaySvg(svg('<g style="display:none"><line x1="0" y1="0" x2="1" y2="1"/></g>'));
+    expect(r.warnings).toEqual(['1 個元素帶 class/style 樣式，樣式不套用（全部視為刀線匯入）']);
+  });
+
+  it('FX4：g 與其內部 shape 都帶 class → 計數 ×2（各自獨立計，不因巢狀關係合併成 1）', () => {
+    const r = parseOverlaySvg(svg('<g class="layer"><line x1="0" y1="0" x2="1" y2="1" class="cut-line"/></g>'));
+    expect(r.warnings).toEqual(['2 個元素帶 class/style 樣式，樣式不套用（全部視為刀線匯入）']);
   });
 });
 

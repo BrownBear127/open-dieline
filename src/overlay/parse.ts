@@ -571,9 +571,32 @@ function rectToSegments(el: Element, warn: (tag: string) => void): Segment[] {
   return [0, 1, 2, 3].map((i) => ({ kind: 'line' as const, x1: p[i]!.x, y1: p[i]!.y, x2: p[(i + 1) % 4]!.x, y2: p[(i + 1) % 4]!.y }));
 }
 
-/** 完整圓 arc：startAngle=0/endAngle=2π/ccw=false（core/geometry.ts 對「差 2π」有完整圓語意）。 */
+/**
+ * 圓 → 兩個半圓 arc（0→π、π→2π，ccw=false；同 cx/cy/r）。
+ *
+ * FX1（Slice 3 final review）：修前用單一 startAngle=0/endAngle=2π 的「完整圓」arc——這是
+ * `core/geometry.ts` 的完整圓語意（角度差恰為 2π 整數倍），bounds/hit-test 等純數學運算認得，
+ * 但 Canvas 渲染走的是 `segmentsToSvgD`（`core/path.ts`）投影成 SVG `A` 指令：完整圓的起訖點
+ * 座標算出來完全相同（`cx+r·cos(0)`＝`cx+r·cos(2π)`），使 `A` 指令的終點跟前面的 `M` 起點
+ * 重合——依 SVG 1.1 規範，起訖點重合的 elliptical arc 是退化情形，不畫任何東西。實測探針
+ * （fixture `cx=5,cy=5,r=3`）證實：`segmentsToSvgD` 產出 `"M8.00,5.00 A3.00,3.00 0 0,1
+ * 8.00,5.00"`——`M` 與 `A` 終點座標逐位元相同，零渲染。結果是圓形完整參與 rawBounds／對齊
+ * 計算，畫布上卻完全隱形。
+ *
+ * 拆成兩個半圓（各自起訖點不重合）後，兩段合起來的視覺／包絡與原本的完整圓等價，`A` 指令
+ * 才畫得出東西。額外副作用（有意保留，非臆測）：校準模式下圓孔本身可被點選（每個半圓的
+ * hit-test 折線非零長）；且每個半圓的「弦長」（`overlay/state.ts` 的 `segmentChordLength`）
+ * 恰為直徑（起訖點是圓上正對的兩點）——校準時點圓可直接拿直徑當量測基準，見該檔
+ * `calibrateScale` 文件補述。
+ */
 function circleToSegments(el: Element): Segment[] {
-  return [{ kind: 'arc', cx: num(el, 'cx'), cy: num(el, 'cy'), r: num(el, 'r'), startAngle: 0, endAngle: TWO_PI, ccw: false }];
+  const cx = num(el, 'cx');
+  const cy = num(el, 'cy');
+  const r = num(el, 'r');
+  return [
+    { kind: 'arc', cx, cy, r, startAngle: 0, endAngle: Math.PI, ccw: false },
+    { kind: 'arc', cx, cy, r, startAngle: Math.PI, endAngle: TWO_PI, ccw: false },
+  ];
 }
 
 function ellipseToSegments(el: Element): Segment[] {
@@ -607,8 +630,10 @@ function shapeToLocalSegments(el: Element, tag: string, warn: (tag: string) => v
   return null; // 未知標籤（defs/title/clipPath 等）：靜默略過、不遞迴其子節點
 }
 
-/** 遞迴走訪：`<g>` 累乘 transform 後遞迴子節點；已知形狀元素套用展平矩陣後收進 out（帶
- *  class/style 屬性者計警告但仍匯入，全視為刀線）；text/image/use/嵌套 svg 計警告、不遞迴其內容。 */
+/** 遞迴走訪：`<g>` 累乘 transform 後遞迴子節點（FX4，Slice 3 final review：`<g>` 自身帶
+ *  class/style 屬性者也計警告，不只子節點內的 shape，見下方該分支註解）；已知形狀元素套用
+ *  展平矩陣後收進 out（帶 class/style 屬性者計警告但仍匯入，全視為刀線）；text/image/use/
+ *  嵌套 svg 計警告、不遞迴其內容。 */
 function walkNode(el: Element, matrix: Matrix, warn: WarnFns, out: Segment[]): void {
   const tag = el.tagName.toLowerCase();
   if (UNSUPPORTED_TAGS.has(tag)) {
@@ -619,6 +644,14 @@ function walkNode(el: Element, matrix: Matrix, warn: WarnFns, out: Segment[]): v
   const composed = multiplyMatrix(matrix, parseTransformAttr(el.getAttribute('transform'), warn.transformFn));
 
   if (tag === 'g') {
+    // FX4（Slice 3 final review）：修前這個分支在檢查 class/style 之前就遞迴＋return，
+    // 永遠不會走到下面 shape 分支才有的檢查——Illustrator 圖層樣式（含 display:none）
+    // 常掛在 `<g>` 上（比掛在單一 shape 上更高頻的匯出模式），修前完全不會觸發警告，
+    // 使用者毫無線索某個圖層可能被 CSS 隱藏卻仍被當刀線匯入。g 與 shape 各自獨立計數
+    // （巢狀時皆帶 class 會計 2 次，非合併成 1 次），與既有「class／style 共用同一計數，
+    // 不分別計 key」的去重規則不衝突——那條規則是「class 跟 style 兩個屬性名不分別計」，
+    // 不是「巢狀元素合併計」。
+    if (el.hasAttribute('class') || el.hasAttribute('style')) warn.classStyle();
     for (const child of Array.from(el.children)) walkNode(child, composed, warn, out);
     return;
   }

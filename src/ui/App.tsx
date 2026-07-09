@@ -55,6 +55,7 @@ import '@/boxes/reverse-tuck-end';
 import '@/boxes/telescope';
 import type { LocalizedText } from '@/core/types';
 import type { OverlayState } from '@/overlay/state';
+import { manufacturingBounds } from '@/export/svg';
 import { useParams } from '@/ui/useParams';
 import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
@@ -89,10 +90,18 @@ export function App() {
   );
 
   // 疊圖快速對齊三鈕的目標 bounds：跟 Canvas 目前實際顯示的視圖範圍一致（單片視圖用該片
-  // bounds、全版用 result.bounds），不是 Canvas 的 activeBounds（那個為單片視圖額外烘了
+  // 幾何、全版用整版幾何），不是 Canvas 的 activeBounds（那個為單片視圖額外烘了
   // PIECE_VIEW_PADDING 顯示邊距，是「畫布留白多少」的呈現層決定，不是「刀模實際幾何範圍」——
   // 對齊疊圖要對齊到真實幾何，不該把留白邊距也算進對齊目標）。
-  const overlayTargetBounds = activePiece?.bounds ?? result.bounds;
+  //
+  // FX3（Slice 3 final review）：改用 `manufacturingBounds(result, activePiece)`（見
+  // `export/svg.ts`）取代原本的 `activePiece?.bounds ?? result.bounds`——不論單片或全版，
+  // 後者依 spec §3.3 三向等式／`checkResultBoundsMatchesGeometry` 必須完整涵蓋含尺寸標註線
+  // 在內的全部幾何，直接拿來當快速對齊目標，會讓「邊界框」等對齊模式對到標註延伸出去的
+  // 外擴框，而不是實際刀模幾何（跟 `ExportBar.tsx` 的 `pieceManufacturingBounds`／FX5 是
+  // 同一種「標註外擴污染尺寸判斷」問題，只是這裡的消費者是對齊而非檔名）。`activePiece`
+  // 為 undefined 時 `manufacturingBounds` 對 `result.paths` 全集過濾，等同全版製造 bounds。
+  const overlayTargetBounds = manufacturingBounds(result, activePiece);
 
   // FX5（whole-branch review）：selectedPieceId 復活 snap-back——上面的 activePiece 只是
   // 「這一輪渲染要顯示什麼」的防呆，selectedPieceId 這顆 state 本身若不清掉，之後只要

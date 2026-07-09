@@ -64,16 +64,47 @@ const UNIT_TO_MM: Record<'pt' | 'mm' | 'px', number> = {
  *  慣例常省略單位）一律回退用 unit 下拉值，那是使用者當下唯一的判斷依據。 */
 const WIDTH_UNIT_SUFFIX_RE = /(mm|pt)$/i;
 
+/** viewBox="minX minY width height" 字串 → width 分量（FX6 用：width 帶單位字尾且有 viewBox
+ *  時，scale 要拿 viewBox 的寬度做分母，見 `initialScaleGuess` 下方分支）。分隔符可能是空白
+ *  或逗號（SVG spec 皆合法），不假設固定用哪一種；格式不是合法的 4 個數字時回傳 null，讓
+ *  呼叫端安全退回舊行為，不 throw、不產生 NaN。 */
+function parseViewBoxWidth(viewBox: string): number | null {
+  const nums = viewBox.trim().split(/[\s,]+/).map(Number);
+  if (nums.length !== 4 || nums.some((n) => Number.isNaN(n))) return null;
+  return nums[2]!;
+}
+
 /**
  * overlay 座標 → mm 的初始比例猜測。`sourceInfo.widthAttr` 帶 mm/pt 單位字尾時優先自動判定
  * （覆蓋 `unit` 參數，這是生產 SVG 少數自帶單位資訊的欄位，比使用者手動選的下拉更可信）；
  * 否則採用 `unit` 下拉選的比例（pt→×0.352778、mm→×1、px→×(25.4/96)）。
+ *
+ * FX6（Slice 3 final review，規格修正）：width 帶單位字尾時，若同時有 `viewBox`，scale 不能
+ * 只看字尾本身——那等於假設「1 個 SVG 使用者單位＝1 個字尾單位」，只在「沒有 viewBox（或
+ * viewBox 尺寸恰好等於 width 數值）」時成立。Illustrator 標準匯出常見
+ * `width="210mm" viewBox="0 0 595.28 841.89"`：width 的 210mm 是紙張實體尺寸，viewBox 座標
+ * 其實是 72dpi 的 pt 使用者單位（595.28pt×0.352778≈210mm 才對得上）——字尾「mm」描述的是
+ * *實體尺寸*的單位，不是*座標系*的單位，這是修前 spec 規格本身的漏洞（誤把「width 字尾優先」
+ * 讀成「字尾＝座標系比例」）。正確語意：`scale＝(width 數值換算成 mm) ÷ viewBox 寬度`
+ * （此例 210÷595.28≈0.352775，非任意巧合——viewBox 寬度就是拿 210mm 除以「Illustrator 認定
+ * 的 1pt=0.3528mm」反推出來的 72dpi 座標值）。
+ *
+ * 沒有 viewBox、或 viewBox 格式無法解析（`parseViewBoxWidth` 回傳 null）、或解析出的寬度
+ * ≤0 時，沒有座標系寬度可除，安全退回修前的字尾判定（`UNIT_TO_MM[detected]`，假設使用者
+ * 單位＝字尾單位）——不 throw、不產生 NaN／Infinity。width 無單位字尾時無論有無 viewBox
+ * 都維持現行下拉單位：沒有字尾就沒有「實體尺寸」的可信來源，只能信使用者手動選的下拉，
+ * 這不是本次規格修正的範圍。
  */
 export function initialScaleGuess(sourceInfo: OverlayParseResult['sourceInfo'], unit: 'pt' | 'mm' | 'px'): number {
   const widthAttr = sourceInfo.widthAttr?.trim() ?? '';
   const suffixMatch = WIDTH_UNIT_SUFFIX_RE.exec(widthAttr);
   if (suffixMatch) {
     const detected = suffixMatch[1]!.toLowerCase() as 'mm' | 'pt';
+    const numericWidth = Number(widthAttr.slice(0, suffixMatch.index));
+    const viewBoxWidth = sourceInfo.viewBox ? parseViewBoxWidth(sourceInfo.viewBox) : null;
+    if (viewBoxWidth !== null && viewBoxWidth > 0 && !Number.isNaN(numericWidth)) {
+      return (numericWidth * UNIT_TO_MM[detected]) / viewBoxWidth;
+    }
     return UNIT_TO_MM[detected];
   }
   return UNIT_TO_MM[unit];
@@ -191,6 +222,13 @@ function segmentChordLength(seg: Segment): number {
  * overlay 座標 → mm 的比例。呼叫端（Canvas.tsx 的校準確認流程）負責確保 `seg` 非零長
  * （`findNearestOverlaySegment` 的 hit-test 已排除零長段可選取）、`actualMm > 0`（UI 邊界
  * 檢查），這裡不重複驗證——校準流程的輸入合法性只在使用者互動的入口把關一次即可。
+ *
+ * 補述（FX1，Slice 3 final review）：`overlay/parse.ts` 的 `circleToSegments` 把匯入的
+ * `<circle>` 拆成兩個半圓 arc（0→π、π→2π；不再用單一 startAngle=0/endAngle=2π 的完整圓，
+ * 那種表示法餵給 Canvas 的 SVG `A` 指令渲染是零渲染，見 parse.ts 該函式文件的完整推導）。
+ * 這個拆法的副作用：每個半圓的起訖點是圓上正對的兩點，`segmentChordLength` 算出來的弦長
+ * 恰為該圓的直徑——使用者校準生產圖裡的圓孔時，可以直接點選其中一段半圓弧、輸入實測的
+ * 孔徑（直徑）當作 `actualMm`，不需要額外的「圓專屬」校準路徑。
  */
 export function calibrateScale(seg: Segment, actualMm: number): number {
   return actualMm / segmentChordLength(seg);
