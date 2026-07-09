@@ -72,9 +72,10 @@ export interface CanvasProps {
    */
   layers?: LayersState;
   /**
-   * 校準完成／取消時的回呼：Canvas 承接使用者在畫布上的點選＋行內輸入互動，把結果（更新
-   * 選中層的 scale／calibrated）寫回 `layers.overlays`。選填＋用 `?.()` 呼叫：既有不傳這個
-   * prop 的 Canvas 單元測試（不含校準流程）不受影響。
+   * 圖層狀態更新回呼：Canvas 承接使用者在畫布上的互動並把結果寫回 `layers`——校準點選＋
+   * 行內輸入（更新選中層 scale／calibrated）、選中層拖曳（T3，更新選中層 offsetX／
+   * offsetY）、Esc 取消選中（T3，非校準模式，清空 selectedOverlayId）。選填＋用 `?.()`
+   * 呼叫：既有不傳這個 prop 的 Canvas 單元測試（不含校準/拖曳流程）不受影響。
    */
   onLayersChange?: (next: LayersState) => void;
   /**
@@ -186,6 +187,15 @@ export function Canvas({
   // null 代表「這次 click 之前沒有觀察到 mousedown」（例如測試直接 fireEvent.click 不經過
   // mousedown/mouseup），視為非拖曳、照舊放行，既有的點選路徑不受影響。
   const dragStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  // T3 選中 overlay 層拖曳（校準>選中拖曳>pan 分流，見下方 canDragOverlay／handleMouseMove）：
+  // 需要獨立的「是否正在拖曳 overlay」旗標，不能複用上面的 `isDragging`——那個專屬 pan，兩者
+  // 同時只會有一個為 true，但仍是不同語意，共用會讓 handleMouseMove 分不清這次是哪一種拖曳。
+  // `overlayDragPosRef` 也不能複用 `dragStartPosRef`：後者要在整個拖曳手勢期間保持「起點」
+  // 不變（handleCalibrationClick 拿它算總位移量），這裡則需要「上一次 mousemove 的座標」
+  // 隨每次 mousemove 更新，才能算出連續多次 mousemove 的逐次 delta（spec：拖曳過程 offset
+  // 即時反映，v1 接受 state 每 mousemove 更新一次）。
+  const [isDraggingOverlay, setIsDraggingOverlay] = useState(false);
+  const overlayDragPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // 單片視圖：bounds 外加視覺邊距；全版視圖：沿用 result.bounds 原值（既有行為不變，見 docblock）。
   const activeBounds = activePiece ? expandBounds(activePiece.bounds, PIECE_VIEW_PADDING) : result.bounds;
@@ -248,6 +258,40 @@ export function Canvas({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [calibrating, onCalibratingChange]);
 
+  // Esc 取消選中 overlay 層（T3，非校準模式）：與上一個 effect 是兩件獨立的事——校準模式中
+  // 按 Esc 該退出校準模式、選取狀態原封不動（spec「校準模式優先」的同一順位道理，上一個
+  // effect 已處理），這裡明確排除 `calibrating` 為 true 的情況，避免兩個 effect 對同一次
+  // 按鍵搶著處理。只在「有選中層」時掛監聽，沒有選中層時 Esc 沒有事可做，維持跟上一個
+  // effect 一致的「不需要時不掛全域監聽器」原則。依賴陣列納入整個 `layers`（不只
+  // `selectedOverlayId`）：handler 內要用 `...layers` 保留其餘欄位、只清空
+  // selectedOverlayId 這一個欄位，若依賴陣列漏掉 `layers` 本身，拖曳中 offsetX/Y 變動
+  // （layers 參照跟著換但 selectedOverlayId 未變）不會觸發這個 effect 重新掛載，closure
+  // 裡的 `layers` 就會是拖曳前的舊快照，Esc 一按會把剛拖曳的位移覆蓋回舊值。
+  useEffect(() => {
+    if (calibrating || !layers.selectedOverlayId) return;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      onLayersChange?.({ ...layers, selectedOverlayId: null });
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [calibrating, layers, onLayersChange]);
+
+  // 選中層（Slice 3 gate round 1 T2）：取代舊版單體 overlay，未選中時為 undefined——下面
+  // handleCalibrationClick／handleCalibrationConfirm 的 early return 沿用舊有防禦寫法
+  // （`!selectedLayer` 取代 `!overlay`），「未選中時校準鈕已 disabled 故不可達」是 UI 層的
+  // 第一道防線，這裡是第二道。宣告位置提前到這裡（T3）：mousedown 要在「校準 vs 拖曳
+  // overlay vs pan」三條路徑之間分流，需要在定義 handleMouseDown 之前就能讀到選中層，故
+  // 整段連同這則註解一起往上搬遷，邏輯本身不變（原本宣告在 highlightSet 之後、viewW/viewH
+  // 之前）。
+  const selectedLayer = layers.overlays.find((o) => o.id === layers.selectedOverlayId);
+  // T3 拖曳分流條件（spec：選中 overlay 層＝selectedOverlayId 非 null 且該層 visible；
+  // 校準模式優先於拖曳分流，校準中不拖 overlay）。刻意不額外檢查
+  // `selectedLayer.segments.length`——拖曳只是更新 offsetX/offsetY 兩個數字，不像
+  // hit-test 需要真的走訪 segments，spec 規格也只講 selectedOverlayId／visible 兩個條件，
+  // 不無中生有加這層 gate。
+  const canDragOverlay = !calibrating && !!selectedLayer && selectedLayer.visible;
+
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -259,13 +303,58 @@ export function Canvas({
   };
 
   const handleMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    setIsDragging(true);
     dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+    // 分流（spec「校準>選中拖曳>pan」）：canDragOverlay 已經把「校準中」排除在外（定義見
+    // 上方），這裡不必重複判斷 calibrating——校準模式下必然落到 else 分支，維持既有 pan
+    // 行為（校準模式中 pan 仍可用，見 CALIBRATION_THRESHOLD_MM 註解）。
+    if (canDragOverlay) {
+      overlayDragPosRef.current = { x: e.clientX, y: e.clientY };
+      setIsDraggingOverlay(true);
+    } else {
+      setIsDragging(true);
+    }
   };
-  const handleMouseUp = () => setIsDragging(false);
-  const handleMouseLeave = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsDraggingOverlay(false);
+    overlayDragPosRef.current = null;
+  };
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+    setIsDraggingOverlay(false);
+    overlayDragPosRef.current = null;
+  };
+  /**
+   * mousemove 分流：isDraggingOverlay 為 true 時更新選中層 offset，否則沿用既有 pan。用
+   * if/else if（不是兩個獨立 if）明確表達兩個旗標互斥的不變式——mousedown 當下只會設定
+   * 其中一個（見上方 handleMouseDown）。
+   *
+   * mm delta 換算（spec 明文的易錯點，容易寫錯的地方）：只除以畫布 `scale`（zoom），
+   * **不除以 `selectedLayer.scale`**。原因是座標系層次——overlay 的渲染變換是
+   * `<g transform="translate(offsetX offsetY) scale(overlayScale)">`（見下方渲染區塊），
+   * offsetX/offsetY 是這個變換鏈「外層」的平移，是已經換算成 mm 的量（跟 `result.bounds`／
+   * viewBox 同一個域），不是 overlay 原始座標系裡的量——`overlayScale` 只管「原始座標→mm」
+   * 這一段轉換，跟 offset 的單位無關。螢幕像素→mm 的唯一換算比例是畫布 zoom（`scale`
+   * state，CSS transform 的縮放）。這跟 `handleCalibrationClick` 換算 hit-test 容差時「先除
+   * `scale` 再除 `selectedLayer.scale`」是不同的計算——那裡的終點是 overlay 原始座標系
+   * （拿來跟 `segments` 原始座標比較距離），這裡的終點是 mm 座標系（拿來更新
+   * offsetX/offsetY），多除一次 `selectedLayer.scale` 反而是 bug：會讓拖曳手感隨校準比例
+   * 忽快忽慢，且跟滑鼠實際位移的視覺不成比例。
+   */
   const handleMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (isDragging) {
+    const lastOverlayPos = overlayDragPosRef.current;
+    if (isDraggingOverlay && selectedLayer && lastOverlayPos) {
+      const dxMm = (e.clientX - lastOverlayPos.x) / scale;
+      const dyMm = (e.clientY - lastOverlayPos.y) / scale;
+      overlayDragPosRef.current = { x: e.clientX, y: e.clientY };
+      onLayersChange?.({
+        ...layers,
+        overlays: updateOverlayLayer(layers.overlays, selectedLayer.id, {
+          offsetX: selectedLayer.offsetX + dxMm,
+          offsetY: selectedLayer.offsetY + dyMm,
+        }),
+      });
+    } else if (isDragging) {
       setPan((prev) => ({ x: prev.x + e.movementX, y: prev.y + e.movementY }));
     }
   };
@@ -273,12 +362,6 @@ export function Canvas({
   // 高亮 tag 集合＝hover 高亮 ∪ 全部不變式警告的 tags（spec 裁決：同一機制、聯集）。
   const highlightSet = new Set<string>([...(highlightTags ?? []), ...invariantWarnings.flatMap((w) => w.tags ?? [])]);
   const isHighlighted = (tags?: string[]): boolean => (tags ?? []).some((t) => highlightSet.has(t));
-
-  // 校準對象（Slice 3 gate round 1 T2）：選中層，取代舊版單體 overlay。未選中時為
-  // undefined——下面 handleCalibrationClick／handleCalibrationConfirm 的 early return
-  // 沿用舊有防禦寫法（`!selectedLayer` 取代 `!overlay`），「未選中時校準鈕已 disabled
-  // 故不可達」是 UI 層的第一道防線，這裡是第二道。
-  const selectedLayer = layers.overlays.find((o) => o.id === layers.selectedOverlayId);
 
   const { minX, minY, maxX, maxY } = activeBounds;
   const viewW = maxX - minX || 100;
@@ -455,10 +538,12 @@ export function Canvas({
 
       <div
         ref={containerRef}
-        // 校準模式游標改十字準星（spec UI 規格）；pan/zoom 互動本身不停用（見
-        // CALIBRATION_THRESHOLD_MM 註解：容差隨 zoom 換算，使用者可以放大畫面換取更精準的點選）。
+        // 游標分流（T3 新增 cursor-move 分支）：校準模式十字準星（spec UI 規格；pan/zoom
+        // 互動本身不停用，見 CALIBRATION_THRESHOLD_MM 註解）＞可拖曳選中層時 move（跟預設
+        // pan 的 grab/grabbing 區分開，提示「這裡拖的是選中疊圖層，不是畫布本身」）＞其餘
+        // 情況維持既有 pan 的 grab/grabbing。
         className={`w-full h-full flex items-center justify-center select-none ${
-          calibrating ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+          calibrating ? 'cursor-crosshair' : canDragOverlay ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'
         }`}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
