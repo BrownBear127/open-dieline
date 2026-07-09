@@ -63,14 +63,13 @@ open-dieline/
 │   ├── overlay/
 │   │   ├── import.ts          # SVG 檔解析（支援子集見 §5）
 │   │   └── calibrate.ts       # 已知長度校準（主）＋單位猜測（輔）
-│   ├── imposition/
-│   │   └── layout.ts          # 拼版計算
+│   ├── core/imposition.ts     # 拼版計算（細化 spec 定案；原規劃 imposition/layout.ts 作廢）
 │   ├── ui/
 │   │   ├── App.tsx
 │   │   ├── ParamPanel.tsx     # 從 paramSchema 自動生成（含 hover 高亮聯動）
 │   │   ├── Canvas.tsx         # pan/zoom＋SVG 渲染（樣式取自 styles.ts）
 │   │   ├── OverlayControls.tsx
-│   │   ├── PaperPanel.tsx
+│   │   ├── ImpositionView.tsx # 拼版模式（細化 spec 定案；原規劃 PaperPanel.tsx 作廢）
 │   │   └── ExportBar.tsx
 │   └── content/               # 教育內容：每盒型結構介紹
 ├── tests/                     # vitest：不變式＋golden＋fixture＋假旋鈕＋DXF
@@ -284,12 +283,13 @@ interface BoxModule {
 
 ## 7. 拼版（imposition）
 
-- 紙張預設：31"×43"（787×1092）、25"×35"（635×889）、70×100cm＋自訂
-- 輸入：紙張尺寸、咬口（gripper，印刷機夾紙側單邊預留，預設 10mm）、四周邊距、模間距
-- 計算：正放與旋轉 90° 兩種方向的 N×M 組合 → 回報最優模數與方向
-- 預覽：畫布上以淡色陣列顯示排列
-- v1 為矩形邊界框拼版（以刀模 bounds 計）；異形交錯拼版（nesting）為 Non-goal
-- **歷史案例 fixture**：至少 2 個法蘭真實案例，每案記完整輸入（紙張、咬口、邊距、間距、方向限制）＋當年實際模數＋差異可接受原因（若演算法更優）——實作期向法蘭取得
+> ⚠️ **本節已由細化 spec 完整取代：`docs/specs/2026-07-10-imposition-design.md`（2026-07-10 需求重定義＋spec review v1.1）。衝突時以細化 spec 為準。** 以下為摘要：
+
+- 紙規 preset：31"×43"（787×1092）、25"×35"（635×889）、27"×39"（686×991）＋自訂
+- working sheet 轉換鏈：方向（直／橫）→ 對開（整紙／V／H）→ 四邊咬口（預設 20mm）；gap 硬下限 3mm
+- 模尺寸＝**製造 bounds**（排除 dimension／annotation；不得用 `result.bounds`／`piece.bounds`——含畫布留白與標註外擴）
+- 單件拼版（多片盒型逐件選）；0°／90° 兩方向並列顯示、無推薦標記；真實輪廓預覽＋界線聲明
+- 教育示範定位；歷史案例 fixture 路線作廢（2026-07-10），驗收改數值錨＋計算矩陣＋浮點邊界（細化 spec 驗收 1–10）
 
 ## 8. 測試策略
 
@@ -303,7 +303,7 @@ interface BoxModule {
 | 天地盒對帳 | vitest | §4.2 具名槽位 fixture 分層對帳（t 無關 ±0.05／t 相關驗公式＋≤0.15／y 向驗序列與公式不驗絕對值——完整規則以 §4.2 為準）＋內襯 golden（§4.2 導出鏈自產） |
 | 樣式同源 | vitest | styles.ts mutation → 畫布與匯出 SVG 同步改變 |
 | DXF | vitest | 可解析、圖層歸屬、離散誤差（§6.2 案例） |
-| 拼版 | vitest | §7 歷史案例 fixture |
+| 拼版 | vitest | 細化 spec（2026-07-10-imposition-design.md）驗收 1–10：數值錨／bounds 硬規則／計算矩陣／浮點邊界／輸入 domain／state 生命週期／預覽／對開 |
 | UI | vitest + testing-library | 冒煙：選盒型→調參→畫布更新→不變式警告顯示→匯出觸發 |
 
 ## 9. 公開發布配套
@@ -329,7 +329,7 @@ PR：test＋build＋私有資產檢查；main：加 Pages 部署。
 3. 天地盒：§4.2 CI 層驗收全過（具名槽位分層對帳＋內襯 golden＋全不變式，規則以 §4.2 為準）；`linerEnabled=false` 時 pieces＝〔base, lid〕兩片且匯出／視圖行為一致；**樣張 gate 過（法蘭列印試摺三件互套）**
 4. 匯出同源：樣式 mutation 測試過；SVG 含三線型且與畫布一致；DXF 經 LibreCAD 或等效 viewer 開啟可見三圖層
 5. Overlay：匯入 §5 子集內的 AI 匯出 SVG → 已知長度校準 → 與生成層 1:1 疊圖、透明度可調；含未支援元素的檔案顯示警告清單且不崩潰
-6. 拼版：§7 兩個歷史案例 fixture 通過（相同模數，或更優且原因成立）
+6. 拼版：細化 spec（`2026-07-10-imposition-design.md`）驗收條件 1–10 全過（歷史案例 fixture 路線已作廢）
 7. 全部測試綠、CI 過、Pages 部署可公開訪問
 8. 假旋鈕測試全過（每宣告參數都影響輸出）
 9. README 完整（§9.1 清單）
