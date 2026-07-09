@@ -45,6 +45,23 @@
  * 產生 `overlay-${n}` 形式的圖層 id（不用 `Date.now()`——確定性，方便測試與重播疊圖清單，
  * 見 `overlay/layers.ts` `createOverlayLayer` 文件的既有理由）；用 ref 而非 state 是因為
  * 計數器遞增本身不需要觸發重渲染，只有呼叫端（LayersPanel 匯入 handler）讀取當下值。
+ *
+ * `appMode`／`impositionState`（Slice 4 Task 4，spec F6／「組裝」段）：頂部「刀模設計｜
+ * 拼版估算」切換鈕決定側欄下半部與主區渲染哪一組元件——`'design'` 維持原本的 LayersPanel／
+ * ExportBar／Canvas；`'imposition'` 側欄改渲染 `ImpositionControls`、主區改渲染
+ * `ImpositionResults`（T3，`@/ui/ImpositionView`），兩者與 Canvas／ExportBar 一樣共用同一個
+ * `result`（spec「組裝」：`App` 只生成一次 `result`，不因模式切換重新計算）。`ParamPanel`與
+ * 盒型選擇不隨模式隱藏（F6「組裝」列），使用者可以留在拼版模式下直接調整盒參數，兩張方向卡
+ * 透過 `ImpositionView.tsx` 的 `computeImpositionView` 隨新的 `result` 即時重算（F6「即時性」）。
+ *
+ * `impositionState.pieceId` 是與 `selectedPieceId`（上方，設計模式專用）完全分離的一顆
+ * state（F6「state 分離」）——兩者語意不同：拼版沒有「null＝全版」，`null` 只在 RTE 這種
+ * 恆無 `pieces` 的盒型下代表「整件」，共用會讓兩種模式的選片記憶互相污染。初值與失效
+ * fallback 的細節見下方宣告處的行內註解。模式往返（F6「模式往返」）：切換鈕的 `onClick`
+ * 只寫 `appMode`（進拼版模式額外呼叫 `setCalibrating(false)`，F6「校準互斥」——跟
+ * box-select `onChange` 直接呼叫 `setSelectedPieceId(null)` 同一種「單一明確事件、同步
+ * 處理」寫法慣例，不需要 `useEffect`），不碰 `impositionState`／`boxId`／`values` 任何一項，
+ * 三者合起來就是 F6 表逐欄列舉的「全部保留」。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { listBoxes } from '@/core/registry';
@@ -65,6 +82,24 @@ import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { LayersPanel } from '@/ui/LayersPanel';
 import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
+import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
+import type { ImpositionState } from '@/ui/ImpositionView';
+import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
+
+/** 頂部模式切換鈕的兩個狀態（Slice 4 Task 4，spec F6／「組裝」）：`'design'`＝現行的
+ *  刀模設計流程（ParamPanel＋LayersPanel＋ExportBar＋Canvas）；`'imposition'`＝拼版估算
+ *  （ParamPanel／盒型選擇留用＋`ImpositionControls`／`ImpositionResults`，見上方檔頭
+ *  docblock「appMode／impositionState」一節的完整說明）。 */
+type AppMode = 'design' | 'imposition';
+
+/** 模式切換鈕樣式：選定＝黑底白字，未選定＝透明底＋zinc 文字——比照 `Canvas.tsx` 的
+ *  `switcherButtonClass`（視圖切換鈕）同一種「選定用實心黑」配色慣例，容器另外包一層
+ *  zinc-100 底做成 segmented control 觀感，跟旁邊「關於」/「重設全部」的純文字小鈕區分開
+ *  （這兩顆是唯一決定側欄下半部與主區渲染內容的鈕，需要比純文字鈕更高的視覺權重）。 */
+function modeButtonClass(isActive: boolean): string {
+  const base = 'flex-1 px-3 py-1.5 rounded-sm text-xs font-medium transition-colors';
+  return isActive ? `${base} bg-black text-white shadow-sm` : `${base} text-zinc-500 hover:text-zinc-900`;
+}
 
 export function App() {
   const boxes = useMemo(() => listBoxes(), []);
@@ -87,6 +122,10 @@ export function App() {
   // 只能靠共同父層的 state 同步開關。惰性初始值只在掛載當下讀一次 localStorage：
   // 首次訪問（未關過）預設開啟，關過的訪客重新整理後不會再自動彈出。
   const [announcementOpen, setAnnouncementOpen] = useState(() => !isAnnouncementDismissed());
+  // appMode：見上方檔頭 docblock「appMode／impositionState」段。只有頂部切換鈕的 onClick
+  // 會寫這顆 state；進拼版模式那顆鈕額外呼叫 `setCalibrating(false)`（F6「校準互斥」，
+  // 見下方按鈕定義）。
+  const [appMode, setAppMode] = useState<AppMode>('design');
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
 
@@ -132,6 +171,44 @@ export function App() {
     }
   }, [result.pieces, selectedPieceId]);
 
+  // impositionState（Slice 4 Task 4，spec F6／「組裝」段，完整說明見檔頭 docblock「appMode／
+  // impositionState」一節）：拼版模式的完整可往返 state，型別定義見 `ui/ImpositionView.tsx`
+  // 的 `ImpositionState`。lazy initializer 只在掛載當下跑一次，讀當時的 `result.pieces`
+  // 決定 `pieceId` 初值（多片盒型＝`pieces[0].id`；RTE＝`null`，F6「預設值」／「RTE」兩列）；
+  // 其餘欄位的預設值刻意對齊 spec 驗收條件 1 的數值錨（31"×43"、直放、整紙、咬口 20mm、
+  // gap＝`MIN_GAP_MM`）——這樣使用者第一次點進拼版模式，兩張方向卡就已經是一組有意義的
+  // 估算結果（RTE 預設參數下＝12 模／8 模），不是全部空白等使用者自己填完才看得到數字。
+  const [impositionState, setImpositionState] = useState<ImpositionState>(() => ({
+    pieceId: result.pieces?.[0]?.id ?? null,
+    paperPresetId: PAPER_PRESETS[0]!.id,
+    customW: PAPER_PRESETS[0]!.w,
+    customH: PAPER_PRESETS[0]!.h,
+    orientation: 'portrait',
+    mode: 'full',
+    gripper: 20,
+    gap: MIN_GAP_MM,
+  }));
+
+  // impositionState.pieceId 的失效 fallback（F6「失效 fallback」列）：跟上面 selectedPieceId
+  // 的 snap-back effect 是同一種「result.pieces 變動後自我修正」機制，但目標相反——那顆
+  // effect 的職責是「發現無效就歸零成 null（全版）」，這顆的職責是「發現無效就改選
+  // `pieces[0]`」（拼版沒有 null＝全版語意，F6「state 分離」列）。常駐執行、不 gate 在
+  // `appMode==='imposition'` 之後：使用者可能在設計模式下切換盒型或關閉 `linerEnabled`，
+  // 這顆 effect 讓 `impositionState.pieceId` 隨時保持合法，切進拼版模式當下就看到正確選片，
+  // 不必再等一輪過渡態。`ImpositionView.tsx` 檔頭 docblock「件選擇與 pieceId 的 fallback
+  // 生命週期」一節已經記錄：這顆 effect 生效前，T3 的 `computeImpositionView` 對無效
+  // `pieceId` 是 fail loud（兩卡「—」＋整體錯誤「請選擇拼版的件」），不會拿一個猜錯的
+  // fallback 幾何算出誤導數字——這顆 effect 的正確性因此只影響體驗（多快修正回合法選片），
+  // 不影響安全（絕不會有一輪畫面顯示「用錯的 piece 幾何算出的拼版結果」）。
+  useEffect(() => {
+    const pieces = result.pieces;
+    const fallbackId = pieces?.[0]?.id ?? null;
+    const stillValid = pieces !== undefined && pieces.some((p) => p.id === impositionState.pieceId);
+    if (!stillValid && impositionState.pieceId !== fallbackId) {
+      setImpositionState((prev) => ({ ...prev, pieceId: fallbackId }));
+    }
+  }, [result.pieces, impositionState.pieceId]);
+
   const invariantWarnings = useMemo(
     () =>
       mod.invariants
@@ -163,6 +240,31 @@ export function App() {
               重設全部
             </button>
           </div>
+        </div>
+
+        {/* 模式切換（Slice 4 Task 4，spec「組裝」段）：見檔頭 docblock「appMode／impositionState」
+            一節。進拼版模式額外退出 calibrating（F6「校準互斥」）；離開/返回設計模式沒有任何
+            程式碼路徑把 calibrating 設回 true，故不會「復活」。 */}
+        <div className="flex gap-1 p-1 bg-zinc-100 rounded-sm" role="group" aria-label="模式切換">
+          <button
+            type="button"
+            onClick={() => setAppMode('design')}
+            aria-pressed={appMode === 'design'}
+            className={modeButtonClass(appMode === 'design')}
+          >
+            刀模設計
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAppMode('imposition');
+              setCalibrating(false);
+            }}
+            aria-pressed={appMode === 'imposition'}
+            className={modeButtonClass(appMode === 'imposition')}
+          >
+            拼版估算
+          </button>
         </div>
 
         <div className="flex flex-col gap-1.5 p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
@@ -199,31 +301,41 @@ export function App() {
           onHighlight={setHighlightTags}
         />
 
-        <LayersPanel
-          layers={layersState}
-          onLayersChange={setLayersState}
-          targetBounds={overlayTargetBounds}
-          result={result}
-          calibrating={calibrating}
-          onCalibratingChange={setCalibrating}
-          createOverlayId={createOverlayId}
-        />
+        {appMode === 'design' ? (
+          <>
+            <LayersPanel
+              layers={layersState}
+              onLayersChange={setLayersState}
+              targetBounds={overlayTargetBounds}
+              result={result}
+              calibrating={calibrating}
+              onCalibratingChange={setCalibrating}
+              createOverlayId={createOverlayId}
+            />
 
-        <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
+            <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
+          </>
+        ) : (
+          <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
+        )}
       </aside>
 
-      <main className="flex-1 flex">
-        <Canvas
-          result={result}
-          highlightTags={highlightTags}
-          invariantWarnings={invariantWarnings}
-          activePiece={activePiece}
-          onSelectPiece={setSelectedPieceId}
-          layers={layersState}
-          onLayersChange={setLayersState}
-          calibrating={calibrating}
-          onCalibratingChange={setCalibrating}
-        />
+      <main className={appMode === 'design' ? 'flex-1 flex' : 'flex-1 flex overflow-y-auto p-6 bg-white'}>
+        {appMode === 'design' ? (
+          <Canvas
+            result={result}
+            highlightTags={highlightTags}
+            invariantWarnings={invariantWarnings}
+            activePiece={activePiece}
+            onSelectPiece={setSelectedPieceId}
+            layers={layersState}
+            onLayersChange={setLayersState}
+            calibrating={calibrating}
+            onCalibratingChange={setCalibrating}
+          />
+        ) : (
+          <ImpositionResults result={result} state={impositionState} />
+        )}
       </main>
 
       <AnnouncementModal open={announcementOpen} onClose={() => setAnnouncementOpen(false)} />
