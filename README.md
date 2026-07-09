@@ -21,14 +21,27 @@ An open-source dieline generator for print & packaging — parametric, printable
 - DXF 匯出：R12 相容、CUT／CREASE／HALFCUT 三圖層，供刀模廠直接使用
 - 單片視圖：多片盒型可切換全版／單片顯示與匯出
 
-## Dev
+## 使用
+
+**直接使用（免安裝）**：開啟 **[open-dieline.vercel.app](https://open-dieline.vercel.app)** 即可。所有計算都在瀏覽器內完成，不需要安裝任何東西，匯入的刀模檔也不會上傳到任何伺服器。
+
+**本地執行（想改程式碼的人）**：需要先安裝 [Node.js](https://nodejs.org/)（20 以上，選 LTS 版即可），然後在終端機依序執行：
 
 ```bash
-npm install       # 安裝依賴
-npm run dev       # 啟動開發伺服器
-npx vitest run    # 跑測試
-npm run build     # production build
+# 1. 把原始碼下載到電腦（也可以在 GitHub 頁面點 Code → Download ZIP 後解壓縮）
+git clone https://github.com/BrownBear127/open-dieline.git
+
+# 2. 進入專案資料夾
+cd open-dieline
+
+# 3. 安裝依賴（第一次執行需要，之後不用）
+npm install
+
+# 4. 啟動開發伺服器，然後用瀏覽器開啟畫面上顯示的網址（通常是 http://localhost:5173）
+npm run dev
 ```
+
+開發用指令：`npx vitest run` 跑測試、`npm run build` 打包 production 版到 `dist/`。
 
 ## License
 
