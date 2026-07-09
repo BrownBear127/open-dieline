@@ -13,6 +13,8 @@ import { segmentsBounds } from '@/core/geometry';
 import type { DielinePiece, DielinePath, DielineText, GenerateResult, LineType } from '@/core/types';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
+import { GENERATED_LAYER_LABEL, GENERATED_LAYER_ORDER, layerKeyForLineType } from '@/core/layers';
+import type { GeneratedLayerKey } from '@/core/layers';
 
 // v1 的 texts 只有一個來源：boxes/*.ts 呼叫 core/primitives.ts 的 dimensionLine() 產生的
 // 尺寸標註數字（見 reverse-tuck-end.ts 的 addDim）。DielineText 型別本身沒有 type/LineType
@@ -96,26 +98,59 @@ function textToSvg(t: DielineText): string {
 }
 
 /**
+ * 4 個生成圖層桶的英文 id（`<g id="…">`，Illustrator 圖層面板顯示這個）。cut/crease/halfcut
+ * 與 `export/dxf.ts` 的 `DXF_LAYER_BY_LINETYPE` 逐字相同（跨格式同名，同一份刀模的 SVG／DXF
+ * 圖層名對得起來）——兩檔刻意不互相 import 這份對照（沿用 dxf.ts 檔頭「效果等價、少一個跨檔
+ * import」的既有選擇，見該檔 `DXF_LAYER_BY_LINETYPE` 上方註解），一致性改由
+ * `tests/export/svg.test.ts` 直接 import 兩邊常數交叉比對鎖住——源頭改一邊沒改另一邊會被
+ * 測試抓到，不需要額外的跨檔 import。`dimensions` 是 SVG 專屬桶（DXF 恆排除標註，見 dxf.ts
+ * 檔頭圖層排除規則），沒有 DXF 對應值可借，這裡另外定義。
+ */
+const GENERATED_LAYER_ID: Readonly<Record<GeneratedLayerKey, string>> = {
+  cut: 'CUT',
+  crease: 'CREASE',
+  halfcut: 'HALFCUT',
+  dimensions: 'DIMENSIONS',
+};
+
+/** 單一非空圖層桶 → 一個 `<g>` 元素；`id` 英文（跨格式同名）、`data-name` 中文（`GENERATED_LAYER_LABEL`）。 */
+function groupToSvg(key: GeneratedLayerKey, children: string[]): string {
+  return `<g id="${GENERATED_LAYER_ID[key]}" data-name="${GENERATED_LAYER_LABEL[key]}">\n    ${children.join('\n    ')}\n  </g>`;
+}
+
+/**
  * `GenerateResult` → 完整 SVG 文件字串。
  *
- * - `width`/`height` 以 mm 明示（取自 `bounds` 尺寸），`viewBox` 對應 `bounds`（皆 toFixed(2)）。
- * - 每個 `DielinePath` 產生一個 `<path>`，樣式值來自 `LINE_STYLES`（禁止字面色碼）。
- * - 每個 `DielineText` 產生一個 `<text>`。
- * - `includeDimensions`（預設 `true`）為 `false` 時，剔除 `dimension`/`annotation` 線型的路徑，
- *   以及全部 texts（v1 texts 只來自標註，見上方 `DIMENSION_LINE_TYPES` 註解）。
+ * - `width`/`height` 以 mm 明示（取自 `bounds` 尺寸），`viewBox` 對應 `bounds`（皆 toFixed(2)，
+ *   恆用全 bounds——見下方「恆全量」）。
+ * - paths 依 `layerKeyForLineType` 分 4 桶（cut/crease/halfcut/dimensions，`GENERATED_LAYER_ORDER`
+ *   順序輸出），每桶非空時包一層 `<g id="…" data-name="…">`（Illustrator 開啟得到 4 個命名
+ *   圖層，可個別隱藏/鎖定/刪除）；空桶不輸出 `<g>`（AI 圖層面板不出現空群組）。g 內每個
+ *   `DielinePath` 仍是一個 `<path>`、每個 `DielineText` 仍是一個 `<text>`，樣式/座標/排序與
+ *   分組前完全一致——`pathToSvg`/`textToSvg` 本身不變，這裡只是多包一層容器。
+ * - texts 全部歸 `dimensions` 桶（v1 texts 只來自標註，見上方 `DIMENSION_LINE_TYPES` 註解）。
+ * - **恆全量輸出**（Slice 3 gate round 1 T4 plan 裁決）：`includeDimensions` opts 參數已退役，
+ *   不再有「剔除標註」這個匯出模式，viewBox/寬高也恆用含標註的全 bounds。畫布圖層可見性
+ *   （`LayersState.generatedVisible`）只影響畫面顯示，不影響匯出檔內容；使用者若想要不含
+ *   標註的檔案，改在 Illustrator 裡對匯出後的 `DIMENSIONS` 圖層自行隱藏/刪除——本函式做的
+ *   g 分組正是為了讓這個操作可行。
  */
-export function toSvgDocument(result: GenerateResult, opts?: { includeDimensions?: boolean }): string {
-  const includeDimensions = opts?.includeDimensions ?? true;
-
-  const paths = includeDimensions ? result.paths : result.paths.filter((p) => !DIMENSION_LINE_TYPES.has(p.type));
-  const texts = includeDimensions ? result.texts : [];
+export function toSvgDocument(result: GenerateResult): string {
+  const buckets: Record<GeneratedLayerKey, DielinePath[]> = { cut: [], crease: [], halfcut: [], dimensions: [] };
+  for (const p of result.paths) {
+    buckets[layerKeyForLineType(p.type)].push(p);
+  }
 
   const { minX, minY, maxX, maxY } = result.bounds;
   const width = maxX - minX;
   const height = maxY - minY;
 
-  const children = [...paths.map(pathToSvg), ...texts.map(textToSvg)];
-  const body = children.length > 0 ? `\n  ${children.join('\n  ')}\n` : '';
+  const groups = GENERATED_LAYER_ORDER.flatMap((key) => {
+    const texts = key === 'dimensions' ? result.texts : [];
+    const children = [...buckets[key].map(pathToSvg), ...texts.map(textToSvg)];
+    return children.length > 0 ? [groupToSvg(key, children)] : [];
+  });
+  const body = groups.length > 0 ? `\n  ${groups.join('\n  ')}\n` : '';
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +

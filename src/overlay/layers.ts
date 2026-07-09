@@ -7,44 +7,22 @@
  *
  * `initialScaleGuess`／`alignOffset`（`overlay/state.ts` 既有純函式）與 `segmentsBounds`
  * （`core/geometry.ts` 既有純函式）在這裡被 `createOverlayLayer` 消費、邏輯不重寫。
- * `layerKeyForLineType` 消費 `export/svg.ts` 的 `DIMENSION_LINE_TYPES`，避免「哪些線型算
- * 尺寸標註」在專案裡出現第三份定義（沿用該常數 docblock 的「過濾規則單一來源」精神）。
+ *
+ * `GeneratedLayerKey`/`GENERATED_LAYER_ORDER`/`GENERATED_LAYER_LABEL`/`layerKeyForLineType`
+ * 已搬到 `core/layers.ts`（Slice 3 gate round 1 T4——`export/svg.ts` 要消費這組介面做 g 圖層
+ * 分組，這裡 re-export 只是保留既有 import 路徑，完整搬遷理由見該檔 docblock）。本檔（以及
+ * `ui/LayersPanel.tsx`／`ui/Canvas.tsx`／既有測試）繼續用 `@/overlay/layers` 這個路徑取用，
+ * 不必逐一改 import。
  */
 import type { Bounds, Segment } from '@/core/geometry';
 import { segmentsBounds } from '@/core/geometry';
-import type { LineType } from '@/core/types';
-import { DIMENSION_LINE_TYPES } from '@/export/svg';
+import { GENERATED_LAYER_LABEL, GENERATED_LAYER_ORDER, layerKeyForLineType } from '@/core/layers';
+import type { GeneratedLayerKey } from '@/core/layers';
 import type { OverlayParseResult } from './parse';
 import { alignOffset, initialScaleGuess } from './state';
 
-/** 生成圖層的四個固定桶——畫布依線型分組後對應圖層面板的四個分區。 */
-export type GeneratedLayerKey = 'cut' | 'crease' | 'halfcut' | 'dimensions';
-
-/** 圖層面板的顯示順序；UI 遍歷用同一份陣列，不各自硬編字面量順序。 */
-export const GENERATED_LAYER_ORDER: readonly GeneratedLayerKey[] = ['cut', 'crease', 'halfcut', 'dimensions'];
-
-/** 圖層面板顯示用的中文標籤。 */
-export const GENERATED_LAYER_LABEL: Readonly<Record<GeneratedLayerKey, string>> = {
-  cut: '切割線',
-  crease: '摺線',
-  halfcut: '半刀',
-  dimensions: '尺寸標註',
-};
-
-/**
- * LineType → 圖層桶。cut/crease/halfcut 對號；`DIMENSION_LINE_TYPES`（dimension/annotation）
- * → 'dimensions'；bleed → 'dimensions'（輔助線類；v1 無任何盒型產生 bleed path，這個分支
- * 不可達，僅為 exhaustive mapping——理由寫在這裡，不是靠測試斷言）。texts（DielineText）恆屬
- * 'dimensions'，v1 texts 全部來自 `dimensionLine` 標註（見 `export/svg.ts` 檔頭 docblock），
- * 呼叫端（T3/T4）不會拿 DielineText 呼叫這個函式，這裡不需要處理。
- */
-export function layerKeyForLineType(t: LineType): GeneratedLayerKey {
-  if (t === 'cut') return 'cut';
-  if (t === 'crease') return 'crease';
-  if (t === 'halfcut') return 'halfcut';
-  if (DIMENSION_LINE_TYPES.has(t)) return 'dimensions'; // dimension／annotation
-  return 'dimensions'; // 剩下只有 'bleed'
-}
+export { GENERATED_LAYER_LABEL, GENERATED_LAYER_ORDER, layerKeyForLineType };
+export type { GeneratedLayerKey };
 
 /** 單一使用者匯入的疊圖圖層（多層，取代 `overlay/state.ts` 的單一 `OverlayState`）。 */
 export interface OverlayLayer {

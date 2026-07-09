@@ -10,11 +10,12 @@
  * 反饋修復 3 把這顆 checkbox 的 state 提升到 App.tsx、同時餵給 Canvas，讓下載內容與畫布
  * 顯示同步）。gate round 1 維護者反饋把「顯示哪些線型」升級成 LayersPanel 的圖層可見性
  * （`layersState.generatedVisible`，純畫布顯示層級的開關），而匯出這邊改為 plan 明文
- * 裁決「匯出恆全量」：`toSvgDocument(exportResult)` 不傳 `includeDimensions` opts（沿用該
- * 函式預設值 `true`），畫布圖層可見性完全不影響匯出內容——理由是匯出檔要完整，「忘了開層
- * 就匯出殘缺刀模」是生產事故；使用者若想要不含標註的檔案，在 Illustrator 裡對匯出後的
- * 分層 SVG 自行隱藏/刪除該圖層（T4 才接手 g 分組，本輪 尚未分組，SVG 匯出內容暫時
- * 仍是平鋪、恆含標註）。
+ * 裁決「匯出恆全量」：`toSvgDocument(exportResult)` 呼叫時不傳第二參數——`includeDimensions`
+ * opts 已於 T4 退役，`toSvgDocument` 現在只接受一個參數、恆全量輸出，畫布圖層可見性完全不
+ * 影響匯出內容——理由是匯出檔要完整，「忘了開層就匯出殘缺刀模」是生產事故；使用者若想要
+ * 不含標註的檔案，在 Illustrator 裡對匯出後的分層 SVG 自行隱藏/刪除該圖層（T4 已把
+ * `toSvgDocument` 輸出按線型分成 4 個命名 `<g>` 圖層，此操作在 Illustrator 裡可行，見
+ * export/svg.ts docblock）。
  *
  * `activePiece`（Slice 2 Task 6，spec §4.2）：`result.pieces` 存在時，按鈕文字改為
  * 「匯出目前視圖」——語意跟著 Canvas 目前顯示的視圖走：`activePiece` 為 undefined（全版
@@ -199,9 +200,9 @@ export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps
   // 的 render 也會多跑一次過濾（result 的 paths/texts 量體小，可忽略）。
   const exportResult = activePiece ? scopeResultToPiece(result, activePiece) : result;
 
-  // 不傳 opts：toSvgDocument 的 includeDimensions 預設 true（見 export/svg.ts），SVG 匯出
-  // 恆全量（Slice 3 gate round 1 T2 plan 裁決，見本檔開頭 docblock）；T4 才接手依圖層分
-  // <g> 分組，本輪 尚未動 export/svg.ts。
+  // toSvgDocument 只接受一個參數：includeDimensions opts 已於 T4 退役，SVG 匯出恆全量
+  // （Slice 3 gate round 1 T2 plan 裁決，見本檔開頭 docblock）且按線型分 4 個命名 <g> 圖層
+  // （T4，見 export/svg.ts）。
   const handleSvgDownload = () => {
     const svg = toSvgDocument(exportResult);
     downloadBlob(svg, 'image/svg+xml;charset=utf-8', exportFilename(boxId, values, result, activePiece, 'svg'));
