@@ -3,7 +3,9 @@ import type { DielinePath, DielineText, GenerateResult } from '@/core/types';
 import { LINE_STYLES } from '@/core/styles';
 import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { telescope } from '@/boxes/telescope';
 import { toSvgDocument } from '@/export/svg';
+import { DXF_LAYER_BY_LINETYPE } from '@/export/dxf';
 
 // ── 測試專用建構器：只覆寫關心的欄位，其餘用最小合法預設值 ──
 function makeResult(overrides?: { paths?: DielinePath[]; texts?: DielineText[]; bounds?: GenerateResult['bounds'] }): GenerateResult {
@@ -125,7 +127,7 @@ describe('toSvgDocument', () => {
     expect(svg).toContain('A &amp; B &lt;tag&gt;');
   });
 
-  it('includeDimensions 預設 true（不傳 opts）：dimension/annotation 線與 texts 全部保留', () => {
+  it('恆全量輸出（includeDimensions 已於本輪退役）：dimension/annotation 線與 texts 全部保留', () => {
     const result = makeResult({
       paths: [
         { id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
@@ -138,23 +140,6 @@ describe('toSvgDocument', () => {
     expect(svg).toContain(`stroke="${LINE_STYLES.dimension.stroke}"`);
     expect(svg).toContain(`stroke="${LINE_STYLES.annotation.stroke}"`);
     expect(svg).toContain('>10mm</text>');
-  });
-
-  it('includeDimensions=false：dimension 與 annotation 路徑、以及所有 texts 都被剔除，cut 路徑保留', () => {
-    const result = makeResult({
-      paths: [
-        { id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
-        { id: 'p-1', type: 'dimension', segments: [{ kind: 'line', x1: 0, y1: 5, x2: 10, y2: 5 }] },
-        { id: 'p-2', type: 'annotation', segments: [{ kind: 'line', x1: 0, y1: 8, x2: 10, y2: 8 }] },
-      ],
-      texts: [{ id: 't-0', x: 5, y: 5, text: '10mm' }],
-    });
-    const svg = toSvgDocument(result, { includeDimensions: false });
-    expect(svg).toContain(`stroke="${LINE_STYLES.cut.stroke}"`);
-    expect(svg).not.toContain(`stroke="${LINE_STYLES.dimension.stroke}"`);
-    expect(svg).not.toContain(`stroke="${LINE_STYLES.annotation.stroke}"`);
-    expect(svg).not.toContain('<text');
-    expect(svg).not.toContain('10mm');
   });
 
   it('樣式同源 mutation 測試：改 LINE_STYLES.cut.stroke 後輸出的 stroke 值跟著變', () => {
@@ -190,13 +175,75 @@ describe('toSvgDocument', () => {
     expect(svg).toContain('</svg>');
   });
 
-  it('冒煙：真實 RTE 輸出在 includeDimensions=false 時，<path> 數量減少（dimension 線確實被剔除）', () => {
+  // ── g 圖層分組（Slice 3 gate round 1 T4）──
+  // paths 依 layerKeyForLineType 分 4 桶，每桶非空時包一層 <g id=英文 data-name=中文>；
+  // 空桶不輸出 g（AI 圖層面板不出現空群組）；texts 全部歸 DIMENSIONS 桶（v1 texts 全來自標註）。
+
+  it('paths 依線型分 4 桶，各自包一層 <g id="…" data-name="…">（Illustrator 圖層分組）', () => {
+    const result = makeResult({
+      paths: [
+        { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+        { id: 'p-crease', type: 'crease', segments: [{ kind: 'line', x1: 0, y1: 1, x2: 10, y2: 1 }] },
+        { id: 'p-halfcut', type: 'halfcut', segments: [{ kind: 'line', x1: 0, y1: 2, x2: 10, y2: 2 }] },
+      ],
+      texts: [{ id: 't-0', x: 5, y: 5, text: '10mm' }],
+    });
+    const svg = toSvgDocument(result);
+    expect(svg).toContain('<g id="CUT" data-name="切割線">');
+    expect(svg).toContain('<g id="CREASE" data-name="摺線">');
+    expect(svg).toContain('<g id="HALFCUT" data-name="半刀">');
+    expect(svg).toContain('<g id="DIMENSIONS" data-name="尺寸標註">');
+  });
+
+  it('g id（cut/crease/halfcut）與 DXF_LAYER_BY_LINETYPE 的圖層名逐字一致（跨格式同名，Illustrator/CAD 圖層對得上）', () => {
+    const result = makeResult({
+      paths: [
+        { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+        { id: 'p-crease', type: 'crease', segments: [{ kind: 'line', x1: 0, y1: 1, x2: 10, y2: 1 }] },
+        { id: 'p-halfcut', type: 'halfcut', segments: [{ kind: 'line', x1: 0, y1: 2, x2: 10, y2: 2 }] },
+      ],
+    });
+    const svg = toSvgDocument(result);
+    expect(svg).toContain(`<g id="${DXF_LAYER_BY_LINETYPE.cut}"`);
+    expect(svg).toContain(`<g id="${DXF_LAYER_BY_LINETYPE.crease}"`);
+    expect(svg).toContain(`<g id="${DXF_LAYER_BY_LINETYPE.halfcut}"`);
+  });
+
+  it('texts 全部在 DIMENSIONS 這個 g 內，不出現在 cut 的 g 裡（v1 texts 全來自標註）', () => {
+    const result = makeResult({
+      paths: [{ id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      texts: [{ id: 't-0', x: 5, y: 5, text: '10mm' }],
+    });
+    const svg = toSvgDocument(result);
+    const dimensionsGroupStart = svg.indexOf('<g id="DIMENSIONS"');
+    const dimensionsGroupEnd = svg.indexOf('</g>', dimensionsGroupStart);
+    const textIndex = svg.indexOf('<text');
+    expect(dimensionsGroupStart).toBeGreaterThan(-1);
+    expect(textIndex).toBeGreaterThan(dimensionsGroupStart);
+    expect(textIndex).toBeLessThan(dimensionsGroupEnd);
+
+    const cutGroupStart = svg.indexOf('<g id="CUT"');
+    const cutGroupEnd = svg.indexOf('</g>', cutGroupStart);
+    expect(svg.slice(cutGroupStart, cutGroupEnd)).not.toContain('<text');
+  });
+
+  it('空桶不輸出 g：RTE 真實輸出沒有 halfcut 線型，不含 <g id="HALFCUT">（AI 圖層面板不出現空群組）', () => {
     const result = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
-    const full = toSvgDocument(result);
-    const withoutDims = toSvgDocument(result, { includeDimensions: false });
-    const fullCount = (full.match(/<path /g) ?? []).length;
-    const trimmedCount = (withoutDims.match(/<path /g) ?? []).length;
-    expect(trimmedCount).toBeLessThan(fullCount);
-    expect(withoutDims).not.toContain('<text');
+    const svg = toSvgDocument(result);
+    expect(svg).not.toContain('id="HALFCUT"');
+  });
+
+  it('telescope 真實輸出含 halfcut 線型（舌摺線中段軋半斷），輸出 <g id="HALFCUT" data-name="半刀">', () => {
+    const result = telescope.generate(resolveParams(telescope));
+    const svg = toSvgDocument(result);
+    expect(svg).toContain('<g id="HALFCUT" data-name="半刀">');
+  });
+
+  it('g id 恰不重複', () => {
+    const result = telescope.generate(resolveParams(telescope));
+    const svg = toSvgDocument(result);
+    const ids = [...svg.matchAll(/<g id="([^"]+)"/g)].map((m) => m[1]);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
