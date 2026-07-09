@@ -1,5 +1,7 @@
 /**
- * AnnouncementModal：v0.2.0 公開發布宣告視窗（維護者定稿文案，內文逐字使用，不可改寫）。
+ * AnnouncementModal：公開發布宣告視窗（維護者定稿文案，內文逐字使用，不可改寫）。
+ * v0.2.0 首版；v0.3.0 上線後補測試版定位聲明、本地處理與問題回報等備注（2026-07-09
+ * 維護者定稿），dismiss key 同步 bump v1→v2 讓既有訪客再看一次新內容。
  *
  * 顯示邏輯：首次訪問（localStorage 沒有 dismiss key）自動開啟；使用者透過 × 鈕／backdrop
  * 點擊／卡片底部「開始使用」關閉時都會寫入 localStorage，之後重新載入不再自動彈出。Esc
@@ -17,7 +19,7 @@
  */
 import { useEffect } from 'react';
 
-export const ANNOUNCEMENT_DISMISS_KEY = 'open-dieline-announcement-v1-dismissed';
+export const ANNOUNCEMENT_DISMISS_KEY = 'open-dieline-announcement-v2-dismissed';
 
 /**
  * localStorage 存取包 try/catch：Safari 隱私瀏覽等環境下 `localStorage.getItem/setItem`
@@ -90,11 +92,21 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
         </button>
 
         <div className="flex flex-col gap-4 pr-6 text-sm leading-relaxed text-zinc-700">
-          <h2 className="text-lg font-bold tracking-wide text-zinc-900">open-dieline</h2>
+          <h2 className="text-lg font-bold tracking-wide text-zinc-900">
+            open-dieline{' '}
+            <span className="align-middle text-xs font-normal tracking-normal text-zinc-400">
+              v0.3.0 開發測試版
+            </span>
+          </h2>
 
           <p>
             一個開源的印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。
-            目前支援反向插舌盒（RTE）與天地盒三件套，幾何規則以真實生產刀模逆向量測校準。
+            幾何規則以真實生產刀模逆向量測校準。
+          </p>
+
+          <p>
+            目前為開發測試版，僅提供兩種盒型——反向插舌盒（RTE）與天地盒三件套（上蓋／下盒／平台式內襯），
+            更多盒型陸續開發中。
           </p>
 
           <p>
@@ -107,7 +119,16 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
             >
               Konvolut
             </a>{' '}
-            的一部分——關於書、紙、印刷與收藏的實踐。文字刊於{' '}
+            的一部分——關於書、紙、印刷與收藏的實踐。原始碼在{' '}
+            <a
+              href="https://github.com/BrownBear127/open-dieline"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              GitHub
+            </a>
+            ，文字刊於{' '}
             <a
               href="https://konvolut.substack.com"
               target="_blank"
@@ -123,7 +144,9 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
             <p className="font-bold uppercase tracking-wider text-zinc-400">使用注意</p>
             <p>・產出的刀模僅供打樣與學習參考；量產前請務必實際打樣驗證（紙材、絲向、機台都會影響成品）</p>
             <p>・紙厚補償係數以特定紙材（黑卡 0.4mm 級）的生產經驗校準，其他紙材請自行試摺調整</p>
-            <p>・非商業使用授權（PolyForm Noncommercial 1.0.0）；商業使用請來信洽談：hello@konvolut.art</p>
+            <p>・所有計算與檔案處理皆在瀏覽器本地完成，匯入的刀模檔不會上傳到任何伺服器</p>
+            <p>・畫布拖曳與校準以滑鼠操作設計，建議使用桌面瀏覽器</p>
+            <p>・非商業使用授權（PolyForm Noncommercial 1.0.0）；商業使用及問題回報請聯繫：hello@konvolut.art</p>
           </div>
         </div>
 
