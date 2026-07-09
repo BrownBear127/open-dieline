@@ -41,9 +41,16 @@ export interface PreviewInstance {
  *   `translate(-mb.minX,-mb.minY)` 最先作用在原始幾何點上），故字串書寫順序是
  *   `translate(cell) translate(h,0) rotate(90) translate(-min)`。
  *
- * `cols×rows` 超過 `MAX_PREVIEW_INSTANCES`（review F10）時只回傳前 N 個（row-major：先列滿
- * 第 0 列再進第 1 列……）；`count`（cols×rows 精確值）由呼叫端另外顯示兩位小數的利用率與
- * 「N 模」文字，不受這裡截斷影響——這個函式只負責「畫多少個」，不負責「報告多少個」。
+ * `cols×rows` 超過 `MAX_PREVIEW_INSTANCES`（review F10）時只**建立**前 N 個（row-major：
+ * 先列滿第 0 列再進第 1 列……）——**cap 在建立物件之前生效**（fix round 1 收斂 High
+ * finding：舊實作先用 `Array.from(rows)`／`Array.from(cols)` 展開完整 `rows×cols` 陣列
+ * 再 `.flat().slice(0, cap)`，時間與記憶體仍是 `O(cols×rows)`；core 允許的合法輸入
+ * （件尺寸最小 0.01mm、紙尺寸最大 1e6mm）單軸可得 332,226、兩軸乘積達 1,103 億級，
+ * 足以在觸及 slice 前就凍結頁面／耗盡記憶體）。現在改成先算
+ * `limit = min(cols×rows, cap)`，只對 `i = 0..limit-1` 建立物件，用 `r = floor(i/cols)`、
+ * `c = i % cols` 反推 row-major 座標——時間與記憶體皆 `O(limit)`，不是 `O(cols×rows)`。
+ * `count`（cols×rows 精確值）由呼叫端另外顯示兩位小數的利用率與「N 模」文字，不受這裡
+ * 截斷影響——這個函式只負責「畫多少個」，不負責「報告多少個」。
  */
 export function instanceTransforms(
   dir: 0 | 90,
@@ -60,19 +67,24 @@ export function instanceTransforms(
   const cellH = dir === 0 ? h : w;
   const localize = `translate(${-mb.minX} ${-mb.minY})`;
 
-  const instances = Array.from({ length: Math.max(0, rows) }, (_, r) =>
-    Array.from({ length: Math.max(0, cols) }, (_, c): PreviewInstance => {
-      const cellX = gripper + c * (cellW + gap);
-      const cellY = gripper + r * (cellH + gap);
-      const transform =
-        dir === 0
-          ? `translate(${cellX} ${cellY}) ${localize}`
-          : `translate(${cellX} ${cellY}) translate(${h} 0) rotate(90) ${localize}`;
-      return { transform, cellX, cellY, cellW, cellH };
-    }),
-  ).flat();
+  // 負值防禦沿用舊實作語意（cols/rows 理論上恆為 fitCount 回傳的 >=0 整數，但這是 export
+  // 的公開函式，呼叫端可能繞過 fitCount 直接餵值）；limit 用 clamp 後的值計算，避免負數
+  // 乘積讓 Math.min 誤判。
+  const safeCols = Math.max(0, cols);
+  const safeRows = Math.max(0, rows);
+  const limit = Math.min(safeCols * safeRows, MAX_PREVIEW_INSTANCES);
 
-  return instances.slice(0, MAX_PREVIEW_INSTANCES);
+  return Array.from({ length: limit }, (_, i): PreviewInstance => {
+    const r = Math.floor(i / safeCols);
+    const c = i % safeCols;
+    const cellX = gripper + c * (cellW + gap);
+    const cellY = gripper + r * (cellH + gap);
+    const transform =
+      dir === 0
+        ? `translate(${cellX} ${cellY}) ${localize}`
+        : `translate(${cellX} ${cellY}) translate(${h} 0) rotate(90) ${localize}`;
+    return { transform, cellX, cellY, cellW, cellH };
+  });
 }
 
 /** 預覽線段的線型集合——只取幾何結構線；UI 圖層可見性／標註／文字／overlay 一律不參與

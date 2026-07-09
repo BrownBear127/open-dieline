@@ -57,6 +57,15 @@ describe('instanceTransforms — 數量', () => {
     expect(instanceTransforms(0, 30, 30, mb, 0, 1)).toHaveLength(MAX_PREVIEW_INSTANCES);
   });
 
+  it('極大 logical count（cols=rows=332,226，review High 引用的合法輸入上界，乘積約 1103 億）→ 立即回傳 500 個、耗時 < 1 秒（cap 惰性建構回歸測試）', () => {
+    const mb: Bounds = { minX: 0, maxX: 0.01, minY: 0, maxY: 0.01 };
+    const start = Date.now();
+    const result = instanceTransforms(0, 332_226, 332_226, mb, 0, 3);
+    const elapsed = Date.now() - start;
+    expect(result).toHaveLength(MAX_PREVIEW_INSTANCES);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
   it('cols 或 rows 為 0 → 空陣列（不是丟例外）', () => {
     const mb: Bounds = { minX: 0, maxX: 5, minY: 0, maxY: 5 };
     expect(instanceTransforms(0, 0, 4, mb, 0, 1)).toHaveLength(0);
