@@ -114,6 +114,14 @@ const DEGENERATE_ZERO_WIDTH_RESULT: GenerateResult = {
   bounds: { minX: 5, maxX: 5, minY: 0, maxY: 10 },
 };
 
+// 同族的零「高」變體（y 恆為 7 的水平線）：pieceH=0。T3 re-review 以 mutation 證明只有
+// pieceW 案例時，production 的 pieceH 錯誤分支可被刪除而全套仍綠——此 fixture 補上鑑別力。
+const DEGENERATE_ZERO_HEIGHT_RESULT: GenerateResult = {
+  paths: [{ id: 'cut-1', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 7, x2: 10, y2: 7 }] }],
+  texts: [],
+  bounds: { minX: 0, maxX: 10, minY: 7, maxY: 7 },
+};
+
 const BASE_STATE: ImpositionState = {
   pieceId: null,
   paperPresetId: 'custom',
@@ -368,6 +376,15 @@ describe('ImpositionView — 線型 DOM 接線（review 測試縫 2）', () => {
 describe('ImpositionView — 整體錯誤（review 測試縫 3）', () => {
   it('pieceW 由製造 bounds 導出為 0（degenerate 零寬幾何）→ 整體錯誤＋兩卡「—」＋零排列', () => {
     render(<ImpositionView result={DEGENERATE_ZERO_WIDTH_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+
+    expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
+  });
+
+  it('pieceH 由製造 bounds 導出為 0（degenerate 零高幾何）→ 整體錯誤＋兩卡「—」＋零排列', () => {
+    render(<ImpositionView result={DEGENERATE_ZERO_HEIGHT_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
 
     expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
     expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
