@@ -1,9 +1,8 @@
-import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { BoxModule, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
-import { registerBox, _clearRegistry, listBoxes, resolveParams } from '@/core/registry';
+import { registerBox, _clearRegistry, resolveParams } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
@@ -12,6 +11,8 @@ import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
 import { OVERLAY_STROKE } from '@/overlay/state';
+import { parseOverlaySvg } from '@/overlay/parse';
+import { createOverlayLayer } from '@/overlay/layers';
 import { manufacturingBounds } from '@/export/svg';
 // T1 的 parseDxf 原本 export 於 tests/export/dxf.test.ts，供本檔重用、不重寫解析器；但靜態
 // import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的 describe（Vitest globals 模式下
@@ -22,35 +23,22 @@ import { manufacturingBounds } from '@/export/svg';
 // include glob 不會收集成測試檔，兩邊 import 都只拿函式本身、不再連帶重跑任何 describe。
 import { parseDxf } from '../export/dxf-helpers';
 
-// ── 測試專用 harness：ExportBar 的 includeDimensions 改成受控 prop 後（T9 Fix Round 2
-// 修復 3，state 提升到 App.tsx），底下「ExportBar：下載內容與 includeDimensions checkbox
-// 傳遞」這組既有測試不能再靠 ExportBar 自己的 useState 顯示/切換 checkbox——這裡補一個
-// 最小的本地 state 容器，行為等同 App.tsx 實際餵給 ExportBar 的方式，既有測試的互動流程
-// （click checkbox → 觀察下載內容）不必改寫。
+// ── 測試專用 harness：Slice 3 gate round 1 T2 起，ExportBar 的 includeDimensions props 退役
+// （匯出恆全量，見 plan「匯出恆全量」裁決）——這個 harness 本身不再需要管理任何額外 state，
+// 純粹是為了讓下面既有測試維持同一種呼叫寫法（<ExportBarHarness boxId=... values=... .../>），
+// 不必逐一改成直接呼叫 <ExportBar>，減少本次改動的差異噪音。
 function ExportBarHarness({
   boxId,
   values,
   result,
-  initialIncludeDimensions = true,
   activePiece,
 }: {
   boxId: string;
   values: ResolvedParams;
   result: GenerateResult;
-  initialIncludeDimensions?: boolean;
   activePiece?: DielinePiece;
 }) {
-  const [includeDimensions, setIncludeDimensions] = useState(initialIncludeDimensions);
-  return (
-    <ExportBar
-      boxId={boxId}
-      values={values}
-      result={result}
-      includeDimensions={includeDimensions}
-      onIncludeDimensionsChange={setIncludeDimensions}
-      activePiece={activePiece}
-    />
-  );
+  return <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />;
 }
 
 // ── 測試專用 fake 盒型 1：不變式恆失敗，驗證警告條渲染（brief Step 1 第二案例指定的手法）──
@@ -198,21 +186,6 @@ registerBox(cascadeBox);
 registerBox(dimBoundsBox);
 registerBox(piecesBox);
 
-/**
- * 冪等註冊：`registerBox` 對重複 id 會 throw（見 registry.ts），但下方「useParams：切換
- * 盒型時...」describe 的 `afterEach` 會 `_clearRegistry()` 後只手動補回 RTE／telescope
- * （那個 describe 只需要 tinyBox 一次性存在，其餘 fake 盒型不是它的責任範圍）——這個副作用
- * 會連帶清掉本檔其他 `registerBox(...)` 呼叫註冊的盒型，任何宣告在該 describe **之後**的
- * 測試若要用到 `piecesBox`/`dimBoundsBox` 等透過 `<App/>` 的盒型下拉切換（而非像
- * `ExportBarHarness` 那樣繞過 registry 直接呼叫 `.generate()`），必須自己確保已重新註冊。
- * 用 `listBoxes()` 檢查存在與否，而非 try/catch 吞例外——只擋「已存在」這一種已知情況，
- * 其餘驗證錯誤（如未來不慎改壞 dimBoundsBox 的參數宣告）仍會照常拋出，不被靜默吃掉。
- */
-function ensureRegistered(box: BoxModule): void {
-  if (listBoxes().some((b) => b.meta.id === box.meta.id)) return;
-  registerBox(box);
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // 全域測試 hook（v0.2.0 宣告視窗 AnnouncementModal）：預設 localStorage 為「已關閉」，
 // 讓下面所有既有測試在 render(<App />) 時 modal 不會自動彈出。這不只是視覺上的乾淨——
@@ -301,16 +274,19 @@ describe('App 冒煙測試', () => {
     expect(input.value).toBe('55'); // 恢復預設
   });
 
-  // ── T9 Fix Round 2 修復 3：includeDimensions state 提升到 App.tsx，畫布同步 ──
+  // ── Slice 3 gate round 1 T2：includeDimensions checkbox 退役，由 LayersPanel 的「尺寸標註」
+  // 生成圖層可見性取代（T9 Fix Round 2 修復 3 的回歸測試改寫為圖層語意）──
   //
-  // 根因：ExportBar 原本自己 useState 管這顆 checkbox，只影響下載的 SVG；畫布
-  // （Canvas.tsx）完全不知道這個 state 存在，永遠畫出尺寸標註，取消勾選對畫布無效。
-  it('取消勾選「含尺寸標註」後畫布 dimension path 與文字消失；重新勾選後恢復', async () => {
+  // 根因（T9 當時）：ExportBar 原本自己 useState 管這顆 checkbox，只影響下載的 SVG；畫布
+  // （Canvas.tsx）完全不知道這個 state 存在，永遠畫出尺寸標註，取消勾選對畫布無效。這條
+  // 「畫布必須跟顯示開關同步」的驗收條件延續到新的圖層可見性機制，只是控制項換成
+  // LayersPanel 的「尺寸標註」checkbox（generatedVisible.dimensions）。
+  it('關閉「尺寸標註」生成圖層後畫布 dimension path 與文字消失；重新開啟後恢復', async () => {
     render(<App />);
     await screen.findByText('open-dieline');
 
-    const checkbox = screen.getByLabelText(/含尺寸標註/) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true); // 預設勾選
+    const checkbox = screen.getByLabelText('尺寸標註') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true); // 預設全開
 
     const dimStrokeSelector = `svg path[stroke="${LINE_STYLES.dimension.stroke}"]`;
     expect(document.querySelectorAll(dimStrokeSelector).length).toBeGreaterThan(0); // 預設畫布有 dimension 線
@@ -325,6 +301,43 @@ describe('App 冒煙測試', () => {
     expect(checkbox.checked).toBe(true);
     expect(document.querySelectorAll(dimStrokeSelector).length).toBeGreaterThan(0); // 重新勾選後恢復
     expect(document.querySelectorAll('svg text').length).toBeGreaterThan(0);
+  });
+
+  it('關閉「切割線」生成圖層後畫布 cut 樣式 path 消失、不影響 crease／dimension（驗證圖層過濾對四桶皆通用，非只認 dimensions 這一桶）', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+    const cutSelector = `svg path[stroke="${LINE_STYLES.cut.stroke}"]`;
+    const creaseSelector = `svg path[stroke="${LINE_STYLES.crease.stroke}"]`;
+    expect(document.querySelectorAll(cutSelector).length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(creaseSelector).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByLabelText('切割線'));
+
+    expect(document.querySelectorAll(cutSelector).length).toBe(0);
+    expect(document.querySelectorAll(creaseSelector).length).toBeGreaterThan(0); // 不受影響
+  });
+});
+
+describe('LayersPanel：生成圖層四列恆定顯示（cut/crease/halfcut/dimensions，Slice 3 gate round 1 T2）', () => {
+  it('RTE（無 halfcut paths，見 reverse-tuck-end.ts 未使用 halfcut 線型）：halfcut 列 disabled 且 title 為「此盒型無半刀線」；其餘三列 enabled', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+
+    const halfcutCheckbox = screen.getByLabelText('半刀') as HTMLInputElement;
+    expect(halfcutCheckbox).toBeDisabled();
+    expect(halfcutCheckbox.closest('label')).toHaveAttribute('title', '此盒型無半刀線');
+
+    expect(screen.getByLabelText('切割線')).not.toBeDisabled();
+    expect(screen.getByLabelText('摺線')).not.toBeDisabled();
+    expect(screen.getByLabelText('尺寸標註')).not.toBeDisabled();
+  });
+
+  it('telescope（tray.ts 舌摺線中段有 halfcut）：halfcut 列 enabled，非恆定 disabled', async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'telescope' } });
+    await screen.findByLabelText(/下盒長度/);
+
+    expect(screen.getByLabelText('半刀')).not.toBeDisabled();
   });
 });
 
@@ -407,7 +420,7 @@ describe('Canvas：多片盒型初始縮放 130%（T7 gate 反饋修 3）', () =
   });
 });
 
-describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => {
+describe('ExportBar：下載內容恆含尺寸標註（includeDimensions checkbox 已於 Slice 3 gate round 1 T2 退役，plan 裁決「匯出恆全量」——畫布圖層可見性純顯示，不影響匯出）', () => {
   // 明確標註參數型別為 Blob（即使實作忽略它）：讓 `.mock.calls[0][0]` 型別正確推斷成 Blob，
   // 而不是從「忽略參數」的箭頭函式推斷出空 tuple `[]`（那樣下面讀 `calls[0]![0]` 會型別錯誤）。
   const createObjectURLMock = vi.fn((_blob: Blob) => 'blob:mock-url');
@@ -438,7 +451,7 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
   };
   const values = { L: 55, W: 55, D: 117 };
 
-  it('預設勾選「含尺寸標註」：下載內容含 dimension 線與文字', async () => {
+  it('下載內容恆含 dimension 線與文字（無 checkbox 可關閉；T4 才接手依圖層分 g 分組）', async () => {
     render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
@@ -448,14 +461,9 @@ describe('ExportBar：下載內容與 includeDimensions checkbox 傳遞', () => 
     expect(text).toContain('10mm');
   });
 
-  it('取消勾選「含尺寸標註」後：下載內容不含 dimension 線與文字', async () => {
+  it('ExportBar 不再渲染「含尺寸標註」checkbox（props/UI 一併退役）', () => {
     render(<ExportBarHarness boxId="rte" values={values} result={result} />);
-    fireEvent.click(screen.getByLabelText(/含尺寸標註/));
-    fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
-    const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
-    const text = await blob.text();
-    expect(text).not.toContain(`stroke="${LINE_STYLES.dimension.stroke}"`);
-    expect(text).not.toContain('10mm');
+    expect(screen.queryByLabelText(/含尺寸標註/)).not.toBeInTheDocument();
   });
 
   it('下載後 revoke 建立的 object URL（避免每次下載都洩漏一個 blob URL）', () => {
@@ -735,7 +743,7 @@ describe('ExportBar：下載 DXF（Slice 3 Task 2，接 export/dxf.ts 的 toDxfD
     const text = await blob.text();
     expect(text).toContain('AC1009');
     expect(text).toContain('CUT');
-    expect(text).not.toContain('10mm'); // texts 恆排除，即使 includeDimensions=true（受控 prop 預設值）
+    expect(text).not.toContain('10mm'); // texts 恆排除（DXF 恆排除標註，與畫布圖層可見性/SVG 匯出恆全量互相獨立）
   });
 
   it('下載後 revoke 建立的 object URL（與 SVG 共用同一份下載清理邏輯）', () => {
@@ -883,17 +891,23 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 
   afterEach(() => {
     // registry 是模組層級全域 Map；本 describe 額外註冊了 tinyBox，用完清空避免殘留。
-    // 清空後 RTE 不會因為重新 import 就恢復註冊（ES module cache——reverseTuckEnd.ts
-    // 頂層的 registerBox(reverseTuckEnd) 只在模組第一次載入時執行過一次），這裡直接用
-    // 已在記憶體中的 reverseTuckEnd 物件手動呼叫 registerBox() 補回。telescope 同一道理
-    // 也要補回（Slice 2 Task 6 新增：本 describe 後面的「RTE↔telescope 真雙盒」測試需要
-    // telescope 存在於 registry——這個 afterEach 在同一個 describe 內每個 it() 之後都會跑，
-    // 若不補回，第一個測試跑完就把 telescope 清掉了，後面的測試會在還沒進到它們自己的
-    // 斷言之前就先讀到「telescope 未註冊」）。本 describe 是檔案最後一個 block，此後沒有
-    // 測試依賴 registry 狀態，此舉純粹是測試衛生。
+    // 清空後任何盒型都不會因為重新 import 就恢復註冊（ES module cache——各盒型頂層的
+    // registerBox(...) 呼叫只在模組第一次載入時執行過一次），這裡直接用已在記憶體中的
+    // 物件手動呼叫 registerBox() 全部補回：reverseTuckEnd／telescope 之外，本檔頂部
+    // 額外 registerBox() 過的四個 fake 盒型（failingBox/cascadeBox/dimBoundsBox/
+    // piecesBox）也一併復原（Slice 3 gate round 1 T2 根治 infra debt：修前只復原
+    // RTE／telescope，本 describe **之後**若有測試需要透過 `<App/>` 盒型下拉切到某個
+    // fake 盒型，必須先手動呼叫已退役的 `ensureRegistered()` workaround補救——現在
+    // afterEach 直接復原全部，不再需要那個 workaround）。本 describe 是檔案最後一個
+    // block，此後沒有測試依賴 registry 狀態，此舉純粹是測試衛生＋消除未來新增測試時
+    // 需要記得手動補註冊的隱性負擔。
     _clearRegistry();
     registerBox(reverseTuckEnd);
     registerBox(telescope);
+    registerBox(failingBox);
+    registerBox(cascadeBox);
+    registerBox(dimBoundsBox);
+    registerBox(piecesBox);
   });
 
   it('改 override 後切換盒型不 crash：新盒型正常渲染其自身參數', async () => {
@@ -1166,15 +1180,21 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// Slice 3 Task 4（spec §5）：Overlay 狀態層＋匯入/顯示/對齊 UI。獨立疊層——不進
-// GenerateResult、不參與 bounds/fit/hit-test（見 Canvas.tsx 疊繪處與 overlay/state.ts
-// docblock）。fixture SVG 刻意只含一條 <line>（產生 1 個可手算 rawBounds 的 segment）＋
-// 一個 <text>（觸發 parseOverlaySvg 既有的「未支援標籤」警告，見 overlay/parse.ts），
-// 同時涵蓋「匯入成功」與「警告顯示」兩條路徑，不必為每個場景各寫一份 fixture。
-// width="100"（無 mm/pt 字尾）搭配 OverlayPanel 預設 unit='pt'：scale 恆為
-// initialScaleGuess 的 pt 比例（0.352778），不受自動判定分支影響，讓其餘場景的斷言更單純。
+// Slice 3 gate round 1 T2：OverlayPanel 單一疊圖模型退役，改 LayersPanel 多層模型
+// （`overlay/layers.ts` 的 `OverlayLayer[]`）。fixture SVG 沿用 Task 4 既有設計（一條
+// <line> 產生 1 個可手算 rawBounds 的 segment＋一個 <text> 觸發「未支援標籤」警告，
+// 同時涵蓋「匯入成功」與「警告顯示」兩條路徑）。width="100"（無 mm/pt 字尾）搭配
+// LayersPanel 預設 unit='pt'：scale 恆為 initialScaleGuess 的 pt 比例（0.352778）。
+//
+// 語意變更（對照舊 OverlayPanel 逐項核對，見 task-2-report.md self-review）：
+// - 匯入不再是「offset 歸零」，改「置中預設」＋自動選中新層（gate 反饋①，createOverlayLayer）。
+// - 快速對齊三鈕（左上/中心/bbox）退役，改「重新置中」單鈕（恆用 'center' 模式）。
+// - 「清除」（整個疊圖歸零）退役，改逐層「刪除」（removeOverlayLayer，見多層獨立控制 describe）。
+// - 單位下拉的「已校準後變更提示覆蓋」（pendingUnitOverride）子功能退役：多層下「改單位」
+//   語意不再良定義（下拉是「下一次匯入」的解讀依據，不是任一層的可編輯屬性；OverlayLayer
+//   本身也沒有 sourceInfo 可回頭重算，T1 契約不重新定義），改為單純「不影響既有圖層」。
 // ─────────────────────────────────────────────────────────────────────────
-describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Task 4，spec §5）', () => {
+describe('LayersPanel：疊圖匯入/顯示/透明度/校準/重新置中（Slice 3 gate round 1 T2，取代 OverlayPanel）', () => {
   const overlaySvgText =
     '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">' +
     '<line x1="0" y1="0" x2="100" y2="50" /><text x="10" y="10">ignored</text></svg>';
@@ -1183,7 +1203,7 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     return new File([overlaySvgText], 'overlay.svg', { type: 'image/svg+xml' });
   }
 
-  /** 匯入 fixture SVG 並等到畫布出現洋紅疊圖 path（FileReader 非同步，見 OverlayPanel.tsx）。 */
+  /** 匯入 fixture SVG 並等到畫布出現洋紅疊圖 path（FileReader 非同步，見 LayersPanel.tsx）。 */
   async function importOverlay(): Promise<void> {
     const input = screen.getByLabelText(/匯入生產 SVG/) as HTMLInputElement;
     fireEvent.change(input, { target: { files: [makeOverlayFile()] } });
@@ -1201,6 +1221,26 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     expect(overlayPath).toHaveAttribute('fill', 'none');
     expect(overlayPath.parentElement?.tagName.toLowerCase()).toBe('g');
     expect(overlayPath.parentElement).toHaveAttribute('transform', expect.stringContaining('scale('));
+  });
+
+  it('匯入自動置中並選中（gate 反饋①）：offset/scale 等於獨立呼叫 createOverlayLayer 對同一 targetBounds 的計算結果，不是舊行為的 offset 歸零', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+    await importOverlay();
+
+    // 獨立重算（不讀實作內部變數）：RTE 預設參數的製造 bounds＋fixture 同一份 parse 結果，
+    // 餵進 T1 的 createOverlayLayer（id 值不影響 offset/scale，隨便填）。
+    const rteResult = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
+    const target = manufacturingBounds(rteResult);
+    const parsed = parseOverlaySvg(overlaySvgText);
+    const expected = createOverlayLayer(parsed, 'overlay.svg', 'pt', target, 'irrelevant-id');
+
+    const overlayGroup = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!;
+    const match = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(overlayGroup.getAttribute('transform') ?? '');
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeCloseTo(expected.offsetX);
+    expect(Number(match![2])).toBeCloseTo(expected.offsetY);
+    expect(Number(match![3])).toBeCloseTo(expected.scale);
   });
 
   it('FX1：匯入含 <circle> 的 SVG → 疊圖 path 的 d 非空、含兩段 A 指令弧（修前 full-circle 單一 arc 在 SVG A 指令語意下起訖點重合＝零渲染，畫布上完全隱形；見 overlay/parse.ts circleToSegments 文件）', async () => {
@@ -1221,7 +1261,7 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     expect(arcCommandCount).toBe(2); // 兩個半圓 arc，各自投影成一個 SVG A 指令
   });
 
-  it('警告清單顯示（parseOverlaySvg 既有的未支援標籤警告，原樣人話呈現）', async () => {
+  it('警告清單顯示（parseOverlaySvg 既有的未支援標籤警告，顯示在該層列下方，原樣人話呈現）', async () => {
     render(<App />);
     await importOverlay();
     expect(screen.getByText('<text> ×1 未匯入')).toBeInTheDocument();
@@ -1267,107 +1307,196 @@ describe('OverlayPanel：疊圖匯入/顯示/透明度/快速對齊（Slice 3 Ta
     expect(calibrateButton).not.toBeDisabled();
   });
 
-  it('快速對齊「左上」後 offset 生效：疊圖 <g> 的 translate 對齊目前畫布的製造 bounds 左上角（FX3 修正後的必要更新，見下方說明）', async () => {
+  it('未選中時「校準」鈕 disabled（Canvas 校準對象＝選中層，未選中不可達）：取消選中後鈕鎖住，重新選中後恢復', async () => {
     render(<App />);
-    await importOverlay();
+    await importOverlay(); // 匯入自動選中
 
-    // FX3（Slice 3 final review）修前：這裡直接讀 Canvas 畫布的 viewBox（全版視圖＝
-    // result.bounds 原值）當對齊目標，跟當時的實作用同一份資料。FX3 修正後，對齊目標改成
-    // `manufacturingBounds(result, activePiece)`（排除 dimension/annotation 路徑）——RTE
-    // 預設參數下這兩者確實不同（RTE 自己的尺寸標註線延伸到 cut/crease 幾何之外，見
-    // App.tsx FX3 註解），沿用舊斷言（讀 viewBox）會誤判「對齊到含標註外擴的框」為正確。
-    // 這裡改成獨立呼叫 RTE 的 generate() 重算同一份 manufacturingBounds，不硬編數字——
-    // 沿用既有測試原本的用意（斷言不因 RTE 預設值調整而變成假紅），只是資料來源從
-    // 「讀 DOM viewBox」換成「獨立重算 FX3 實際使用的同一份製造 bounds」。
-    const rteResult = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
-    const target = manufacturingBounds(rteResult);
+    const calibrateButton = screen.getByRole('button', { name: '校準' });
+    expect(calibrateButton).not.toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: '左上' }));
+    fireEvent.click(screen.getByText('overlay')); // 點列名＝取消選中（見 stripSvgExtension，檔名去 .svg 後顯示 "overlay"）
+    expect(calibrateButton).toBeDisabled();
 
-    const overlayGroup = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!;
-    const match = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(overlayGroup.getAttribute('transform') ?? '');
-    expect(match).not.toBeNull();
-    // fixture line 的 rawBounds minX/minY 皆為 0 → offsetX/Y = target.minX/minY − 0×scale = target.minX/minY
-    expect(Number(match![1])).toBeCloseTo(target.minX);
-    expect(Number(match![2])).toBeCloseTo(target.minY);
+    fireEvent.click(screen.getByText('overlay')); // 再點一次＝重新選中
+    expect(calibrateButton).not.toBeDisabled();
   });
 
-  it('FX3：快速對齊目標排除標註外擴——切到 cut hull 遠小於宣告 bounds 的測試盒，「左上」對齊到製造 bounds（0,0）而非含 dimension 的 bounds（-30,-30）', async () => {
-    ensureRegistered(dimBoundsBox); // 見宣告處註解：本測試宣告在「useParams：切換盒型時...」describe 之後，該 describe 的 afterEach 會清掉這個盒型
+  it('「重新置中」：切換盒型後點擊，offset 重算為新盒型的置中目標（而非停留在舊值——證明真的重算，不是不小心一直是同一個 no-op 值）', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-dim-bounds-box' } });
-    await screen.findByLabelText(/X 值/);
-    await importOverlay();
+    await importOverlay(); // 在 RTE 上匯入，自動置中於 RTE 的 manufacturingBounds
 
-    fireEvent.click(screen.getByRole('button', { name: '左上' }));
+    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'telescope' } });
+    await screen.findByLabelText(/下盒長度/);
 
-    const overlayGroup = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!;
-    const match = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(overlayGroup.getAttribute('transform') ?? '');
-    expect(match).not.toBeNull();
-    // 製造 bounds（排除 dim-0）＝cut hull 的 minX/minY＝(0,0)；若沿用修前行為（含 dimension
-    // 的 result.bounds）會是 (-30,-30)。fixture rawBounds minX/minY 皆為 0 → offset=target.min。
-    expect(Number(match![1])).toBeCloseTo(0);
-    expect(Number(match![2])).toBeCloseTo(0);
+    // 疊圖跨盒型保留（brief 明文裁決），此時 offset 仍是 RTE 置中值，尚未跟著新盒型重算。
+    expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
+
+    const parsed = parseOverlaySvg(overlaySvgText);
+    const rteTarget = manufacturingBounds(reverseTuckEnd.generate(resolveParams(reverseTuckEnd)));
+    const telescopeTarget = manufacturingBounds(telescope.generate(resolveParams(telescope)));
+    const expectedBefore = createOverlayLayer(parsed, 'overlay.svg', 'pt', rteTarget, 'x');
+    const expectedAfter = createOverlayLayer(parsed, 'overlay.svg', 'pt', telescopeTarget, 'x');
+    // sanity：兩個目標的置中值必須真的不同，測試才有區分力（若剛好相同，點不點「重新置中」都看不出差異）。
+    expect(expectedAfter.offsetX).not.toBeCloseTo(expectedBefore.offsetX);
+
+    const readOffsetX = () => {
+      const g = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!;
+      return Number(/translate\(([-\d.]+)/.exec(g.getAttribute('transform') ?? '')![1]);
+    };
+    expect(readOffsetX()).toBeCloseTo(expectedBefore.offsetX); // 尚未點擊，仍是 RTE 置中值
+
+    fireEvent.click(screen.getByRole('button', { name: '重新置中' }));
+
+    expect(readOffsetX()).toBeCloseTo(expectedAfter.offsetX); // 重算為 telescope 的置中值
   });
 
-  it('清除後疊圖與其控制項（顯示開關／透明度/對齊鈕）消失，僅剩匯入區塊', async () => {
+  it('「重新置中」鈕未選中任何層時 disabled', async () => {
+    render(<App />);
+    await importOverlay();
+    fireEvent.click(screen.getByText('overlay')); // 取消選中
+
+    expect(screen.getByRole('button', { name: '重新置中' })).toBeDisabled();
+  });
+
+  it('單位下拉只影響下一次匯入，不回頭改變已匯入圖層的 scale（retroactive 覆蓋對話框功能隨多層化退役——下拉不再對應任一層可編輯屬性，見 task-2-report 裁量說明）', async () => {
+    render(<App />);
+    await importOverlay(); // 預設 unit='pt' 匯入
+    const readOverlayScale = () => {
+      const transform = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!.getAttribute('transform') ?? '';
+      return Number(/scale\(([-\d.]+)\)/.exec(transform)![1]);
+    };
+    const scaleBefore = readOverlayScale();
+
+    fireEvent.change(screen.getByLabelText(/單位/), { target: { value: 'mm' } });
+
+    expect(readOverlayScale()).toBeCloseTo(scaleBefore, 6); // 已匯入圖層不受影響
+    expect(screen.queryByText(/切換單位將覆蓋/)).not.toBeInTheDocument(); // 沒有 retroactive 覆蓋對話框
+  });
+
+  it('刪除圖層後該層與其控制項（顯示開關／透明度／校準鈕／warnings）消失，匯入區塊仍在', async () => {
     render(<App />);
     await importOverlay();
 
-    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+    fireEvent.click(screen.getByRole('button', { name: '刪除' }));
 
     expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/顯示疊圖/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/透明度/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '左上' })).not.toBeInTheDocument();
-    // 匯入區塊本身仍在，清除不等於整個面板消失
+    expect(screen.queryByRole('button', { name: '校準' })).not.toBeInTheDocument();
+    // 匯入區塊本身仍在，刪除不等於整個面板消失
     expect(screen.getByLabelText(/匯入生產 SVG/)).toBeInTheDocument();
   });
 
   // file input 是 uncontrolled 元件：真實瀏覽器對「選了同一個檔案」不會觸發 onChange（value
-  // 沒變）——「清除」若沒有連帶清掉 input 的原生已選檔案記憶，使用者清除後想重新匯入同一份
-  // 檔案會靜默沒反應（自我 review 發現）。這裡驗證修法本身（OverlayPanel.tsx 的 fileInputKey：
-  // 清除時遞增 key 強制重掛載 input）：直接斷言 DOM 節點在清除前後不是同一個——不用
+  // 沒變）。舊 OverlayPanel 只在「清除」時重掛載；多層模型沒有整體「清除」動作了，改成
+  // 每次成功匯入都重掛載，讓使用者可以連續匯入同名檔案（多層情境下這是合理新增用例——
+  // 例如同一份生產檔想疊兩份比較不同 offset）。直接斷言 DOM 節點身分變化：不用
   // `fireEvent.change` 兩次比對行為，因為 RTL 的 fireEvent 是無條件派送合成事件，不會重現
-  // 「瀏覽器發現 value 沒變就不派送原生 change 事件」這個真實限制，寫成行為測試會通不過
-  // RED（即使拿掉修法，靠 fireEvent 硬派送兩次一樣會成功，驗證不到問題），只有直接斷言
-  // 節點身分（remount 與否）才是這個修法唯一可驗證的部分。
-  it('清除後 file input 重新掛載（key 遞增），清掉原生已選檔案記憶', async () => {
+  // 「瀏覽器發現 value 沒變就不派送原生 change 事件」這個真實限制。
+  it('每次成功匯入後 file input 重新掛載（key 遞增），不必等到刪除才能重新匯入同名檔案', async () => {
     render(<App />);
     const inputBefore = screen.getByLabelText(/匯入生產 SVG/);
     await importOverlay();
-
-    fireEvent.click(screen.getByRole('button', { name: '清除' }));
-
     const inputAfter = screen.getByLabelText(/匯入生產 SVG/);
     expect(inputAfter).not.toBe(inputBefore); // 不同 DOM 節點＝真的重新掛載，不只是清空 value
+  });
+});
+
+describe('LayersPanel：多層獨立控制（Slice 3 gate round 1 T2，取代單體 OverlayPanel 語意）', () => {
+  const svgA = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><line x1="0" y1="0" x2="100" y2="50" /></svg>';
+  const svgB = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><line x1="0" y1="0" x2="80" y2="40" /></svg>';
+
+  async function importFile(text: string, name: string): Promise<void> {
+    const input = screen.getByLabelText(/匯入生產 SVG/) as HTMLInputElement;
+    const file = new File([text], name, { type: 'image/svg+xml' });
+    const before = document.querySelectorAll(`path[stroke="${OVERLAY_STROKE}"]`).length;
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(document.querySelectorAll(`path[stroke="${OVERLAY_STROKE}"]`).length).toBe(before + 1);
+    });
+  }
+
+  it('匯入兩份檔案 → 兩個獨立圖層，opacity/visible 互不影響；後匯入者自動選中（stroke 較粗）', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+    await importFile(svgA, 'layer-a.svg');
+    await importFile(svgB, 'layer-b.svg');
+
+    const paths = Array.from(document.querySelectorAll(`path[stroke="${OVERLAY_STROKE}"]`));
+    expect(paths).toHaveLength(2);
+    expect(paths.every((p) => p.getAttribute('stroke-opacity') === '0.5')).toBe(true); // 兩層預設 opacity 皆 0.5
+
+    const widths = paths.map((p) => Number(p.getAttribute('stroke-width')));
+    // 後匯入者（layer-b，索引 1）自動選中，選中層 stroke 加粗，應比未選中的 layer-a 粗。
+    expect(widths[1]).toBeGreaterThan(widths[0]!);
+
+    const rowA = screen.getByText('layer-a').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
+    const sliderA = within(rowA).getByLabelText(/透明度/) as HTMLInputElement;
+    fireEvent.change(sliderA, { target: { value: '20' } });
+
+    const pathsAfterOpacity = Array.from(document.querySelectorAll(`path[stroke="${OVERLAY_STROKE}"]`));
+    expect(pathsAfterOpacity[0]).toHaveAttribute('stroke-opacity', '0.2'); // 只有 layer-a 變
+    expect(pathsAfterOpacity[1]).toHaveAttribute('stroke-opacity', '0.5'); // layer-b 不受影響
+
+    const visibleA = within(rowA).getByLabelText(/顯示疊圖/) as HTMLInputElement;
+    fireEvent.click(visibleA);
+    expect(document.querySelectorAll(`path[stroke="${OVERLAY_STROKE}"]`)).toHaveLength(1); // 只剩 layer-b
+  });
+
+  it('點列名切換選中：選中 layer-a 後 layer-a 校準鈕 enabled、layer-b 校準鈕 disabled（校準對象只能是選中層）', async () => {
+    render(<App />);
+    await screen.findByText('open-dieline');
+    await importFile(svgA, 'layer-a.svg');
+    await importFile(svgB, 'layer-b.svg'); // 匯入後自動選中 layer-b
+
+    const rowA = screen.getByText('layer-a').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
+    const rowB = screen.getByText('layer-b').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
+    expect(within(rowA).getByRole('button', { name: '校準' })).toBeDisabled();
+    expect(within(rowB).getByRole('button', { name: '校準' })).not.toBeDisabled();
+
+    fireEvent.click(within(rowA).getByText('layer-a')); // 選中 layer-a
+
+    expect(within(rowA).getByRole('button', { name: '校準' })).not.toBeDisabled();
+    expect(within(rowB).getByRole('button', { name: '校準' })).toBeDisabled();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
 // Slice 3 Task 5：點選校準（spec §5「點選一段線、輸入實際 mm」）。fixture 刻意用單一水平線
 // （raw x1=0,y1=0,x2=40,y2=0）：rawLength=40 是可手算的整數，calibrateScale(40mm 校準值) 的
-// 期望值不必依賴浮點誤差容忍以外的猜測。unit 用 OverlayPanel 預設值 'pt'（width="100" 無
+// 期望值不必依賴浮點誤差容忍以外的猜測。unit 用 LayersPanel 預設值 'pt'（width="100" 無
 // mm/pt 字尾不觸發自動判定）→ initialScaleGuess=0.352778，跟既有 T4 describe 同一慣例。
 //
 // 座標鏈 mock 手法：Canvas.tsx 的校準點擊用 `getBoundingClientRect()` 換算滑鼠事件座標→SVG
 // viewBox 座標（見 Canvas.tsx 開頭 docblock 對 jsdom 量測限制的說明）——jsdom 預設回傳全 0
 // 的 rect，這裡用 `vi.spyOn` 把「目前渲染的 svg」的 rect mock 成與 viewBox 等寬高、
 // left/top=0，讓 client 像素座標→viewBox 座標的換算變成單位映射（不必額外處理 pan/zoom）。
+//
+// Slice 3 gate round 1 T2：校準對象從單體 OverlayState 改為「選中的 overlay 層」——這裡
+// 每個測試都只匯入單一層（該層匯入時自動選中，見 LayersPanel 的多層獨立控制 describe），
+// 所以校準流程本身（點選/輸入/確認/Esc/visible gate）跟舊版逐一對照下來語意不變，只是
+// hit-test/回寫的對象內部從 `overlay` 單一 prop 換成 `layers.selectedOverlayId` 指到的那筆。
 // ─────────────────────────────────────────────────────────────────────────
-describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', () => {
+describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，校準對象＝選中層）', () => {
   const overlaySvgText = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><line x1="0" y1="0" x2="40" y2="0" /></svg>';
 
   function makeOverlayFile(): File {
     return new File([overlaySvgText], 'calib.svg', { type: 'image/svg+xml' });
   }
 
-  async function importOverlay(): Promise<void> {
+  /** 匯入 fixture 並回傳匯入完成當下的 offset（Slice 3 gate round 1 T2 起匯入即置中，gate
+   *  反饋①，見 createOverlayLayer）——offset 不再恆為 (0,0)，下面的點擊座標換算需要這個值，
+   *  在匯入當下（疊圖必定 visible）就近讀取並回傳，呼叫端不必自己再讀一次 DOM（FX2 那組
+   *  測試後續會把疊圖隱藏，那之後就讀不到 path 了，見下方 clickFixtureLineMidpoint 的用法）。 */
+  async function importOverlay(): Promise<{ offsetX: number; offsetY: number }> {
     const input = screen.getByLabelText(/匯入生產 SVG/) as HTMLInputElement;
     fireEvent.change(input, { target: { files: [makeOverlayFile()] } });
     await waitFor(() => {
       expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
     });
+    const transform = document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)!.parentElement!.getAttribute('transform') ?? '';
+    const match = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(transform)!;
+    return { offsetX: Number(match[1]), offsetY: Number(match[2]) };
   }
 
   /** DOMRect 最小可用 mock：只填測試實際會讀到的欄位＋型別要求的其餘欄位補 0。 */
@@ -1385,15 +1514,16 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
   }
 
   /**
-   * 點擊 fixture 線段中點：raw(20,0) → mm (20×0.352778, 0)（offset 尚未對齊，皆為 0）。
-   * mock 的 rect.left/top=0，Canvas.tsx 換算式為 `mmX = minX + (clientX-0)/width*viewW`
-   * （width===viewW 時比例為 1）── 也就是 `mmX = minX + clientX`，要讓 mmX 落在目標值，
-   * clientX 必須是「目標 mm 值 − minX」（不是 minX + 目標值，那樣會把 minX 算兩次）。
+   * 點擊 fixture 線段中點：raw(20,0)，套用 `offset`（`importOverlay()` 回傳值）與 scale 後的
+   * mm 座標為 `(offset.offsetX + 20×0.352778, offset.offsetY)`。mock 的 rect.left/top=0，
+   * Canvas.tsx 換算式為 `mmX = minX + (clientX-0)/width*viewW`（width===viewW 時比例為 1）
+   * ── 也就是 `mmX = minX + clientX`，要讓 mmX 落在目標值，clientX 必須是「目標 mm 值 −
+   * minX」（不是 minX + 目標值，那樣會把 minX 算兩次）。
    */
-  function clickFixtureLineMidpoint(): void {
+  function clickFixtureLineMidpoint(offset: { offsetX: number; offsetY: number }): void {
     const { vbMinX, vbMinY } = mockSvgRectToViewBox();
     const svg = document.querySelector('svg')!;
-    fireEvent.click(svg, { clientX: 20 * 0.352778 - vbMinX, clientY: 0 - vbMinY });
+    fireEvent.click(svg, { clientX: offset.offsetX + 20 * 0.352778 - vbMinX, clientY: offset.offsetY - vbMinY });
   }
 
   /**
@@ -1404,11 +1534,11 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
    * fixture 線段中點（沒有 guard 的話會落在 hit-test 容差內、被誤判成一次點選）。起點與終點
    * 相距 50 螢幕像素，遠超過拖曳判定門檻（Canvas.tsx DRAG_CLICK_THRESHOLD_PX，~4px 級）。
    */
-  function dragThenClickFixtureLineMidpoint(): void {
+  function dragThenClickFixtureLineMidpoint(offset: { offsetX: number; offsetY: number }): void {
     const { vbMinX, vbMinY } = mockSvgRectToViewBox();
     const svg = document.querySelector('svg')!;
-    const targetX = 20 * 0.352778 - vbMinX;
-    const targetY = 0 - vbMinY;
+    const targetX = offset.offsetX + 20 * 0.352778 - vbMinX;
+    const targetY = offset.offsetY - vbMinY;
     fireEvent.mouseDown(svg, { clientX: targetX - 50, clientY: targetY - 50 });
     fireEvent.mouseMove(svg, { clientX: targetX, clientY: targetY });
     fireEvent.mouseUp(svg, { clientX: targetX, clientY: targetY });
@@ -1419,11 +1549,11 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
    * F1 對照組：同座標的 mousedown→mouseup→click（無位移）——完整模擬「這其實是一次單純點擊」
    * 的滑鼠序列，用來驗證 guard 只擋「有位移的拖曳」，不誤傷既有的點選行為。
    */
-  function clickFixtureLineMidpointViaFullSequence(): void {
+  function clickFixtureLineMidpointViaFullSequence(offset: { offsetX: number; offsetY: number }): void {
     const { vbMinX, vbMinY } = mockSvgRectToViewBox();
     const svg = document.querySelector('svg')!;
-    const targetX = 20 * 0.352778 - vbMinX;
-    const targetY = 0 - vbMinY;
+    const targetX = offset.offsetX + 20 * 0.352778 - vbMinX;
+    const targetY = offset.offsetY - vbMinY;
     fireEvent.mouseDown(svg, { clientX: targetX, clientY: targetY });
     fireEvent.mouseUp(svg, { clientX: targetX, clientY: targetY });
     fireEvent.click(svg, { clientX: targetX, clientY: targetY });
@@ -1434,7 +1564,7 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
     return Number(/scale\(([-\d.]+)\)/.exec(transform)![1]);
   }
 
-  it('OverlayPanel「校準」鈕進校準模式：Canvas 顯示提示條；鈕變成「取消校準」，再點一次退出', async () => {
+  it('LayersPanel「校準」鈕進校準模式：Canvas 顯示提示條；鈕變成「取消校準」，再點一次退出', async () => {
     render(<App />);
     await importOverlay();
 
@@ -1449,11 +1579,11 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
 
   it('happy path：進模式→點選線段→輸入 100→確認→scale 依 calibrateScale 更新（100/40=2.5）、退出校準模式', async () => {
     render(<App />);
-    await importOverlay();
+    const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: '校準' }));
     await screen.findByText(/點選 overlay 上一段已知長度的線/);
 
-    clickFixtureLineMidpoint();
+    clickFixtureLineMidpoint(offset);
 
     const mmInput = await screen.findByLabelText(/該線段實際長度/);
     fireEvent.change(mmInput, { target: { value: '100' } });
@@ -1465,15 +1595,15 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
     expect(screen.getByRole('button', { name: '校準' })).toBeInTheDocument(); // 鈕字回「校準」
   });
 
-  it('FX2：校準模式中途關閉「顯示疊圖」後，畫布 hit-test 不再命中疊圖線段（防禦性 gate，OverlayPanel 的鈕本身此時已 disabled，這裡驗證 Canvas 端獨立的第二道防線）', async () => {
+  it('FX2：校準模式中途關閉「顯示疊圖」後，畫布 hit-test 不再命中疊圖線段（防禦性 gate，LayersPanel 的鈕本身此時已 disabled，這裡驗證 Canvas 端獨立的第二道防線）', async () => {
     render(<App />);
-    await importOverlay();
+    const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: '校準' }));
     await screen.findByText(/點選 overlay 上一段已知長度的線/);
 
     fireEvent.click(screen.getByLabelText(/顯示疊圖/)); // 校準模式中途隱藏疊圖（checkbox 不因 calibrating 而 disabled）
 
-    clickFixtureLineMidpoint();
+    clickFixtureLineMidpoint(offset); // 用匯入當下讀到的 offset：疊圖現在隱藏，DOM 上已無 path 可讀
 
     // 修前：hit-test 沒 gate visible，仍會命中線段、跳出行內輸入表單。修後：不命中，
     // 提示條停在「請點選」狀態，沒有任何段被選中。
@@ -1483,11 +1613,11 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
 
   it('F1：pan 拖曳放開不誤觸校準點選（mousedown 遠處→mousemove→mouseup/click 落在線段 hit-test 容差內）', async () => {
     render(<App />);
-    await importOverlay();
+    const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: '校準' }));
     await screen.findByText(/點選 overlay 上一段已知長度的線/);
 
-    dragThenClickFixtureLineMidpoint();
+    dragThenClickFixtureLineMidpoint(offset);
 
     // 沒有任何段被選中：行內輸入表單未出現，提示條仍是「請點選」而非顯示已選段。
     expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
@@ -1496,11 +1626,11 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
 
   it('F1 對照組：無位移的 mousedown→mouseup→click（同座標）仍正常選中線段，既有點選行為不迴歸', async () => {
     render(<App />);
-    await importOverlay();
+    const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: '校準' }));
     await screen.findByText(/點選 overlay 上一段已知長度的線/);
 
-    clickFixtureLineMidpointViaFullSequence();
+    clickFixtureLineMidpointViaFullSequence(offset);
 
     expect(await screen.findByLabelText(/該線段實際長度/)).toBeInTheDocument(); // 有選中線段，表單出現
   });
@@ -1522,10 +1652,10 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
 
   it('輸入 ≤0：不套用＋提示，仍在校準模式（修正後可重新送出成功）', async () => {
     render(<App />);
-    await importOverlay();
+    const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: '校準' }));
     await screen.findByText(/點選 overlay 上一段已知長度的線/);
-    clickFixtureLineMidpoint();
+    clickFixtureLineMidpoint(offset);
 
     const mmInput = await screen.findByLabelText(/該線段實際長度/);
     fireEvent.change(mmInput, { target: { value: '0' } });
@@ -1540,28 +1670,7 @@ describe('OverlayPanel＋Canvas：點選校準（Slice 3 Task 5，spec §5）', 
     expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
   });
 
-  it('單位下拉：校準過後變更單位提示覆蓋（不直接覆蓋）；取消保留校準值，確定覆蓋才重算 scale', async () => {
-    render(<App />);
-    await importOverlay();
-    fireEvent.click(screen.getByRole('button', { name: '校準' }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
-    clickFixtureLineMidpoint();
-    fireEvent.change(await screen.findByLabelText(/該線段實際長度/), { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認' }));
-    await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
-
-    const unitSelect = screen.getByLabelText(/單位/);
-    fireEvent.change(unitSelect, { target: { value: 'mm' } });
-
-    expect(await screen.findByText(/切換單位將覆蓋目前校準的比例/)).toBeInTheDocument();
-    expect(readOverlayScale()).toBeCloseTo(2.5, 6); // 尚未確認，scale 不變
-
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
-    expect(readOverlayScale()).toBeCloseTo(2.5, 6); // 取消後仍保留校準值
-    expect(screen.queryByText(/切換單位將覆蓋目前校準的比例/)).not.toBeInTheDocument();
-
-    fireEvent.change(unitSelect, { target: { value: 'mm' } });
-    fireEvent.click(screen.getByRole('button', { name: '確定覆蓋' }));
-    expect(readOverlayScale()).toBeCloseTo(1, 6); // mm 的 initialScaleGuess=1，覆蓋生效
-  });
+  // 舊測試「單位下拉：校準過後變更單位提示覆蓋」已隨 pendingUnitOverride 子功能退役移除
+  // （見上方 LayersPanel 匯入 describe 的「單位下拉只影響下一次匯入」測試，驗證新的簡化語意：
+  // 校準過的層不會被單位下拉悄悄改掉 scale，因為下拉現在完全不回頭觸碰任何既有層）。
 });

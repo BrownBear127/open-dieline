@@ -5,7 +5,6 @@ import {
   OVERLAY_STROKE,
   alignOffset,
   calibrateScale,
-  createOverlayState,
   findNearestOverlaySegment,
   initialScaleGuess,
 } from '@/overlay/state';
@@ -108,33 +107,11 @@ describe('alignOffset', () => {
   });
 });
 
-describe('createOverlayState', () => {
-  it('由 parseOverlaySvg 輸出＋unit 建構初始狀態：segments/warnings 原樣帶入、scale 用 initialScaleGuess、offset 歸零、opacity 預設 0.5、visible 預設開、rawBounds 用 segmentsBounds、calibrating/calibrated 預設 false（T5：尚未進校準模式、尚未校準過）', () => {
-    const segments: Segment[] = [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 20 }];
-    const parseResult: OverlayParseResult = {
-      segments,
-      warnings: ['測試警告'],
-      sourceInfo: { widthAttr: null, viewBox: null },
-    };
-    const state = createOverlayState(parseResult, 'mm');
-    expect(state.segments).toBe(segments); // 不複製、不預先套用 scale/offset
-    expect(state.warnings).toEqual(['測試警告']);
-    expect(state.scale).toBe(1); // unit='mm' 且無 width 字尾自動判定
-    expect(state.offsetX).toBe(0);
-    expect(state.offsetY).toBe(0);
-    expect(state.opacity).toBe(0.5);
-    expect(state.visible).toBe(true);
-    expect(state.rawBounds).toEqual({ minX: 0, maxX: 10, minY: 0, maxY: 20 });
-    expect(state.calibrating).toBe(false);
-    expect(state.calibrated).toBe(false);
-  });
-
-  it('空 segments：rawBounds 回退 segmentsBounds 的空陣列慣例 {0,0,0,0}', () => {
-    const parseResult: OverlayParseResult = { segments: [], warnings: [], sourceInfo: { widthAttr: null, viewBox: null } };
-    const state = createOverlayState(parseResult, 'pt');
-    expect(state.rawBounds).toEqual({ minX: 0, maxX: 0, minY: 0, maxY: 0 });
-  });
-});
+// createOverlayState／OverlayState 已於 Slice 3 gate round 1 T2 隨 OverlayPanel→LayersPanel
+// 遷移退役（單一疊圖模型被 `overlay/layers.ts` 的 `OverlayLayer`/`LayersState` 取代）；等價
+// 的建構邏輯（scale/rawBounds/opacity/visible/calibrated 預設值＋ segments 不預變換）已在
+// `tests/overlay/layers.test.ts` 的 `createOverlayLayer` 測試覆蓋，這裡不重複驗證一份即將
+// 刪除的死程式碼。
 
 describe('OVERLAY_STROKE', () => {
   it('固定為 brief 規格值（洋紅），供 Canvas 疊繪與測試共用同一來源', () => {
