@@ -281,6 +281,13 @@ export function App() {
               // 同名的 piece id 卻渲染錯的內容——兩種情況都不是使用者切盒型時預期的行為，直接
               // 重置最單純。
               setSelectedPieceId(null);
+              // 拼版件選擇同步失效（review Medium 1 fix round 1）：不能只靠下面 fallback effect
+              // 的 stillValid 檢查決定——若新盒型的非首片剛好沿用舊 id（如天地盒的 'lid'；registry
+              // 是公開擴充介面，未來新增的多片盒型與現有盒型撞 id 不是抽象假設），stillValid 會
+              // 誤判「仍合法」而讓選擇停留在同名新片，違反 F6「切盒即第一片」。「切盒」這個事件
+              // 本身在這裡同步觸發歸位：先清為 null，交給下面的 fallback effect 依新
+              // `result.pieces` 收斂（多片盒型→pieces[0]；RTE→null），不依賴舊 id 巧合失效。
+              setImpositionState((prev) => ({ ...prev, pieceId: null }));
             }}
             className="w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors"
           >
