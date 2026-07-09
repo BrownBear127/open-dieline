@@ -335,7 +335,13 @@ function computeImpositionView(result: GenerateResult, state: ImpositionState) {
   // stalePiece 訊息優先於通用 domain 錯誤訊息：stalePiece 是更具體、更可行動的原因
   // （告訴使用者「去選一片」，而不是籠統的「確認輸入數值」）；欄位級 domain 錯誤本身仍會
   // 各自標在對應輸入框旁，不會因為這裡改顯示 stalePiece 訊息而遺失資訊。
-  const generalErrorMessage = stalePiece ? '請選擇拼版的件' : '計算發生錯誤，請確認輸入數值。';
+  // internal（深度防禦分支）與輸入無關，不誤導使用者去「確認輸入」（final review Minor）。
+  const hasInternalError = generalErrors.some((e) => e.reason === 'internal');
+  const generalErrorMessage = stalePiece
+    ? '請選擇拼版的件'
+    : hasInternalError
+      ? '系統內部計算錯誤，請重新整理頁面；若持續發生請回報。'
+      : '計算發生錯誤，請確認輸入數值。';
 
   return {
     pieces,

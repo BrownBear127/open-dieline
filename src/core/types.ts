@@ -39,6 +39,13 @@ export interface DielineText {
  * pathIds/textIds 的歸屬完整性規則見 core/pieces.ts 的 validatePieces()。
  */
 export interface DielinePiece {
+  /**
+   * 契約（Slice 4 final 迴歸 review）：同一盒型跨 `generate()` 呼叫，**相同 id 必須永久
+   * 代表同一語意片**——按角色命名（`base`/`lid`/`liner`），不得按當次陣列位置命名
+   * （`slot-0` 這類 id 在參數改變交換位置語意時，會讓拼版的「選中件」靜默換片：
+   * App 只以「同 id 仍存在」判斷選擇是否沿用）。新盒型的 conformance 測試應以參數
+   * 切換前後交叉驗證此穩定性。
+   */
   id: string;
   label: LocalizedText;
   pathIds: string[];
