@@ -62,8 +62,8 @@ export interface OverlayLayer {
   /** 0–1，預設 0.5。 */
   opacity: number;
   visible: boolean;
-  /** 是否已完成過至少一次點選校準——T5 單位下拉 precedence 判斷沿用（校準過→單位變更提示
-   *  覆蓋，見 `OverlayPanel.tsx` `handleUnitChange` 既有邏輯，遷移到多層後這個判斷逐層各自紀錄）。 */
+  /** 校準成功後標記為 true；目前無邏輯分支消費（單位覆蓋機制已於 gate round 1 退役）、保留
+   *  供未來 UI 顯示已校準狀態。 */
   calibrated: boolean;
   /** `segmentsBounds(segments)`——未套 scale/offset 前的原始包絡。 */
   rawBounds: Bounds;

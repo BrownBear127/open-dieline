@@ -216,19 +216,24 @@ export function Canvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMultiPiece]);
 
-  // 校準模式結束時（不論走哪條路徑——Canvas 自己的確認/Esc，或 LayersPanel「取消校準」鈕
-  // 直接把 calibrating 切回 false）統一歸零本檔的校準互動 local state。用單一 effect
-  // 涵蓋所有退出路徑，比在每個退出路徑各自手動清一次更不容易漏（見本檔開頭對 T5 local state
-  // 的說明）；這裡不會造成畫面閃爍，因為下方 JSX 對校準提示條/高亮的渲染同時也守著
-  // `calibrating`，該值變 false 的同一輪渲染就會先隱藏整塊 UI，這個 effect 只是事後把
-  // 殘留的 local state 打掃乾淨。
+  // 校準互動 local state 歸零時機（review finding F1，2026-07-09 雙軌審查——與本檔既有
+  // `DRAG_CLICK_THRESHOLD_PX` 註解裡的另一個「F1」是不同審查回合的不同 finding，僅巧合同名）：
+  // 不只「退出校準模式」（calibrating→false，不論走哪條路徑——Canvas 自己的確認/Esc，或
+  // LayersPanel「取消校準」鈕）要歸零，**切換選中層**（`layers.selectedOverlayId` 改變）也要
+  // 無條件歸零，且拿掉原本的 `if (!calibrating)` guard。修前只依賴 `[calibrating]`＋guard：
+  // 使用者在校準中途（`calibrating` 全程未變）點另一層的列名切換選中，`pickedSegmentIndex`
+  // 停留在舊層的 index，若接著點擊確認，會用「新選中層」的 `segments[舊 index]` 算 scale 並
+  // 寫回新選中層——這是無意義的值（兩層線段長度通常不同），index 越界時甚至靜默 no-op，
+  // 使用者得不到任何錯誤提示。切層＝重新開始點選，校準模式本身不因此退出（`calibrating`
+  // 不變，只是使用者要重新點一次線段）。用單一 effect 涵蓋兩種觸發點，比在每個觸發點各自
+  // 手動清一次更不容易漏（見本檔開頭對 T5 local state 的說明）；不會造成畫面閃爍——
+  // `calibrating` 為 false 時 JSX 本來就不渲染提示條/表單，`calibrating` 仍為 true、只是
+  // 選中層換了時，使用者看到的是「已選段的輸入框」→「請重新點選」提示，這正是預期行為。
   useEffect(() => {
-    if (!calibrating) {
-      setPickedSegmentIndex(null);
-      setCalibrationInput('');
-      setCalibrationError(null);
-    }
-  }, [calibrating]);
+    setPickedSegmentIndex(null);
+    setCalibrationInput('');
+    setCalibrationError(null);
+  }, [calibrating, layers.selectedOverlayId]);
 
   // Esc 退出校準模式（不改 scale，見 spec 邊界規則）：全域 keydown，不綁在特定元素上，
   // 不論使用者當下焦點在畫布本身或行內輸入框都能生效。只在 calibrating 時掛監聽，離開

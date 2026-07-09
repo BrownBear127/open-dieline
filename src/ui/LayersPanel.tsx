@@ -57,7 +57,13 @@ import type { GeneratedLayerKey, LayersState } from '@/overlay/layers';
 
 export interface LayersPanelProps {
   layers: LayersState;
-  onLayersChange: (next: LayersState) => void;
+  /** 圖層狀態更新：可傳新值，或傳 `(prev) => next` 的 updater 函式（App.tsx 的 `setLayersState`
+   *  來自 `useState`，原生支援兩種形式，見 React `SetStateAction` 語意）。面板內大部分 handler
+   *  是同步事件（點擊/改值當下讀到的 `layers` prop 就是最新值，傳值即可）；`handleFileChange`
+   *  的 `reader.onload` 是唯一例外——FileReader 非同步，callback 觸發時 closure 捕捉的
+   *  `layers` 可能已經過期，必須用 updater 形式讀到呼叫當下真正最新的 state（review finding
+   *  F2，2026-07-09，完整推理見該 handler 內的註解）。 */
+  onLayersChange: (update: LayersState | ((prev: LayersState) => LayersState)) => void;
   targetBounds: Bounds;
   /** 用來判斷「生成圖層」四列裡哪些桶目前有內容（見上方 docblock 的 disabled 列邏輯）；
    *  不直接消費幾何/pieces，只讀 `paths`——跟 ExportBar 一樣直接吃 `GenerateResult`，不另外
@@ -105,6 +111,12 @@ export function LayersPanel({
   const generatedHasContent = useMemo<Record<GeneratedLayerKey, boolean>>(() => {
     const has: Record<GeneratedLayerKey, boolean> = { cut: false, crease: false, halfcut: false, dimensions: false };
     for (const p of result.paths) has[layerKeyForLineType(p.type)] = true;
+    // review finding F3（2026-07-09）：texts（DielineText，恆屬 dimensions 桶，見
+    // `overlay/layers.ts` `layerKeyForLineType` 文件）原本沒被上面的迴圈涵蓋——那裡只遍歷
+    // `result.paths`，texts 是獨立陣列。v1 現實中標註線與文字成對出現，這個分支目前不可達，
+    // 但若某盒型只有 texts、沒有任何 dimension/annotation path，修前邏輯會讓這一列 disabled，
+    // 但 Canvas 仍照 `generatedVisible.dimensions` 畫出文字——使用者關不掉画布上的標註文字。
+    has.dimensions = has.dimensions || result.texts.length > 0;
     return has;
   }, [result]);
 
@@ -123,7 +135,14 @@ export function LayersPanel({
       const parsed = parseOverlaySvg(text);
       const id = createOverlayId();
       const newLayer = createOverlayLayer(parsed, file.name, unit, targetBounds, id);
-      onLayersChange({ ...layers, overlays: [...layers.overlays, newLayer], selectedOverlayId: id });
+      // review finding F2（2026-07-09）：`onload` 是 FileReader 非同步 callback，觸發時距離
+      // 使用者選檔已經過了不定時間（讀檔 I/O）。原本這裡讀取的是 `handleFileChange`呼叫當下
+      // 那一輪 render 閉包捕捉到的 `layers`——若等待期間使用者做了其他圖層操作（刪除／改
+      // 可見性／校準確認寫回 scale 等），那些變更發生在較新的 render，`{ ...layers, ... }`
+      // 一 spread 會用這份舊快照蓋掉它們。改用 functional update（`onLayersChange` 支援
+      // updater 函式，見 props 型別）：React 保證 updater 收到的 `prev` 是呼叫當下最新的
+      // state，不是選檔當下的舊閉包值，append 新層與其間發生的任何其他變更都不會互相覆蓋。
+      onLayersChange((prev) => ({ ...prev, overlays: [...prev.overlays, newLayer], selectedOverlayId: newLayer.id }));
       setFileInputKey((k) => k + 1); // 見上方宣告處註解：每次匯入完成都重掛載
     };
     reader.readAsText(file);
