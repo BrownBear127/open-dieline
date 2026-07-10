@@ -48,12 +48,13 @@ import {
   computeImposition,
   PAPER_PRESETS,
   MIN_GAP_MM,
+  MAX_PREVIEW_INSTANCES,
 } from '@/core/imposition';
 import type { DirectionResult, ImpositionFieldError, ImpositionInput, SheetOrientation, WorkingSheet } from '@/core/imposition';
 import { manufacturingBounds } from '@/core/bounds';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
-import { instanceTransforms, previewPaths } from './impositionPreview';
+import { directionInstances, previewPaths, sectionOffsets } from './impositionPreview';
 import type { PreviewInstance } from './impositionPreview';
 
 /** 拼版模式的完整可往返 state（F6：盒型／盒參數／紙規／方向／裁切／咬口／gap／
@@ -158,30 +159,162 @@ function fieldErrorMessage(reason: ImpositionFieldError['reason']): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 預覽 SVG 視覺常數（review「排列預覽」：紙張外框＋咬口淡色區＋instances＋
-// halfV/halfH 切線虛線示意）——具名常數而非行內字面量，方便未來統一調整。
+// 預覽 SVG 視覺常數（T3 全紙預覽重寫：紙張外框＋裁切中線＋每子紙咬口/可用區＋instances）
 // ─────────────────────────────────────────────────────────────────────────
 
-const SHEET_FRAME_STROKE = '#a1a1aa'; // zinc-400 附近，原紙外框
-const SHEET_FRAME_WIDTH = 3;
-const HALF_CUT_STROKE = '#71717a'; // zinc-500 附近，對開切線示意
-const HALF_CUT_WIDTH = 1.5;
-const HALF_CUT_DASHARRAY = '10 6';
-const GRIPPER_ZONE_FILL = '#f4f4f5'; // zinc-100，咬口淡色區（working half 全範圍）
+const SHEET_FRAME_STROKE = '#a1a1aa'; // zinc-400 附近，全紙外框
+const CUT_LINE_STROKE = '#71717a'; // zinc-500 附近，裁切中線示意
+const CUT_LINE_DASHARRAY = '10 6';
+const GRIPPER_ZONE_FILL = '#f4f4f5'; // zinc-100，咬口淡色區（每子紙全範圍）
 const USABLE_ZONE_FILL = '#ffffff'; // 可用區（扣咬口，instances 實際落點）
 const USABLE_ZONE_STROKE = '#e4e4e7'; // zinc-200
-/** 預覽整版縮放到「一張紙」尺度時，生產線寬（0.25–0.4mm 等級）在小卡片裡幾乎不可見，
- *  乘一個放大倍率讓輪廓在「看整張紙」的縮放層級下仍清楚可辨——純視覺調整，不影響任何
- *  數值計算（cols/rows/count/utilization 皆與這個常數無關）。 */
-const PREVIEW_STROKE_SCALE = 6;
 
-/** 單一方向（0°／90°）結果卡：兩卡同等權重、無「最佳／推薦」標記（spec review F9）——
- *  兩張卡呼叫時傳入完全對稱的 props，樣式（class）逐字相同，不因方向而有任何視覺差異。 */
+/**
+ * 紙張結構線（外框／裁切中線／可用區框）的 px 語意線寬——T3 取代舊版
+ * `PREVIEW_STROKE_SCALE`（乘大 mm 級線寬撐視覺）的做法，改搭配下方所有結構線元素的
+ * `vectorEffect="non-scaling-stroke"`：這幾個數字是畫面上恆定的 CSS 像素寬度，不隨
+ * viewBox／紙張 mm 尺度縮放。維護者 gate 反饋「線條粗細統一和單紙盒刀模一致」：刀模
+ * paths 沿用 `LINE_STYLES[type].strokeWidth` 原始值＋non-scaling-stroke（與 Canvas.tsx
+ * 逐字同構，見該檔 docblock），使得全紙縮到卡片大小時的刀模線觀感與單片畫布視圖同一個
+ * CSS 像素粗細；紙張結構線（不是刀模幾何本身）用獨立一組較粗的常數，純視覺分層，不影響
+ * 任何數值計算（cols/rows/count/utilization 皆與這組常數無關）。
+ */
+const SHEET_FRAME_STROKE_WIDTH = 2;
+const CUT_LINE_STROKE_WIDTH = 1.5;
+const USABLE_ZONE_STROKE_WIDTH = 1;
+
+/** 單一子紙在全紙座標系裡的渲染資料：偏移（`sectionOffsets` 給的左上角 dx/dy）＋這個子紙
+ *  實際分配到的 instances（含補排件，budget 已在建立前生效，見 `sectionRenders`）。 */
+interface SectionRender {
+  dx: number;
+  dy: number;
+  instances: PreviewInstance[];
+}
+
+/**
+ * 跨子紙 remainingBudget 鏈（Global Constraints「preview cap 語意」，T3 收掉 T1 interim
+ * `isTruncated` 用 gridCount 比對 instances.length 的假陽性／四開漏報兩個方向的問題）：
+ * cap 是「這張方向卡合計最多 `MAX_PREVIEW_INSTANCES`」，不是每子紙各自 500——依
+ * `sectionOffsets` 固定順序（左上→右上→左下→右下）逐子紙呼叫 `directionInstances`，扣除
+ * 實際回傳數量再傳給下一子紙，不做均分；budget 見底的子紙拿到空陣列。每子紙用同一份
+ * `direction`/`mb`/`gripper`/`gap`（同版複製——補排件已含在 instances 裡，旋轉已反映在
+ * transform 字串，不需要在這裡另外處理）。
+ */
+function sectionRenders(
+  dir: 0 | 90,
+  direction: DirectionResult,
+  sheet: WorkingSheet,
+  mb: Bounds,
+  gripper: number,
+  gap: number,
+): SectionRender[] {
+  let remaining = MAX_PREVIEW_INSTANCES;
+  return sectionOffsets(sheet).map(({ dx, dy }) => {
+    const instances = directionInstances(dir, direction, mb, gripper, gap, remaining);
+    remaining -= instances.length;
+    return { dx, dy, instances };
+  });
+}
+
+/**
+ * 工作尺寸文字（T3）：整紙（`!cutV && !cutH`）維持舊格式逐字不變（spec 附錄「回歸保證」）；
+ * 有裁切時補上全紙尺寸——維護者 gate 反饋「一律顯示全紙尺寸」後，使用者需要同時看到「這張
+ * 紙原本多大」與「可落版的子紙多大」兩個尺度，缺一都會誤讀（只看子紙會誤以為紙變小了、
+ * 只看全紙不知道實際可用區縮水多少）。四開／對開用不同名詞（「四開子紙」／「半張子紙」）
+ * 呼應 `directionCardText` 卡片文字的「每四開」／「每半張」措辭，維持全元件詞彙一致。
+ */
+function workingSheetText(sheet: WorkingSheet): string {
+  if (!sheet.cutV && !sheet.cutH) {
+    return `工作尺寸：${sheet.w.toFixed(1)} × ${sheet.h.toFixed(1)} mm（可用區 ${sheet.usableW.toFixed(1)} × ${sheet.usableH.toFixed(1)} mm）`;
+  }
+  const subLabel = sheet.cutV && sheet.cutH ? '四開子紙' : '半張子紙';
+  const sub = `${sheet.w.toFixed(1)} × ${sheet.h.toFixed(1)} mm（可用 ${sheet.usableW.toFixed(1)} × ${sheet.usableH.toFixed(1)} mm）`;
+  return `全紙 ${sheet.fullW.toFixed(1)} × ${sheet.fullH.toFixed(1)} mm，${subLabel} ${sub}`;
+}
+
+/**
+ * 卡片主要數字行文字（T3「卡片文字格式」，見 spec＋附錄回歸保證）：裁切時完全換一套
+ * 措辭（每半張／每四開 × 子紙數＝總模數），不是在整紙格式後面加註記——cols/rows/補X 是
+ * 「單一子紙怎麼排」的資訊，裁切後使用者更關心「一張全紙總共出幾模」，兩種措辭服務不同
+ * 問題，混在同一行反而混淆。`sectionsCount` 直接來自 `workingSheet.sections`（不是硬編碼
+ * 2／4），避免與 core 的裁切旗標→子紙數換算式重複維護而漂移。
+ */
+function directionCardText(direction: DirectionResult, sectionsCount: number, isCut: boolean, isQuarter: boolean): string {
+  if (isCut) {
+    return `${isQuarter ? '每四開' : '每半張'} ${direction.count} 模 × ${sectionsCount} ＝ ${direction.totalCount} 模`;
+  }
+  const fillCount = (direction.bottomFill?.count ?? 0) + (direction.rightFill?.count ?? 0);
+  const fillSuffix = fillCount > 0 ? ` ＋ 補 ${fillCount}` : '';
+  return `${direction.cols} 列 × ${direction.rows} 行${fillSuffix} ＝ ${direction.count} 模`;
+}
+
+/** 單一子紙的 SVG 內容：咬口淡色區＋可用區＋同一份 instances（同版複製，補排件已含在
+ *  陣列裡、旋轉已反映在 transform，見 `sectionRenders` docblock）。從 `DirectionCard` 抽出
+ *  是因為每張卡最多重複渲染 4 次（四開），不是單次用途的內聯標記。 */
+function SectionGroup({
+  section,
+  workingSheet,
+  gripper,
+  paths,
+}: {
+  section: SectionRender;
+  workingSheet: WorkingSheet;
+  gripper: number;
+  paths: DielinePath[];
+}) {
+  return (
+    <g data-testid="section" transform={`translate(${section.dx} ${section.dy})`}>
+      <rect data-testid="gripper-zone" x={0} y={0} width={workingSheet.w} height={workingSheet.h} fill={GRIPPER_ZONE_FILL} />
+      <rect
+        data-testid="usable-zone"
+        x={gripper}
+        y={gripper}
+        width={Math.max(0, workingSheet.w - 2 * gripper)}
+        height={Math.max(0, workingSheet.h - 2 * gripper)}
+        fill={USABLE_ZONE_FILL}
+        stroke={USABLE_ZONE_STROKE}
+        strokeWidth={USABLE_ZONE_STROKE_WIDTH}
+        vectorEffect="non-scaling-stroke"
+      />
+      {section.instances.map((inst, j) => (
+        <g key={j} data-testid="preview-instance" transform={inst.transform}>
+          {paths.map((p) => {
+            const style = LINE_STYLES[p.type];
+            return (
+              <path
+                key={p.id}
+                d={segmentsToSvgD(p.segments)}
+                fill="none"
+                stroke={style.stroke}
+                strokeWidth={style.strokeWidth}
+                strokeDasharray={style.dasharray}
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          })}
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/**
+ * 單一方向（0°／90°）結果卡：兩卡同等權重、無「最佳／推薦」標記（spec review F9）——
+ * 兩張卡呼叫時傳入完全對稱的 props，樣式（class）逐字相同，不因方向而有任何視覺差異。
+ *
+ * T3 全紙預覽重寫（維護者 gate 反饋「一律顯示全紙尺寸,選擇不同的裁切方式用線條加上去
+ * 示意,然後要動的只有可落版的區域」）：viewBox 恆為 `fullSheet.w×fullSheet.h`，不因
+ * cutV/cutH 而改變；裁切中線畫在全紙正中央示意；每子紙一個 `<g data-testid="section">`
+ * （`SectionGroup`，`sections` prop 是呼叫端 `sectionRenders` 算好的左上角偏移＋該子紙
+ * 分到的 instances），同一份排列在每個子紙內同版複製。`renderedCount`／`isTruncated`
+ * 語意見 `computeImpositionView` docblock「preview cap」段。
+ */
 function DirectionCard({
   dirDeg,
   label,
   direction,
-  instances,
+  sections,
+  renderedCount,
   paths,
   workingSheet,
   fullSheet,
@@ -192,7 +325,8 @@ function DirectionCard({
   dirDeg: 0 | 90;
   label: string;
   direction: DirectionResult | null;
-  instances: PreviewInstance[];
+  sections: SectionRender[];
+  renderedCount: number;
   paths: DielinePath[];
   workingSheet: WorkingSheet | null;
   fullSheet: { w: number; h: number };
@@ -200,16 +334,15 @@ function DirectionCard({
   cutH: boolean;
   gripper: number;
 }) {
-  const isHalf = cutV || cutH;
+  const isCut = cutV || cutH;
+  const isQuarter = cutV && cutH;
+  const sectionsCount = workingSheet?.sections ?? 1;
   const showPreview = direction !== null && direction.count > 0 && workingSheet !== null;
-  // Fix 1（gate round 1 T1 review·isTruncated 假陽性）：`count` 語意在 T1 已改為 gridCount＋
-  // 補排件數，但預覽此時仍只畫主格點 instances（補排件要 T3 才畫，見下方 deg0Instances／
-  // deg90Instances 呼叫的 instanceTransforms）。若拿新語意的 count 比對舊語意的 instances 數，
-  // allowRotate=true 且出現補排時恆為 true（App 預設值下 90° 卡 count=12 > instances=8，
-  // 即使遠低於 MAX_PREVIEW_INSTANCES=500 仍誤顯示「數量過大，預覽已簡化」）。
-  // T1 interim：預覽尚未畫補排件（T3），截斷比較對齊 gridCount；T3 重寫為
-  // totalCount > renderedCount（renderedCount 含補排件＋子紙）。
-  const isTruncated = direction !== null && direction.gridCount > instances.length;
+  // Global Constraints「preview cap 語意」：cap 是這張方向卡合計最多 500，不是任一子紙
+  // 各自 500——用 totalCount（含所有子紙）比對 renderedCount（sectionRenders 實際建立的
+  // 總數），不是用單子紙 count 比對，才不會在四開情境漏報（T1 interim 的 gridCount 比對
+  // instances.length 寫法在此已收掉，見 spec 附錄回歸案例：每子紙 150、全紙 600、實畫 500）。
+  const isTruncated = direction !== null && direction.totalCount > renderedCount;
 
   return (
     <div data-testid={`direction-card-${dirDeg}`} className="flex-1 flex flex-col gap-2 p-3 bg-white border border-zinc-200 rounded-sm">
@@ -221,11 +354,7 @@ function DirectionCard({
         <p className="text-sm text-zinc-500">放不下</p>
       ) : (
         <>
-          {/* 單一模板字串表達式（不拆成多個 JSX 文字節點/表達式混排）——避免 JSX 對行間空白的
-              摺疊規則產生非預期的斷詞，也讓測試能直接對整段文字做精確比對。 */}
-          <p className="text-base font-mono text-zinc-900">
-            {`${direction.cols} 列 × ${direction.rows} 行 ＝ ${direction.count} 模${isHalf ? '（每半張）' : ''}`}
-          </p>
+          <p className="text-base font-mono text-zinc-900">{directionCardText(direction, sectionsCount, isCut, isQuarter)}</p>
           <p className="text-xs text-zinc-500">{`外接矩形利用率 ${(direction.utilization * 100).toFixed(2)}%`}</p>
         </>
       )}
@@ -237,66 +366,51 @@ function DirectionCard({
           aria-label={`${label} 排列預覽`}
           className="w-full border border-zinc-100 bg-white"
         >
-          {/* 原紙外框（對開時＝切半前的整張尺寸，working half 只是其中一半）。 */}
-          <rect x={0} y={0} width={fullSheet.w} height={fullSheet.h} fill="none" stroke={SHEET_FRAME_STROKE} strokeWidth={SHEET_FRAME_WIDTH} />
+          {/* 全紙外框：恆顯示整張紙尺寸，不因裁切而縮小（維護者 gate 反饋「一律顯示全紙尺寸」）。 */}
+          <rect
+            data-testid="sheet-frame"
+            x={0}
+            y={0}
+            width={fullSheet.w}
+            height={fullSheet.h}
+            fill="none"
+            stroke={SHEET_FRAME_STROKE}
+            strokeWidth={SHEET_FRAME_STROKE_WIDTH}
+            vectorEffect="non-scaling-stroke"
+          />
 
-          {/* 對開切線示意（虛線，畫在原紙位置——與下面 working half 的可用區分開，
-              避免誤讀為半張還要再切，見 spec 對開語義段）。cutV/cutH 可疊加（T1），故兩條
-              線各自獨立判斷、非互斥——四開時兩條同時畫出（T1 範圍聲明：UI 形態暫不變，
-              四開情境下兩條線共用同一個 data-testid 是已知的暫時簡化，T3/T4 全面重畫
-              預覽時一併處理，見 開發紀錄）。 */}
+          {/* 裁切中線示意：cutV/cutH 可疊加、各自獨立判斷、四開時兩條同時畫出；中線畫在
+              fullSheet 正中央，不是子紙邊界（spec「裁切線畫全紙中線」，取代舊版畫在
+              workingSheet.w/h、只示意一個子紙邊界的寫法）。 */}
           {cutV && (
             <line
-              data-testid="half-cut-line"
-              x1={workingSheet.w}
+              data-testid="cut-line-v"
+              x1={fullSheet.w / 2}
               y1={0}
-              x2={workingSheet.w}
+              x2={fullSheet.w / 2}
               y2={fullSheet.h}
-              stroke={HALF_CUT_STROKE}
-              strokeWidth={HALF_CUT_WIDTH}
-              strokeDasharray={HALF_CUT_DASHARRAY}
+              stroke={CUT_LINE_STROKE}
+              strokeWidth={CUT_LINE_STROKE_WIDTH}
+              strokeDasharray={CUT_LINE_DASHARRAY}
+              vectorEffect="non-scaling-stroke"
             />
           )}
           {cutH && (
             <line
-              data-testid="half-cut-line"
+              data-testid="cut-line-h"
               x1={0}
-              y1={workingSheet.h}
+              y1={fullSheet.h / 2}
               x2={fullSheet.w}
-              y2={workingSheet.h}
-              stroke={HALF_CUT_STROKE}
-              strokeWidth={HALF_CUT_WIDTH}
-              strokeDasharray={HALF_CUT_DASHARRAY}
+              y2={fullSheet.h / 2}
+              stroke={CUT_LINE_STROKE}
+              strokeWidth={CUT_LINE_STROKE_WIDTH}
+              strokeDasharray={CUT_LINE_DASHARRAY}
+              vectorEffect="non-scaling-stroke"
             />
           )}
 
-          {/* working half：咬口淡色區（全範圍）＋可用區（扣咬口，instances 實際落點）。 */}
-          <rect x={0} y={0} width={workingSheet.w} height={workingSheet.h} fill={GRIPPER_ZONE_FILL} />
-          <rect
-            x={gripper}
-            y={gripper}
-            width={Math.max(0, workingSheet.w - 2 * gripper)}
-            height={Math.max(0, workingSheet.h - 2 * gripper)}
-            fill={USABLE_ZONE_FILL}
-            stroke={USABLE_ZONE_STROKE}
-          />
-
-          {instances.map((inst, i) => (
-            <g key={i} data-testid="preview-instance" transform={inst.transform}>
-              {paths.map((p) => {
-                const style = LINE_STYLES[p.type];
-                return (
-                  <path
-                    key={p.id}
-                    d={segmentsToSvgD(p.segments)}
-                    fill="none"
-                    stroke={style.stroke}
-                    strokeWidth={style.strokeWidth * PREVIEW_STROKE_SCALE}
-                    strokeDasharray={style.dasharray}
-                  />
-                );
-              })}
-            </g>
+          {sections.map((section, i) => (
+            <SectionGroup key={i} section={section} workingSheet={workingSheet} gripper={gripper} paths={paths} />
           ))}
         </svg>
       )}
@@ -376,12 +490,15 @@ function computeImpositionView(result: GenerateResult, state: ImpositionState) {
   const fullSheet = workingSheet ? { w: workingSheet.fullW, h: workingSheet.fullH } : { w: 0, h: 0 };
   const previewPathList = stalePiece ? [] : previewPaths(result, piece ?? null);
 
-  const deg0Instances = impositionUsable
-    ? instanceTransforms(0, imposition.deg0.cols, imposition.deg0.rows, mb, state.gripper, state.gap)
-    : [];
-  const deg90Instances = impositionUsable
-    ? instanceTransforms(90, imposition.deg90.cols, imposition.deg90.rows, mb, state.gripper, state.gap)
-    : [];
+  // 每子紙同一份排列＋跨子紙 remainingBudget 鏈（T3，見 `sectionRenders` docblock「preview
+  // cap 語意」）：`impositionUsable` 同時保證 `imposition.ok` 與 `imposition.sheet` 可讀
+  // （與上面 workingSheet 的窄化邏輯相同）。`renderedCount`＝該方向卡實際建立的 instance
+  // 總數（跨全部子紙），數學上恆等於 `min(direction.totalCount, MAX_PREVIEW_INSTANCES)`
+  // （budget 鏈逐子紙耗盡即停，不會多建也不會少建，見 `DirectionCard` 的 `isTruncated`）。
+  const deg0Sections = impositionUsable ? sectionRenders(0, imposition.deg0, imposition.sheet, mb, state.gripper, state.gap) : [];
+  const deg90Sections = impositionUsable ? sectionRenders(90, imposition.deg90, imposition.sheet, mb, state.gripper, state.gap) : [];
+  const deg0RenderedCount = deg0Sections.reduce((sum, s) => sum + s.instances.length, 0);
+  const deg90RenderedCount = deg90Sections.reduce((sum, s) => sum + s.instances.length, 0);
 
   const showGeneralError = stalePiece || generalErrors.length > 0;
   // stalePiece 訊息優先於通用 domain 錯誤訊息：stalePiece 是更具體、更可行動的原因
@@ -408,8 +525,10 @@ function computeImpositionView(result: GenerateResult, state: ImpositionState) {
     previewPathList,
     deg0: impositionUsable ? imposition.deg0 : null,
     deg90: impositionUsable ? imposition.deg90 : null,
-    deg0Instances,
-    deg90Instances,
+    deg0Sections,
+    deg90Sections,
+    deg0RenderedCount,
+    deg90RenderedCount,
     showGeneralError,
     generalErrorMessage,
   };
@@ -588,8 +707,10 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
     previewPathList,
     deg0,
     deg90,
-    deg0Instances,
-    deg90Instances,
+    deg0Sections,
+    deg90Sections,
+    deg0RenderedCount,
+    deg90RenderedCount,
     fullSheet,
   } = computeImpositionView(result, state);
 
@@ -601,18 +722,15 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
         </div>
       )}
 
-      {workingSheet && (
-        <p className="text-xs text-zinc-500">
-          {`工作尺寸：${workingSheet.w.toFixed(1)} × ${workingSheet.h.toFixed(1)} mm（可用區 ${workingSheet.usableW.toFixed(1)} × ${workingSheet.usableH.toFixed(1)} mm）`}
-        </p>
-      )}
+      {workingSheet && <p className="text-xs text-zinc-500">{workingSheetText(workingSheet)}</p>}
 
       <div className="flex gap-3">
         <DirectionCard
           dirDeg={0}
           label="0°"
           direction={deg0}
-          instances={deg0Instances}
+          sections={deg0Sections}
+          renderedCount={deg0RenderedCount}
           paths={previewPathList}
           workingSheet={workingSheet}
           fullSheet={fullSheet}
@@ -624,7 +742,8 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
           dirDeg={90}
           label="90°"
           direction={deg90}
-          instances={deg90Instances}
+          sections={deg90Sections}
+          renderedCount={deg90RenderedCount}
           paths={previewPathList}
           workingSheet={workingSheet}
           fullSheet={fullSheet}

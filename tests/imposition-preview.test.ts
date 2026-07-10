@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { instanceTransforms, directionInstances, sectionOffsets, previewPaths } from '@/ui/impositionPreview';
+import { directionInstances, sectionOffsets, previewPaths } from '@/ui/impositionPreview';
 import type { PreviewInstance } from '@/ui/impositionPreview';
-import { fitCount, MAX_PREVIEW_INSTANCES } from '@/core/imposition';
+import { MAX_PREVIEW_INSTANCES } from '@/core/imposition';
 import type { DirectionResult, WorkingSheet } from '@/core/imposition';
 import type { Bounds } from '@/core/geometry';
 import type { DielinePath, DielinePiece, GenerateResult, LineType } from '@/core/types';
@@ -48,39 +48,28 @@ function transformedBounds(transform: string, mb: Bounds): { minX: number; maxX:
   };
 }
 
-describe('instanceTransforms — 數量', () => {
-  it('cols×rows 在 cap 內：數量恰為 cols×rows', () => {
-    const mb: Bounds = { minX: 0, maxX: 10, minY: 0, maxY: 20 };
-    expect(instanceTransforms(0, 3, 4, mb, 5, 2)).toHaveLength(12);
-  });
+// `instanceTransforms` 已於 T3 裁決刪除（唯一消費者是 T3 重寫的 DirectionCard，
+// 改吃 `directionInstances`；見 開發紀錄 interim 清單第 3 點）——以下把原本鎖住
+// `buildGrid` 引擎 0°/90° 變換代數的測試改吃 `directionInstances`（傳入 `fillSplit:null` 的
+// `DirectionResult`，此時 `directionInstances` 只跑主格點 `buildGrid` 這條路徑，行為與舊版
+// `instanceTransforms(dir, cols, rows, mb, gripper, gap)` 逐字等價：`limit` 給 500
+// ≥MAX_PREVIEW_INSTANCES，`normalizeBudget` 硬限後恰等於舊版寫死的 cap）。cap 截斷／
+// cols·rows=0／極大數字惰性建構這幾個分支已由 `directionInstances` 自己的測試（budget
+// 邊界、Global Constraints「主格點為 0」、huge cols/rows 惰性建構）覆蓋，這裡不重複。
 
-  it('cols×rows 超過 MAX_PREVIEW_INSTANCES（30×30=900）→ 截斷至上限', () => {
-    const mb: Bounds = { minX: 0, maxX: 5, minY: 0, maxY: 5 };
-    expect(instanceTransforms(0, 30, 30, mb, 0, 1)).toHaveLength(MAX_PREVIEW_INSTANCES);
-  });
+/** 建構「無補排」的 `DirectionResult`——只用來讓 `directionInstances` 只走主格點
+ *  `buildGrid` 路徑，count/totalCount/utilization 這裡不驗證，數字只需型別合法。 */
+function noFillDirection(cols: number, rows: number): DirectionResult {
+  const gridCount = cols * rows;
+  return { cols, rows, gridCount, fillSplit: null, bottomFill: null, rightFill: null, count: gridCount, totalCount: gridCount, utilization: 0 };
+}
 
-  it('極大 logical count（cols=rows=332,226，review High 引用的合法輸入上界，乘積約 1103 億）→ 立即回傳 500 個、耗時 < 1 秒（cap 惰性建構回歸測試）', () => {
-    const mb: Bounds = { minX: 0, maxX: 0.01, minY: 0, maxY: 0.01 };
-    const start = Date.now();
-    const result = instanceTransforms(0, 332_226, 332_226, mb, 0, 3);
-    const elapsed = Date.now() - start;
-    expect(result).toHaveLength(MAX_PREVIEW_INSTANCES);
-    expect(elapsed).toBeLessThan(1000);
-  });
-
-  it('cols 或 rows 為 0 → 空陣列（不是丟例外）', () => {
-    const mb: Bounds = { minX: 0, maxX: 5, minY: 0, maxY: 5 };
-    expect(instanceTransforms(0, 0, 4, mb, 0, 1)).toHaveLength(0);
-    expect(instanceTransforms(90, 4, 0, mb, 0, 1)).toHaveLength(0);
-  });
-});
-
-describe('instanceTransforms — 0° 佔位＋變換代數驗證', () => {
-  it('cell 矩形＝gripper+cell*(w+gap) 起、寬高＝mb 原始寬高；變換字串套用後的幾何與 cellX/Y/W/H 一致', () => {
+describe('directionInstances（fillSplit=null）— buildGrid 主格點代數驗證', () => {
+  it('0°：cell 矩形＝gripper+cell*(w+gap) 起、寬高＝mb 原始寬高；變換字串套用後的幾何與 cellX/Y/W/H 一致', () => {
     const mb: Bounds = { minX: 5, maxX: 35, minY: -7, maxY: 13 }; // w=30, h=20，非零 min
     const gripper = 10;
     const gap = 4;
-    const instances = instanceTransforms(0, 2, 2, mb, gripper, gap);
+    const instances = directionInstances(0, noFillDirection(2, 2), mb, gripper, gap, 500);
     expect(instances).toHaveLength(4);
 
     // c=1,r=1（非原點的一格，避免湊巧全零通過）：flatten 順序＝r*cols+c＝1*2+1＝3
@@ -93,27 +82,18 @@ describe('instanceTransforms — 0° 佔位＋變換代數驗證', () => {
     const bounds = transformedBounds(inst.transform, mb);
     expect(bounds).toEqual({ minX: inst.cellX, maxX: inst.cellX + inst.cellW, minY: inst.cellY, maxY: inst.cellY + inst.cellH });
   });
-});
 
-describe('instanceTransforms — 90° 佔位驗證（非零 min mb，spec 驗收條件 7）', () => {
-  const mb: Bounds = { minX: 5, minY: -7, maxX: 35, maxY: 13 }; // w=30 寬、h=20 高
-  const gripper = 10;
-  const gap = 4;
-  // 90° 旋轉後佔位＝h×w＝20×30。用 fitCount（T2）反推「剛好塞滿」的可用區，讓這個測試
-  // 同時驗證「T2 fitCount 認為塞得下的格數」與「T3 cell 位移實際佔據的矩形」用的是同一套
-  // footprint 公式——不是各自巧合對得上，是兩個模組對同一個契約的獨立實作。
-  const cols = 3;
-  const rows = 2;
-  const usableW = cols * 20 + (cols - 1) * gap; // 3*20+2*4=68，恰好塞滿
-  const usableH = rows * 30 + (rows - 1) * gap; // 2*30+1*4=64，恰好塞滿
+  it('90°（非零 min mb，spec 驗收條件 7）：全部 instance 的 cell 矩形落在可用區內、邊界貼齊；cell step＝旋轉後寬高＋gap；變換代數逐一驗證', () => {
+    const mb: Bounds = { minX: 5, minY: -7, maxX: 35, maxY: 13 }; // w=30 寬、h=20 高
+    const gripper = 10;
+    const gap = 4;
+    // 90° 旋轉後佔位＝h×w＝20×30；usableW/usableH 恰好塞滿 cols=3,rows=2（手算，非反推）。
+    const cols = 3;
+    const rows = 2;
+    const usableW = cols * 20 + (cols - 1) * gap; // 3*20+2*4=68
+    const usableH = rows * 30 + (rows - 1) * gap; // 2*30+1*4=64
 
-  it('前提檢查：fitCount 反推的 cols/rows 與本測試手算一致', () => {
-    expect(fitCount(usableW, 20, gap)).toBe(cols);
-    expect(fitCount(usableH, 30, gap)).toBe(rows);
-  });
-
-  it('全部 instance 的 cell 矩形落在可用區內，邊界 instance 恰好貼齊（非寬鬆通過）', () => {
-    const instances = instanceTransforms(90, cols, rows, mb, gripper, gap);
+    const instances = directionInstances(90, noFillDirection(cols, rows), mb, gripper, gap, 500);
     expect(instances).toHaveLength(cols * rows);
 
     for (const inst of instances) {
@@ -123,32 +103,16 @@ describe('instanceTransforms — 90° 佔位驗證（非零 min mb，spec 驗收
       expect(inst.cellY).toBeGreaterThanOrEqual(gripper);
       expect(inst.cellX + inst.cellW).toBeLessThanOrEqual(gripper + usableW);
       expect(inst.cellY + inst.cellH).toBeLessThanOrEqual(gripper + usableH);
+
+      const bounds = transformedBounds(inst.transform, mb);
+      expect(bounds).toEqual({ minX: inst.cellX, maxX: inst.cellX + inst.cellW, minY: inst.cellY, maxY: inst.cellY + inst.cellH });
     }
 
-    // 最後一格（c=cols-1, r=rows-1）恰好貼齊可用區右下角。
+    // 最後一格（c=cols-1, r=rows-1）恰好貼齊可用區右下角；相鄰 instance 的 cellX 差＝cell step。
     const last = instances[instances.length - 1]!;
     expect(last.cellX + last.cellW).toBe(gripper + usableW);
     expect(last.cellY + last.cellH).toBe(gripper + usableH);
-  });
-
-  it('cell step＝旋轉後寬高＋gap（相鄰 instance 的 cellX 差）', () => {
-    const instances = instanceTransforms(90, cols, rows, mb, gripper, gap);
-    const first = instances[0]!; // c=0,r=0
-    const second = instances[1]!; // c=1,r=0（row-major）
-    expect(second.cellX - first.cellX).toBe(20 + gap);
-  });
-
-  it('變換字串套用後的實際幾何包絡＝cellX/Y/W/H（逐一驗證每個 instance，非單點抽驗）', () => {
-    const instances = instanceTransforms(90, cols, rows, mb, gripper, gap);
-    for (const inst of instances) {
-      const bounds = transformedBounds(inst.transform, mb);
-      expect(bounds).toEqual({
-        minX: inst.cellX,
-        maxX: inst.cellX + inst.cellW,
-        minY: inst.cellY,
-        maxY: inst.cellY + inst.cellH,
-      });
-    }
+    expect(instances[1]!.cellX - instances[0]!.cellX).toBe(20 + gap); // c=1,r=0 − c=0,r=0（row-major）
   });
 });
 
