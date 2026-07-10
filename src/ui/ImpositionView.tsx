@@ -94,7 +94,7 @@ export interface ImpositionResultsProps {
 }
 
 const DISCLAIMER_TEXT =
-  '以單件外接矩形估算；未計混向、塞角、共刀、絲向及加工限制，不可直接作生產拼版。';
+  '以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。';
 
 const LABEL_CLASS = 'text-[10px] uppercase tracking-wider text-zinc-400';
 const CONTROL_CLASS =
@@ -202,7 +202,14 @@ function DirectionCard({
 }) {
   const isHalf = cutV || cutH;
   const showPreview = direction !== null && direction.count > 0 && workingSheet !== null;
-  const isTruncated = direction !== null && direction.count > instances.length;
+  // Fix 1（gate round 1 T1 review·isTruncated 假陽性）：`count` 語意在 T1 已改為 gridCount＋
+  // 補排件數，但預覽此時仍只畫主格點 instances（補排件要 T3 才畫，見下方 deg0Instances／
+  // deg90Instances 呼叫的 instanceTransforms）。若拿新語意的 count 比對舊語意的 instances 數，
+  // allowRotate=true 且出現補排時恆為 true（App 預設值下 90° 卡 count=12 > instances=8，
+  // 即使遠低於 MAX_PREVIEW_INSTANCES=500 仍誤顯示「數量過大，預覽已簡化」）。
+  // T1 interim：預覽尚未畫補排件（T3），截斷比較對齊 gridCount；T3 重寫為
+  // totalCount > renderedCount（renderedCount 含補排件＋子紙）。
+  const isTruncated = direction !== null && direction.gridCount > instances.length;
 
   return (
     <div data-testid={`direction-card-${dirDeg}`} className="flex-1 flex flex-col gap-2 p-3 bg-white border border-zinc-200 rounded-sm">

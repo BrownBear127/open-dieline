@@ -187,7 +187,7 @@ describe('ImpositionView — 界線聲明', () => {
   it('固定顯示界線聲明，逐字相符', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
     expect(
-      screen.getByText('以單件外接矩形估算；未計混向、塞角、共刀、絲向及加工限制，不可直接作生產拼版。'),
+      screen.getByText('以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。'),
     ).toBeInTheDocument();
   });
 });
@@ -211,6 +211,33 @@ describe('ImpositionView — 對開模式', () => {
   it('整紙模式（非對開）：不顯示「每半張」', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
     expect(screen.getByTestId('direction-card-0').textContent).not.toContain('每半張');
+  });
+});
+
+// ── 作業模式 select 映射表（Fix 4·gate round 1 T1 review Low：舊測試只選 halfV 一項，
+// 未覆蓋 full/halfH/quarter，映射本身正確〔review 已驗〕，這裡純補測試鑑別力）──────
+
+describe('ImpositionControls — 作業模式 select 映射表（Fix 4）', () => {
+  const MODE_TABLE: { value: 'full' | 'halfV' | 'halfH' | 'quarter'; cutV: boolean; cutH: boolean }[] = [
+    { value: 'full', cutV: false, cutH: false },
+    { value: 'halfV', cutV: true, cutH: false },
+    { value: 'halfH', cutV: false, cutH: true },
+    { value: 'quarter', cutV: true, cutH: true },
+  ];
+
+  it.each(MODE_TABLE)('select→state：選「$value」→ onChange 收到 cutV=$cutV、cutH=$cutH', ({ value, cutV, cutH }) => {
+    const onChange = vi.fn();
+    render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('作業模式'), { target: { value } });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV, cutH }));
+  });
+
+  it.each(MODE_TABLE)('state→select 回讀：cutV=$cutV、cutH=$cutH → 下拉顯示「$value」', ({ value, cutV, cutH }) => {
+    const state: ImpositionState = { ...BASE_STATE, cutV, cutH };
+    render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    expect((screen.getByLabelText('作業模式') as HTMLSelectElement).value).toBe(value);
   });
 });
 
@@ -477,7 +504,7 @@ describe('ImpositionControls／ImpositionResults — 獨立掛載（review Mediu
     expect(screen.getByTestId('direction-card-0').textContent).toContain('8 模');
     expect(screen.getByTestId('direction-card-90').textContent).toContain('8 模');
     expect(
-      screen.getByText('以單件外接矩形估算；未計混向、塞角、共刀、絲向及加工限制，不可直接作生產拼版。'),
+      screen.getByText('以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: '件' })).toBeNull(); // 控制項不屬於 Results
   });
