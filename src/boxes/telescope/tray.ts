@@ -143,7 +143,8 @@ interface ABLine {
  *
  * T0 原始鏈另含 LINE57/58（角落→45° 對角線 tip 附近的兩段）與 LINE202（outerWall
  * 角落收邊 crease）——經對算腳本核對後確認兩者都與**既有**幾何重複：
- * - LINE57/58 與 buildGussetA 的 outerCut（V4→tip→V3，reach=height−thickness）在
+ * - LINE57/58 與 buildGussetA 的 outerCut（V4→tip→V3，reach=height−wallTopCompensation，
+ *   Fix 4·2026-07-11 更正——先前殘留的 height−thickness 舊公式已修正，見 buildGussetA）在
  *   production-P 座標下幾乎重合（相距 ≤0.1mm）；
  * - LINE202（root→outerWall 角落、固定 perp=corner）與 buildGussetA 的 x 軸 web 摺線
  *   （corner→v3，同樣固定 perp=corner）是同一條物理線的兩種公式表述，thickness＝
@@ -155,7 +156,7 @@ interface ABLine {
  * outerCut/web 摺線的 reach 公式）在非 production-P 參數下會產生真交叉或精確重複
  * （cut 自撞掃描 24 組合／S5 全零掃描曾在此抓到），故不重複收錄。LINE27（10° cut）
  * 錨定的是 outerWall（topStartAlong，wallTopCompensation 公式）而非 v3/v4
- * （reach，thickness 公式），是與既有幾何無關、確定新增的獨立特徵，保留。
+ * （reach，wallTopCompensation 公式），是與既有幾何無關、確定新增的獨立特徵，保留。
  */
 const A_GUSSET_OUTER_TL: ABLine[] = [{ p1: { a: 59.4995, b: 0 }, p2: { a: 64.4984, b: -0.8819 }, type: 'cut' }];
 
@@ -654,23 +655,32 @@ function buildWall(
 /**
  * 角撐 web 與牆相連的摺線錨點：沿 x 軸（x 向牆側邊）與沿 y 軸（y 向牆側邊）
  * 各自「角落→錨點」是 crease（web 摺線）、錨點之外才是牆側邊 cut。
- * style A：兩軸對稱共用 reach＝height−thickness（附錄 V3/V4 offset 精確相等的實證）。
- * style B：x 軸＝出口垂直 cut 的位置（2×reach − 出口轉角高，見 bGussetFrame p6）、
- * y 軸＝height（生產參照 45.074≈H；生產值是「tip→內縮 2mm 側邊」連線與軸線的交點，
- * 未復刻 2mm 內縮故取整為 H，殘差 74µm）。
+ * style A：兩軸對稱共用 reach＝height−wallTopCompensation（附錄 V3/V4 offset 精確相等的
+ * 實證——Fix 4·2026-07-11 SOL review M4：先前殘留 height−thickness 舊公式是 T1 參數遷移
+ * 漏網——T1 已把壁頂補償與 thickness 解耦，這裡沒跟上；P 實測長壁 outerWall=59.4995mm，
+ * height−wallTopCompensation=59.5（差 0.0005mm ✓ 在 ±0.05 容差內），舊公式
+ * height−thickness=59.56（差 0.0605mm，超容差）。兩軸相等這個既有結論不變，只修正
+ * 「共用哪個公式」）。
+ * style B：x 軸＝出口垂直 cut 的位置（2×reach − 出口轉角高，見 bGussetFrame p6，reach 仍用
+ * height−thickness——style B 未受本次修正影響，見該函式）、y 軸＝height（生產參照
+ * 45.074≈H；生產值是「tip→內縮 2mm 側邊」連線與軸線的交點，未復刻 2mm 內縮故取整為 H，
+ * 殘差 74µm）。
  */
-function gussetAnchors(useThickStyle: boolean, height: number, thickness: number): { x: number; y: number } {
-  const reach = height - thickness;
+function gussetAnchors(useThickStyle: boolean, height: number, thickness: number, wallTopCompensation: number): { x: number; y: number } {
   if (useThickStyle) {
+    const reach = height - wallTopCompensation;
     return { x: reach, y: reach };
   }
+  const reach = height - thickness;
   return { x: 2 * reach - height * GUSSET_B_EXIT_RATIO, y: height };
 }
 
 /**
  * 厚壁角撐（style A，45° 斜角撐）——復刻生產 A 片四角實測結構：
  * 兩條 web 摺線（crease，角落沿兩軸到 V3/V4）＋ 45° 對角線（角落半段 cut、外半段
- * crease 到 tip）＋外緣斜切（cut：V4→tip→V3）。reach＝height−thickness 兩軸共用。
+ * crease 到 tip）＋外緣斜切（cut：V4→tip→V3）。reach＝height−wallTopCompensation 兩軸
+ * 共用（Fix 4·2026-07-11，見 gussetAnchors 註解——與該函式同一公式來源，呼叫端
+ * 傳入同一個 wallTopCompensation 值，兩處自動同步，不會各自漂移）。
  * 生產檔另有 V3 之外的 −10° 短 cut、平台端讓位（R2.5 弧＋5mm 內縮側邊）未復刻
  * （簡化為錨點外沿軸線的直線側邊，見 task-3-report.md Fix Round 1）。
  *
@@ -686,11 +696,11 @@ function buildGussetA(
   sx: Sign,
   sy: Sign,
   height: number,
-  thickness: number,
+  wallTopCompensation: number,
   rootJog: number,
   side: string,
 ): PathDescriptor[] {
-  const reach = height - thickness;
+  const reach = height - wallTopCompensation;
   const diagHalf = height * GUSSET_A_DIAG_HALF_RATIO;
   const mid = { x: cornerX + sx * diagHalf, y: cornerY + sy * diagHalf };
   const tip = { x: cornerX + sx * diagHalf * 2, y: cornerY + sy * diagHalf * 2 };
@@ -1002,9 +1012,10 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
   const halfL = panelL / 2;
   const halfW = panelW / 2;
   const useThickStyle = platformWidth > 0;
-  // 角撐對角線位置（reach）仍直接吃 thickness——Slice 5 F3 只解耦壁根 jog／內外壁差
-  // 這兩處（audit A-01），角撐細節屬 F6，本次不動。
-  const anchors = gussetAnchors(useThickStyle, height, thickness);
+  // 角撐對角線位置（reach）：style A 用 wallTopCompensation（Fix 4·2026-07-11，見
+  // gussetAnchors 註解——修正 T1 參數遷移漏網的 height−thickness 舊公式）；style B
+  // 仍直接吃 thickness（未受本次修正影響，見該函式）。
+  const anchors = gussetAnchors(useThickStyle, height, thickness, wallTopCompensation);
 
   const descriptors: PathDescriptor[] = [
     // x 向牆（左右，先摺）：單 crease 根、外壁＝height−wallTopCompensation（頂緣平齊修正，
@@ -1048,7 +1059,7 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
     const cornerY = sy * halfW;
     descriptors.push(
       ...(useThickStyle
-        ? buildGussetA(cornerX, cornerY, sx, sy, height, thickness, rootJog, label)
+        ? buildGussetA(cornerX, cornerY, sx, sy, height, wallTopCompensation, rootJog, label)
         : buildGussetB(cornerX, cornerY, sx, sy, height, thickness, label)),
     );
     // A 款平台端＋角撐周邊複合 relief 鏈（Slice 5 F6-A；Fix 1 兩手性模板）：對角角落配對
