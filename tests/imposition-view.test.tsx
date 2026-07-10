@@ -331,6 +331,20 @@ describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
     expect(bothPressedGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('裁切 (cutV=false, cutH=true) 組合：H 選中、V 未選中兩鈕皆斷言，並從此態點擊 H 驗證回到 (false, false)（review 覆蓋缺口——原本 4 種疊加組合只驗了 3 種）', () => {
+    const onChange = vi.fn();
+    render(
+      <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: false, cutH: true }} onChange={onChange} />,
+    );
+
+    const cutGroup = within(screen.getByRole('group', { name: '裁切' }));
+    expect(cutGroup.getByRole('button', { name: '對開 V' })).toHaveAttribute('aria-pressed', 'false');
+    expect(cutGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(cutGroup.getByRole('button', { name: '對開 H' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV: false, cutH: false }));
+  });
+
   it('可轉 90° 按鈕：aria-pressed 反映 state.allowRotate，點擊呼叫 onChange 取反（取代 T1 的 checkbox）', () => {
     const onChange = vi.fn();
     render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, allowRotate: false }} onChange={onChange} />);
