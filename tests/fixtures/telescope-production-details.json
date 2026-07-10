@@ -1,0 +1,2255 @@
+{
+  "_meta": {
+    "purpose": "open-dieline Slice 5 T0：生產刀模 P 逐線量測產出的細節局部座標表——telescope 幾何實作（T3/T4）的唯一權威來源。",
+    "sourceFile": "天地盒刀模.svg（去識別：僅存檔名，不存絕對路徑／個人資料夾名）",
+    "sourceSha256": "b664452e27346cf62baa2b1b961f39f9a28c958569b5decd041f147fe50182c3",
+    "unitInference": "P 座標為 typographic point scale（72 units/inch）；1 unit = 25.4/72 = 0.352778 mm。依審計 dieline-audit-telescope.md §一交叉驗證（17 組尺寸 pt 換算平均相對誤差 <0.06%）；非 SVG viewBox 明示單位，是幾何反推的高信心推定。",
+    "measurementDate": "2026-07-11",
+    "measurementMethod": "Python 腳本解析 SVG line/path，pt→mm 換算，圓弧以 tangent-perpendicular 交點法從三次貝茲精確反解（非取樣近似）；分件依 x 空帶 1217.68..1342.72pt 切割（base=x>1342.72 版右下盒／lid=x<1217.68 版左上蓋）。腳本與原始輸出見任務側 開發紀錄（gitignored，不隨此 fixture 進 repo）。",
+    "coordinateConvention": {
+      "d_along": "每壁自己的 root（面板邊線）量起，一律正值＝往外（root→outerWall→platform(若有)→innerWall→tongueFold→tongue 方向）。",
+      "s_perp": "沿該壁長度方向、相對壁中心的帶號距離；正負號對應哪個角落已在各特徵的 s_center_mm／s_apex_mm 或原始 mm 座標旁註明——本 fixture 同時保留「原始 P 絕對 mm 座標」與「相對壁中心的 s／d 衍生值」，實作端可自行核對兩者一致。",
+      "wallTypes": {
+        "base.longWall": "root=179.003mm（＝baseLength），左壁 root x=611.882／右壁 root x=735.884，2 個 U-notch，無 jog（單 crease 根）。",
+        "base.shortWall": "root=124.001mm（＝baseWidth），上壁 nominal y=199.136／下壁 nominal y=378.139，1 個置中 U-notch，有 jog（F2 階梯 stagger，中央 offset crease + 兩端 0.497mm jog 短線接回 nominal）。",
+        "lid.longWall": "root=215.999mm，左壁 root x=174.371／右壁 root x=325.370，B 款舌根（crease 端段+halfcut 中段），無獨立 jog 短線（F2：jog 併入 x 邊界垂直 crease）。",
+        "lid.shortWall": "root=150.999mm，上壁 nominal y=197.139／下壁 nominal y=413.138，B 款舌根＋4 個 V relief 全在此壁（兩端各一），有 jog（0.501mm，central-offset 型態同 base.shortWall）。"
+      }
+    },
+    "calibrationCaveat": "去識別慣例：本檔不含個人姓名、絕對檔案路徑（來源只寫檔名）。量測腳本可重跑於同一來源檔（sha256 校驗）重現全部數字。",
+    "anchorCrossCheck": {
+      "passed": 69,
+      "total": 69,
+      "allPassed": true
+    }
+  },
+  "nominalVsMeasured": {
+    "note": "spec §nominal 表格式——design nominal 為程式應直出的圓整值；P measured 為本檔量測原值（未圓整）。",
+    "rootJog": {
+      "nominal": 0.5,
+      "measured": {
+        "base": 0.4974,
+        "lid": 0.5009
+      }
+    },
+    "innerWallReduction": {
+      "nominal": 0.8,
+      "measured_note": "見 platform_end_base / lid tongueFold 地標推算，T0 不直接量此參數本身（F3 為 t 解耦後的可覆寫參數，非 P 幾何直接量得單一線段）"
+    },
+    "wallTopCompensation": {
+      "nominal": 0.5,
+      "measured_note": "同上，屬 F3 參數解耦範疇"
+    },
+    "notchOpening": {
+      "nominal": 30,
+      "measured": 30.0002
+    },
+    "notchBase": {
+      "nominal": 26,
+      "measured": 25.9997
+    },
+    "notchDepth": {
+      "nominal": 4.2,
+      "measured": 4.2016
+    },
+    "notchFilletR": {
+      "nominal": 2.0,
+      "measured": 2.0003
+    },
+    "vReliefHeight": {
+      "nominal": 5.0,
+      "measured": 4.999
+    },
+    "vReliefInset": {
+      "nominal": 2.5,
+      "measured": 2.501
+    },
+    "basePlatformCornerR": {
+      "nominal": 2.5,
+      "measured": 2.5012
+    },
+    "bGussetPeripheryR": {
+      "nominal": 2.0,
+      "measured": 2.0003
+    },
+    "basePlatformEndInset_shortWall": {
+      "nominal": 5.0,
+      "measured": 5.0006
+    },
+    "basePlatformEndInset_longWall": {
+      "nominal": 4.5,
+      "measured": 4.5014
+    },
+    "bGussetSideInset": {
+      "nominal": 2.0,
+      "measured": 2.0006
+    },
+    "tenDegCut_angle": {
+      "nominal": 10.0,
+      "measured": 9.994
+    },
+    "tenDegCut_length": {
+      "nominal": 5.076,
+      "measured": 5.0761
+    }
+  },
+  "base": {
+    "panel": {
+      "width_mm": 124.0014,
+      "corners_mm": {
+        "topLeft": [
+          611.8825,
+          199.136
+        ],
+        "topRight": [
+          735.8839,
+          199.136
+        ],
+        "bottomLeft": [
+          611.8825,
+          378.139
+        ],
+        "bottomRight": [
+          735.8839,
+          378.139
+        ]
+      }
+    },
+    "longWall_stack_d_landmarks_mm": {
+      "root": 0.0,
+      "outerWall": 59.4995,
+      "platformEnd_inset": 64.4984,
+      "tongueFold": 123.2005
+    },
+    "shortWall_stack_d_landmarks_mm": {
+      "root_nominal": 0.0,
+      "root_centralOffset": 0.4974,
+      "outerWall": 60.4979,
+      "platformEnd_inset": 65.4967,
+      "tongueFold": 124.7
+    },
+    "uNotches": {
+      "leftWall_upper": {
+        "openingEdge": {
+          "gid1": "LINE101",
+          "gid2": "LINE99",
+          "y_range_mm": [
+            244.2986,
+            274.2988
+          ],
+          "width_mm": 30.0002
+        },
+        "baseLine": {
+          "gid": "LINE100",
+          "x_mm": 492.8835,
+          "y_range_mm": [
+            246.2989,
+            272.2986
+          ],
+          "length_mm": 25.9997
+        },
+        "depth_mm": 4.2015,
+        "corner_arcs": [
+          {
+            "gid": "ARC15#0",
+            "center_mm": [
+              490.8832,
+              246.2989
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              492.8835,
+              246.2989
+            ],
+            "p3_mm": [
+              490.8832,
+              244.2986
+            ]
+          },
+          {
+            "gid": "ARC14#0",
+            "center_mm": [
+              490.8832,
+              272.2986
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              490.8832,
+              274.2988
+            ],
+            "p3_mm": [
+              492.8835,
+              272.2986
+            ]
+          }
+        ],
+        "s_center_mm": -29.3388,
+        "foldLine_x_mm": 488.682
+      },
+      "leftWall_lower": {
+        "openingEdge": {
+          "gid1": "LINE98",
+          "gid2": "LINE96",
+          "y_range_mm": [
+            302.9761,
+            332.9764
+          ],
+          "width_mm": 30.0002
+        },
+        "baseLine": {
+          "gid": "LINE97",
+          "x_mm": 492.8835,
+          "y_range_mm": [
+            304.9764,
+            330.9761
+          ],
+          "length_mm": 25.9997
+        },
+        "depth_mm": 4.2015,
+        "corner_arcs": [
+          {
+            "gid": "ARC13#0",
+            "center_mm": [
+              490.8832,
+              304.9764
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              492.8835,
+              304.9764
+            ],
+            "p3_mm": [
+              490.8832,
+              302.9761
+            ]
+          },
+          {
+            "gid": "ARC12#0",
+            "center_mm": [
+              490.8832,
+              330.9761
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              490.8832,
+              332.9764
+            ],
+            "p3_mm": [
+              492.8835,
+              330.9761
+            ]
+          }
+        ],
+        "s_center_mm": 29.3388,
+        "foldLine_x_mm": 488.682
+      },
+      "rightWall_upper": {
+        "openingEdge": {
+          "gid1": "LINE29",
+          "gid2": "LINE31",
+          "y_range_mm": [
+            244.2986,
+            274.2988
+          ],
+          "width_mm": 30.0002
+        },
+        "baseLine": {
+          "gid": "LINE30",
+          "x_mm": 854.8829,
+          "y_range_mm": [
+            246.2989,
+            272.2986
+          ],
+          "length_mm": 25.9997
+        },
+        "depth_mm": 4.2011,
+        "corner_arcs": [
+          {
+            "gid": "ARC2#0",
+            "center_mm": [
+              856.8831,
+              246.2989
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              856.8831,
+              244.2986
+            ],
+            "p3_mm": [
+              854.8829,
+              246.2989
+            ]
+          },
+          {
+            "gid": "ARC3#0",
+            "center_mm": [
+              856.8831,
+              272.2986
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              854.8829,
+              272.2986
+            ],
+            "p3_mm": [
+              856.8831,
+              274.2988
+            ]
+          }
+        ],
+        "s_center_mm": -29.3388,
+        "foldLine_x_mm": 859.084
+      },
+      "rightWall_lower": {
+        "openingEdge": {
+          "gid1": "LINE32",
+          "gid2": "LINE34",
+          "y_range_mm": [
+            302.9761,
+            332.9764
+          ],
+          "width_mm": 30.0002
+        },
+        "baseLine": {
+          "gid": "LINE33",
+          "x_mm": 854.8829,
+          "y_range_mm": [
+            304.9764,
+            330.9761
+          ],
+          "length_mm": 25.9997
+        },
+        "depth_mm": 4.2011,
+        "corner_arcs": [
+          {
+            "gid": "ARC4#0",
+            "center_mm": [
+              856.8831,
+              304.9764
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              856.8831,
+              302.9761
+            ],
+            "p3_mm": [
+              854.8829,
+              304.9764
+            ]
+          },
+          {
+            "gid": "ARC5#0",
+            "center_mm": [
+              856.8831,
+              330.9761
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              854.8829,
+              330.9761
+            ],
+            "p3_mm": [
+              856.8831,
+              332.9764
+            ]
+          }
+        ],
+        "s_center_mm": 29.3388,
+        "foldLine_x_mm": 859.084
+      },
+      "topWall_centered": {
+        "openingEdge": {
+          "gid1": "LINE9",
+          "gid2": "LINE11",
+          "x_range_mm": [
+            658.8831,
+            688.8833
+          ],
+          "width_mm": 30.0002
+        },
+        "baseLine": {
+          "gid": "LINE10",
+          "y_mm": 78.6377,
+          "x_range_mm": [
+            660.8833,
+            686.883
+          ],
+          "length_mm": 25.9997
+        },
+        "depth_mm": 4.2016,
+        "corner_arcs": [
+          {
+            "gid": "ARC#0",
+            "center_mm": [
+              660.8833,
+              76.6374
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              658.8831,
+              76.6374
+            ],
+            "p3_mm": [
+              660.8833,
+              78.6377
+            ]
+          },
+          {
+            "gid": "ARC1#0",
+            "center_mm": [
+              686.883,
+              76.6374
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              686.883,
+              78.6377
+            ],
+            "p3_mm": [
+              688.8833,
+              76.6374
+            ]
+          }
+        ],
+        "s_center_mm": 0.0
+      },
+      "bottomWall_centered": {
+        "openingEdge": {
+          "gid1": "LINE80",
+          "gid2": "LINE82",
+          "x_range_mm": [
+            658.8831,
+            688.8833
+          ],
+          "width_mm": 30.0002
+        },
+        "baseLine": {
+          "gid": "LINE81",
+          "y_mm": 498.6373,
+          "x_range_mm": [
+            660.8833,
+            686.883
+          ],
+          "length_mm": 25.9997
+        },
+        "depth_mm": 4.2016,
+        "corner_arcs": [
+          {
+            "gid": "ARC10#0",
+            "center_mm": [
+              660.8833,
+              500.6375
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              660.8833,
+              498.6373
+            ],
+            "p3_mm": [
+              658.8831,
+              500.6375
+            ]
+          },
+          {
+            "gid": "ARC11#0",
+            "center_mm": [
+              686.883,
+              500.6375
+            ],
+            "radius_mm": 2.0003,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              688.8833,
+              500.6375
+            ],
+            "p3_mm": [
+              686.883,
+              498.6373
+            ]
+          }
+        ],
+        "s_center_mm": 0.0
+      }
+    },
+    "halfcutSegments": {
+      "leftWall": [
+        {
+          "p1_mm": [
+            488.6819,
+            244.2986
+          ],
+          "p2_mm": [
+            488.6819,
+            220.6378
+          ],
+          "length_mm": 23.6608,
+          "gid": "LINE266"
+        },
+        {
+          "p1_mm": [
+            488.6819,
+            302.9761
+          ],
+          "p2_mm": [
+            488.6819,
+            274.2988
+          ],
+          "length_mm": 28.6773,
+          "gid": "LINE265"
+        },
+        {
+          "p1_mm": [
+            488.6819,
+            356.6372
+          ],
+          "p2_mm": [
+            488.6819,
+            332.9764
+          ],
+          "length_mm": 23.6608,
+          "gid": "LINE264"
+        }
+      ],
+      "rightWall": [
+        {
+          "p1_mm": [
+            859.0844,
+            220.6378
+          ],
+          "p2_mm": [
+            859.0844,
+            244.2986
+          ],
+          "length_mm": 23.6608,
+          "gid": "LINE259"
+        },
+        {
+          "p1_mm": [
+            859.0844,
+            274.2988
+          ],
+          "p2_mm": [
+            859.0844,
+            302.9761
+          ],
+          "length_mm": 28.6773,
+          "gid": "LINE260"
+        },
+        {
+          "p1_mm": [
+            859.0844,
+            332.9764
+          ],
+          "p2_mm": [
+            859.0844,
+            356.6372
+          ],
+          "length_mm": 23.6608,
+          "gid": "LINE261"
+        }
+      ],
+      "topWall": [
+        {
+          "p1_mm": [
+            613.8827,
+            74.4361
+          ],
+          "p2_mm": [
+            658.8831,
+            74.4361
+          ],
+          "length_mm": 45.0003,
+          "gid": "LINE257"
+        },
+        {
+          "p1_mm": [
+            688.8833,
+            74.4361
+          ],
+          "p2_mm": [
+            733.8836,
+            74.4361
+          ],
+          "length_mm": 45.0003,
+          "gid": "LINE258"
+        }
+      ],
+      "bottomWall": [
+        {
+          "p1_mm": [
+            613.8827,
+            502.8389
+          ],
+          "p2_mm": [
+            658.8831,
+            502.8389
+          ],
+          "length_mm": 45.0003,
+          "gid": "LINE262"
+        },
+        {
+          "p1_mm": [
+            688.8833,
+            502.8389
+          ],
+          "p2_mm": [
+            733.8836,
+            502.8389
+          ],
+          "length_mm": 45.0003,
+          "gid": "LINE263"
+        }
+      ]
+    },
+    "halfcutTotal_mm": 331.999,
+    "platformEnd": {
+      "shortWall": {
+        "topStartCrease": {
+          "gid": "LINE205",
+          "p1_mm": [
+            611.8825,
+            138.6381
+          ],
+          "p2_mm": [
+            735.8839,
+            138.6381
+          ],
+          "length_mm": 124.0014
+        },
+        "topEndCrease_inset": {
+          "gid": "LINE193",
+          "p1_mm": [
+            616.8849,
+            133.6393
+          ],
+          "p2_mm": [
+            730.885,
+            133.6393
+          ],
+          "length_mm": 114.0001
+        },
+        "topEndCrease_inset_mirror": {
+          "gid": "LINE194",
+          "p1_mm": [
+            616.8849,
+            443.6392
+          ],
+          "p2_mm": [
+            730.885,
+            443.6392
+          ],
+          "length_mm": 114.0001
+        },
+        "inset_each_side_mm": 5.0006,
+        "platformWidth_mm": 4.9989,
+        "corner_fillets_R2_5": [
+          {
+            "gid": "ARC6#0",
+            "center_mm": [
+              614.3837,
+              136.1405
+            ],
+            "radius_mm": 2.5012,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              614.3837,
+              133.6393
+            ],
+            "p3_mm": [
+              611.8825,
+              136.1405
+            ]
+          },
+          {
+            "gid": "ARC7#0",
+            "center_mm": [
+              733.3827,
+              136.1369
+            ],
+            "radius_mm": 2.5012,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              735.8839,
+              136.1369
+            ],
+            "p3_mm": [
+              733.3827,
+              133.6358
+            ]
+          },
+          {
+            "gid": "ARC8#0",
+            "center_mm": [
+              614.3837,
+              441.138
+            ],
+            "radius_mm": 2.5012,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              611.8825,
+              441.138
+            ],
+            "p3_mm": [
+              614.3837,
+              443.6392
+            ]
+          },
+          {
+            "gid": "ARC9#0",
+            "center_mm": [
+              733.3827,
+              441.138
+            ],
+            "radius_mm": 2.5012,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              733.3827,
+              443.6392
+            ],
+            "p3_mm": [
+              735.8839,
+              441.138
+            ]
+          }
+        ],
+        "fillet_transition_chain_topLeft": [
+          {
+            "gid": "LINE40",
+            "kind": "line",
+            "lineType": "cut",
+            "p1_mm": [
+              614.3837,
+              133.6393
+            ],
+            "p2_mm": [
+              616.8849,
+              133.6393
+            ],
+            "length_mm": 2.5012,
+            "angle_deg": 0.0
+          },
+          {
+            "gid": "ARC6#0",
+            "kind": "arc",
+            "lineType": "cut",
+            "center_mm": [
+              614.3837,
+              136.1405
+            ],
+            "radius_mm": 2.5012,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              614.3837,
+              133.6393
+            ],
+            "p3_mm": [
+              611.8825,
+              136.1405
+            ]
+          },
+          {
+            "gid": "LINE39",
+            "kind": "line",
+            "lineType": "cut",
+            "p1_mm": [
+              611.8825,
+              138.6381
+            ],
+            "p2_mm": [
+              611.8825,
+              136.1369
+            ],
+            "length_mm": 2.5012,
+            "angle_deg": -90.0
+          }
+        ],
+        "fillet_transition_chain_topRight": [
+          {
+            "gid": "LINE42",
+            "kind": "line",
+            "lineType": "cut",
+            "p1_mm": [
+              733.3827,
+              133.6393
+            ],
+            "p2_mm": [
+              730.885,
+              133.6393
+            ],
+            "length_mm": 2.4977,
+            "angle_deg": 180.0
+          },
+          {
+            "gid": "ARC7#0",
+            "kind": "arc",
+            "lineType": "cut",
+            "center_mm": [
+              733.3827,
+              136.1369
+            ],
+            "radius_mm": 2.5012,
+            "theta_deg": 90.0,
+            "p0_mm": [
+              735.8839,
+              136.1369
+            ],
+            "p3_mm": [
+              733.3827,
+              133.6358
+            ]
+          },
+          {
+            "gid": "LINE41",
+            "kind": "line",
+            "lineType": "cut",
+            "p1_mm": [
+              735.8839,
+              138.6381
+            ],
+            "p2_mm": [
+              735.8839,
+              136.1369
+            ],
+            "length_mm": 2.5012,
+            "angle_deg": -90.0
+          }
+        ]
+      },
+      "longWall": {
+        "topStartCrease": {
+          "gid": "LINE201",
+          "p1_mm": [
+            552.383,
+            199.136
+          ],
+          "p2_mm": [
+            552.383,
+            378.139
+          ],
+          "length_mm": 179.003
+        },
+        "topEndCrease_inset": {
+          "gid": "LINE222",
+          "p1_mm": [
+            547.3841,
+            373.6375
+          ],
+          "p2_mm": [
+            547.3841,
+            203.6374
+          ],
+          "length_mm": 170.0001
+        },
+        "topEndCrease_inset_mirror": {
+          "gid": "LINE197",
+          "p1_mm": [
+            800.3822,
+            203.6374
+          ],
+          "p2_mm": [
+            800.3822,
+            373.6375
+          ],
+          "length_mm": 170.0001
+        },
+        "inset_each_side_mm": 4.5014
+      }
+    },
+    "aGussetPeriphery_tenDegCuts": {
+      "topLeft": {
+        "gid": "LINE27",
+        "p1_mm": [
+          552.383,
+          199.136
+        ],
+        "p2_mm": [
+          547.3841,
+          200.0179
+        ],
+        "length_mm": 5.0761,
+        "angle_deg": 169.9943,
+        "deviation_from_horizontal_deg": 10.0057
+      },
+      "topRight": {
+        "gid": "LINE12",
+        "p1_mm": [
+          795.3834,
+          199.136
+        ],
+        "p2_mm": [
+          800.3822,
+          200.0179
+        ],
+        "length_mm": 5.0761,
+        "angle_deg": 10.0057,
+        "deviation_from_horizontal_deg": 10.0057
+      },
+      "bottomLeft": {
+        "gid": "LINE28",
+        "p1_mm": [
+          552.383,
+          378.139
+        ],
+        "p2_mm": [
+          547.3841,
+          377.257
+        ],
+        "length_mm": 5.0761,
+        "angle_deg": -169.9943,
+        "deviation_from_horizontal_deg": 10.0057
+      },
+      "bottomRight": {
+        "gid": "LINE13",
+        "p1_mm": [
+          795.3834,
+          378.139
+        ],
+        "p2_mm": [
+          800.3822,
+          377.257
+        ],
+        "length_mm": 5.0761,
+        "angle_deg": -10.0057,
+        "deviation_from_horizontal_deg": 10.0057
+      }
+    },
+    "aGussetPeriphery_reliefChain": {
+      "topLeftCorner_fullChain_cutEdgeToNotchApproach": [
+        {
+          "gid": "LINE57",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            611.8825,
+            139.6365
+          ],
+          "p2_mm": [
+            561.3012,
+            148.5582
+          ],
+          "length_mm": 51.3621,
+          "angle_deg": 169.9968
+        },
+        {
+          "gid": "LINE58",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            561.3012,
+            148.5582
+          ],
+          "p2_mm": [
+            552.383,
+            199.136
+          ],
+          "length_mm": 51.358,
+          "angle_deg": 100.0
+        },
+        {
+          "gid": "LINE27",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            552.383,
+            199.136
+          ],
+          "p2_mm": [
+            547.3841,
+            200.0179
+          ],
+          "length_mm": 5.0761,
+          "angle_deg": 169.9943
+        },
+        {
+          "gid": "LINE202",
+          "kind": "line",
+          "lineType": "crease",
+          "p1_mm": [
+            552.383,
+            199.136
+          ],
+          "p2_mm": [
+            611.8825,
+            199.136
+          ],
+          "length_mm": 59.4995,
+          "angle_deg": 0.0
+        }
+      ],
+      "topLeftCorner_platformRelief_chain": [
+        {
+          "gid": "LINE112",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            538.5752,
+            126.1392
+          ],
+          "p2_mm": [
+            490.6821,
+            126.1392
+          ],
+          "length_mm": 47.8931,
+          "angle_deg": 180.0
+        },
+        {
+          "gid": "LINE111",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            538.5752,
+            141.1393
+          ],
+          "p2_mm": [
+            538.5752,
+            126.1392
+          ],
+          "length_mm": 15.0001,
+          "angle_deg": -90.0
+        },
+        {
+          "gid": "LINE110",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            528.3024,
+            146.1382
+          ],
+          "p2_mm": [
+            538.5752,
+            141.1393
+          ],
+          "length_mm": 11.4246,
+          "angle_deg": -25.9479
+        },
+        {
+          "gid": "LINE109",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            518.033,
+            146.1382
+          ],
+          "p2_mm": [
+            547.3841,
+            146.1382
+          ],
+          "length_mm": 29.3511,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "LINE108",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            547.3841,
+            203.6374
+          ],
+          "p2_mm": [
+            547.3841,
+            146.1382
+          ],
+          "length_mm": 57.4992,
+          "angle_deg": -90.0
+        }
+      ],
+      "topLeftCorner_innerWallApproach_chain": [
+        {
+          "gid": "LINE113",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            490.6821,
+            126.1392
+          ],
+          "p2_mm": [
+            490.6821,
+            204.597
+          ],
+          "length_mm": 78.4578,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE94",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            490.6821,
+            204.597
+          ],
+          "p2_mm": [
+            473.6818,
+            204.597
+          ],
+          "length_mm": 17.0004,
+          "angle_deg": 180.0
+        },
+        {
+          "gid": "LINE88",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            508.1834,
+            204.597
+          ],
+          "p2_mm": [
+            490.6821,
+            204.597
+          ],
+          "length_mm": 17.5013,
+          "angle_deg": 180.0
+        },
+        {
+          "gid": "LINE84",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            508.1834,
+            201.6372
+          ],
+          "p2_mm": [
+            508.1834,
+            203.6374
+          ],
+          "length_mm": 2.0002,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE86",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            508.1834,
+            203.6374
+          ],
+          "p2_mm": [
+            508.1834,
+            204.597
+          ],
+          "length_mm": 0.9596,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE90",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            490.6821,
+            204.597
+          ],
+          "p2_mm": [
+            490.6821,
+            220.6378
+          ],
+          "length_mm": 16.0408,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE92",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            490.6821,
+            220.6378
+          ],
+          "p2_mm": [
+            488.6819,
+            220.6378
+          ],
+          "length_mm": 2.0002,
+          "angle_deg": 180.0
+        }
+      ],
+      "note": "10° cut（LINE27/12/28/13）是這條複合 relief 鏈的一段——完整鏈含 platform-start(547.384)↔outerWall(552.383) 的 5mm 階、innerWall 逼近 notch 的 2mm 階（LINE84/86, x=508.183）、以及與 45° gusset 對角線（LINE57/58）的匯合。四角對稱（topRight/bottomLeft/bottomRight 鏡射，gid 見 note2）。",
+      "mirror_gids": {
+        "topRight": [
+          "LINE60",
+          "LINE61",
+          "LINE62",
+          "LINE63",
+          "LINE64",
+          "LINE59",
+          "LINE55",
+          "LINE56",
+          "LINE12",
+          "LINE203",
+          "LINE18",
+          "LINE16",
+          "LINE14",
+          "LINE20",
+          "LINE24"
+        ],
+        "bottomLeft": [
+          "LINE104",
+          "LINE105",
+          "LINE106",
+          "LINE107",
+          "LINE102",
+          "LINE93",
+          "LINE87",
+          "LINE85",
+          "LINE83",
+          "LINE89",
+          "LINE91",
+          "LINE48",
+          "LINE53",
+          "LINE28",
+          "LINE208"
+        ],
+        "bottomRight": [
+          "LINE67",
+          "LINE68",
+          "LINE69",
+          "LINE70",
+          "LINE65",
+          "LINE66",
+          "LINE17",
+          "LINE19",
+          "LINE15",
+          "LINE21",
+          "LINE23",
+          "LINE25",
+          "LINE47",
+          "LINE51",
+          "LINE13",
+          "LINE209"
+        ]
+      }
+    }
+  },
+  "lid": {
+    "panel": {
+      "width_mm": 150.9995,
+      "corners_mm": {
+        "topLeft": [
+          174.371,
+          197.1393
+        ],
+        "topRight": [
+          325.3705,
+          197.1393
+        ],
+        "bottomLeft": [
+          174.371,
+          413.1381
+        ],
+        "bottomRight": [
+          325.3705,
+          413.1381
+        ]
+      }
+    },
+    "longWall_stack_d_landmarks_mm": {
+      "root": 0.0,
+      "outerWall": 45.0003,
+      "tongueFold": 89.1999
+    },
+    "shortWall_stack_d_landmarks_mm": {
+      "root_nominal": 0.0,
+      "root_centralOffset": 0.5009,
+      "tongueFold": 89.7008
+    },
+    "tongueRoot": {
+      "longWall": {
+        "endTop_crease": {
+          "gid": "LINE250",
+          "p1_mm": [
+            85.1711,
+            251.5376
+          ],
+          "p2_mm": [
+            85.1711,
+            206.5373
+          ],
+          "length_mm": 45.0003
+        },
+        "mid_halfcut": {
+          "gid": "LINE267",
+          "p1_mm": [
+            85.1711,
+            358.7362
+          ],
+          "p2_mm": [
+            85.1711,
+            251.5376
+          ],
+          "length_mm": 107.1986
+        },
+        "endBot_crease": {
+          "gid": "LINE249",
+          "p1_mm": [
+            85.1711,
+            403.7365
+          ],
+          "p2_mm": [
+            85.1711,
+            358.7362
+          ],
+          "length_mm": 45.0003
+        },
+        "mirror_gids": {
+          "endTop": "LINE252",
+          "mid": "LINE268",
+          "endBot": "LINE251"
+        },
+        "tongueFoldAlong_x_mm": 85.171139
+      },
+      "shortWall": {
+        "endLeft_crease": {
+          "gid": "LINE256",
+          "p1_mm": [
+            211.8713,
+            107.4385
+          ],
+          "p2_mm": [
+            176.8722,
+            107.4385
+          ],
+          "length_mm": 34.9991
+        },
+        "mid_halfcut": {
+          "gid": "LINE270",
+          "p1_mm": [
+            287.8737,
+            107.4385
+          ],
+          "p2_mm": [
+            211.8713,
+            107.4385
+          ],
+          "length_mm": 76.0024
+        },
+        "endRight_crease": {
+          "gid": "LINE255",
+          "p1_mm": [
+            322.8728,
+            107.4385
+          ],
+          "p2_mm": [
+            287.8737,
+            107.4385
+          ],
+          "length_mm": 34.9991
+        },
+        "mirror_gids": {
+          "endLeft": "LINE254",
+          "mid": "LINE269",
+          "endRight": "LINE253"
+        },
+        "tongueFoldAlong_y_mm": 107.438472
+      }
+    },
+    "vReliefs": {
+      "shortWallTop_leftEnd": {
+        "gid1": "LINE172",
+        "gid2": "LINE173",
+        "apex_mm": [
+          176.8722,
+          107.4385
+        ],
+        "arm1_mm": [
+          174.371,
+          104.9373
+        ],
+        "arm2_mm": [
+          174.371,
+          109.9361
+        ],
+        "height_mm": 4.9989,
+        "inset_mm": 2.5012,
+        "s_apex_mm": -72.9985
+      },
+      "shortWallTop_rightEnd": {
+        "gid1": "LINE191",
+        "gid2": "LINE192",
+        "apex_mm": [
+          322.8728,
+          107.4385
+        ],
+        "arm1_mm": [
+          325.3705,
+          104.9373
+        ],
+        "arm2_mm": [
+          325.3705,
+          109.9361
+        ],
+        "height_mm": 4.9989,
+        "inset_mm": 2.4977,
+        "s_apex_mm": 73.0021
+      },
+      "shortWallBot_leftEnd": {
+        "gid1": "LINE133",
+        "gid2": "LINE134",
+        "apex_mm": [
+          176.8722,
+          502.8389
+        ],
+        "arm1_mm": [
+          174.371,
+          505.3365
+        ],
+        "arm2_mm": [
+          174.371,
+          500.3377
+        ],
+        "height_mm": 4.9989,
+        "inset_mm": 2.5012,
+        "s_apex_mm": -72.9985
+      },
+      "shortWallBot_rightEnd": {
+        "gid1": "LINE152",
+        "gid2": "LINE153",
+        "apex_mm": [
+          322.8728,
+          502.8389
+        ],
+        "arm1_mm": [
+          325.3705,
+          505.3365
+        ],
+        "arm2_mm": [
+          325.3705,
+          500.3377
+        ],
+        "height_mm": 4.9989,
+        "inset_mm": 2.4977,
+        "s_apex_mm": 73.0021
+      }
+    },
+    "bGussetPeriphery": {
+      "fillets_R2": {
+        "ARC22": {
+          "gid": "ARC22#0",
+          "center_mm": [
+            89.1716,
+            201.1362
+          ],
+          "radius_mm": 2.0002,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            89.1716,
+            199.136
+          ],
+          "p3_mm": [
+            87.1714,
+            201.1362
+          ]
+        },
+        "ARC16": {
+          "gid": "ARC16#0",
+          "center_mm": [
+            89.1716,
+            409.1376
+          ],
+          "radius_mm": 2.0003,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            87.1714,
+            409.1376
+          ],
+          "p3_mm": [
+            89.1716,
+            411.1378
+          ]
+        },
+        "ARC19": {
+          "gid": "ARC19#0",
+          "center_mm": [
+            410.5734,
+            409.1376
+          ],
+          "radius_mm": 2.0003,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            410.5734,
+            411.1378
+          ],
+          "p3_mm": [
+            412.5736,
+            409.1376
+          ]
+        },
+        "ARC25": {
+          "gid": "ARC25#0",
+          "center_mm": [
+            410.5734,
+            201.1362
+          ],
+          "radius_mm": 2.0003,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            412.5736,
+            201.1362
+          ],
+          "p3_mm": [
+            410.5734,
+            199.136
+          ]
+        }
+      },
+      "topLeft_chain": [
+        {
+          "gid": "LINE162",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            100.6722,
+            199.136
+          ],
+          "p2_mm": [
+            89.1716,
+            199.136
+          ],
+          "length_mm": 11.5006,
+          "angle_deg": 180.0
+        },
+        {
+          "gid": "ARC22#0",
+          "kind": "arc",
+          "lineType": "cut",
+          "center_mm": [
+            89.1716,
+            201.1362
+          ],
+          "radius_mm": 2.0002,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            89.1716,
+            199.136
+          ],
+          "p3_mm": [
+            87.1714,
+            201.1362
+          ]
+        },
+        {
+          "gid": "LINE163",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            87.1714,
+            201.1362
+          ],
+          "p2_mm": [
+            87.1714,
+            206.5373
+          ],
+          "length_mm": 5.401,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE164",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            87.1714,
+            206.5373
+          ],
+          "p2_mm": [
+            78.4719,
+            206.5373
+          ],
+          "length_mm": 8.6995,
+          "angle_deg": 180.0
+        },
+        {
+          "gid": "LINE165",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            78.4719,
+            206.5373
+          ],
+          "p2_mm": [
+            70.171,
+            214.8381
+          ],
+          "length_mm": 11.7392,
+          "angle_deg": 135.0
+        }
+      ],
+      "bottomLeft_chain": [
+        {
+          "gid": "LINE122",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            100.6722,
+            411.1378
+          ],
+          "p2_mm": [
+            89.1716,
+            411.1378
+          ],
+          "length_mm": 11.5006,
+          "angle_deg": 180.0
+        },
+        {
+          "gid": "ARC16#0",
+          "kind": "arc",
+          "lineType": "cut",
+          "center_mm": [
+            89.1716,
+            409.1376
+          ],
+          "radius_mm": 2.0003,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            87.1714,
+            409.1376
+          ],
+          "p3_mm": [
+            89.1716,
+            411.1378
+          ]
+        },
+        {
+          "gid": "LINE121",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            100.6722,
+            413.1381
+          ],
+          "p2_mm": [
+            100.6722,
+            411.1378
+          ],
+          "length_mm": 2.0002,
+          "angle_deg": -90.0
+        }
+      ],
+      "bottomRight_chain": [
+        {
+          "gid": "LINE142",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            399.0728,
+            411.1378
+          ],
+          "p2_mm": [
+            410.5734,
+            411.1378
+          ],
+          "length_mm": 11.5006,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "ARC19#0",
+          "kind": "arc",
+          "lineType": "cut",
+          "center_mm": [
+            410.5734,
+            409.1376
+          ],
+          "radius_mm": 2.0003,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            410.5734,
+            411.1378
+          ],
+          "p3_mm": [
+            412.5736,
+            409.1376
+          ]
+        },
+        {
+          "gid": "LINE141",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            399.0728,
+            413.1381
+          ],
+          "p2_mm": [
+            399.0728,
+            411.1378
+          ],
+          "length_mm": 2.0002,
+          "angle_deg": -90.0
+        }
+      ],
+      "topRight_chain": [
+        {
+          "gid": "LINE181",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            399.0728,
+            199.136
+          ],
+          "p2_mm": [
+            410.5734,
+            199.136
+          ],
+          "length_mm": 11.5006,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "ARC25#0",
+          "kind": "arc",
+          "lineType": "cut",
+          "center_mm": [
+            410.5734,
+            201.1362
+          ],
+          "radius_mm": 2.0003,
+          "theta_deg": 90.0,
+          "p0_mm": [
+            412.5736,
+            201.1362
+          ],
+          "p3_mm": [
+            410.5734,
+            199.136
+          ]
+        },
+        {
+          "gid": "LINE182",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            412.5736,
+            201.1362
+          ],
+          "p2_mm": [
+            412.5736,
+            206.5373
+          ],
+          "length_mm": 5.401,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE183",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            412.5736,
+            206.5373
+          ],
+          "p2_mm": [
+            421.2731,
+            206.5373
+          ],
+          "length_mm": 8.6995,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "LINE184",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            421.2731,
+            206.5373
+          ],
+          "p2_mm": [
+            429.5704,
+            214.8381
+          ],
+          "length_mm": 11.7367,
+          "angle_deg": 45.0122
+        }
+      ],
+      "sideInset_mm": 2.0003,
+      "existing_core_note": "R1.5(GUSSET_B_TIP_RADIUS)＋R5(GUSSET_B_RELIEF_RADIUS) 已在 tray.ts 建模，不重複列入本 fixture；本節僅收 P 有、現行程式無的周邊 R2＋2mm 側邊內縮。"
+    }
+  },
+  "anchorCrossCheck": [
+    {
+      "name": "base.rootJog",
+      "measured_mm": 0.4974,
+      "expected_mm": 0.497,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.rootJog",
+      "measured_mm": 0.5009,
+      "expected_mm": 0.501,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.longWall.rootSpan(sideRootSpan=179)",
+      "measured_mm": 179.003,
+      "expected_mm": 179.003,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.centralFoldSpan(180.0,P179.998)",
+      "measured_mm": 179.9978,
+      "expected_mm": 179.998,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.longWall.rootSpan(216)",
+      "measured_mm": 215.9988,
+      "expected_mm": 215.999,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.centralFoldSpan(217.0,P217.001)",
+      "measured_mm": 217.0007,
+      "expected_mm": 217.001,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_upper.opening(30)",
+      "measured_mm": 30.0002,
+      "expected_mm": 30.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_upper.base(26)",
+      "measured_mm": 25.9997,
+      "expected_mm": 26.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_upper.depth(4.202)",
+      "measured_mm": 4.2015,
+      "expected_mm": 4.202,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_upper.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_lower.opening(30)",
+      "measured_mm": 30.0002,
+      "expected_mm": 30.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_lower.base(26)",
+      "measured_mm": 25.9997,
+      "expected_mm": 26.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_lower.depth(4.202)",
+      "measured_mm": 4.2015,
+      "expected_mm": 4.202,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_lower.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_upper.opening(30)",
+      "measured_mm": 30.0002,
+      "expected_mm": 30.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_upper.base(26)",
+      "measured_mm": 25.9997,
+      "expected_mm": 26.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_upper.depth(4.202)",
+      "measured_mm": 4.2011,
+      "expected_mm": 4.202,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_upper.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_lower.opening(30)",
+      "measured_mm": 30.0002,
+      "expected_mm": 30.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_lower.base(26)",
+      "measured_mm": 25.9997,
+      "expected_mm": 26.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_lower.depth(4.202)",
+      "measured_mm": 4.2011,
+      "expected_mm": 4.202,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.rightWall_lower.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_upper.s_center(-29.3385)",
+      "measured_mm": -29.3388,
+      "expected_mm": -29.3385,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.leftWall_lower.s_center(+29.3385)",
+      "measured_mm": 29.3388,
+      "expected_mm": 29.3385,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.topWall_centered.opening(30)",
+      "measured_mm": 30.0002,
+      "expected_mm": 30.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.topWall_centered.base(26)",
+      "measured_mm": 25.9997,
+      "expected_mm": 26.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.topWall_centered.depth(4.202)",
+      "measured_mm": 4.2016,
+      "expected_mm": 4.202,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.topWall_centered.s_center(0, centered)",
+      "measured_mm": 0.0,
+      "expected_mm": 0.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.bottomWall_centered.opening(30)",
+      "measured_mm": 30.0002,
+      "expected_mm": 30.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.bottomWall_centered.base(26)",
+      "measured_mm": 25.9997,
+      "expected_mm": 26.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "notch.bottomWall_centered.depth(4.202)",
+      "measured_mm": 4.2016,
+      "expected_mm": 4.202,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "notch.bottomWall_centered.s_center(0, centered)",
+      "measured_mm": 0.0,
+      "expected_mm": 0.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "base.halfcut.total(332.0,P331.999)",
+      "measured_mm": 331.999,
+      "expected_mm": 331.999,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.shortWall.platformEndInset(~5)",
+      "measured_mm": 5.0006,
+      "expected_mm": 5.0005,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.longWall.platformEndInset(~4.5)",
+      "measured_mm": 4.5014,
+      "expected_mm": 4.5015,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.platformCorner.ARC6.R2.5",
+      "measured_mm": 2.5012,
+      "expected_mm": 2.5,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.platformCorner.ARC7.R2.5",
+      "measured_mm": 2.5012,
+      "expected_mm": 2.5,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.platformCorner.ARC8.R2.5",
+      "measured_mm": 2.5012,
+      "expected_mm": 2.5,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "base.platformCorner.ARC9.R2.5",
+      "measured_mm": 2.5012,
+      "expected_mm": 2.5,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.topLeft.deviation(~10deg)",
+      "measured_mm": 10.0057,
+      "expected_mm": 10.0,
+      "tol_mm": 0.1,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.topLeft.length(~5.076)",
+      "measured_mm": 5.0761,
+      "expected_mm": 5.076,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.topRight.deviation(~10deg)",
+      "measured_mm": 10.0057,
+      "expected_mm": 10.0,
+      "tol_mm": 0.1,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.topRight.length(~5.076)",
+      "measured_mm": 5.0761,
+      "expected_mm": 5.076,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.bottomLeft.deviation(~10deg)",
+      "measured_mm": 10.0057,
+      "expected_mm": 10.0,
+      "tol_mm": 0.1,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.bottomLeft.length(~5.076)",
+      "measured_mm": 5.0761,
+      "expected_mm": 5.076,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.bottomRight.deviation(~10deg)",
+      "measured_mm": 10.0057,
+      "expected_mm": 10.0,
+      "tol_mm": 0.1,
+      "ok": true
+    },
+    {
+      "name": "tenDegCut.bottomRight.length(~5.076)",
+      "measured_mm": 5.0761,
+      "expected_mm": 5.076,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.longWall.endCrease(45)",
+      "measured_mm": 45.0003,
+      "expected_mm": 45.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.longWall.midHalfcut(107.2)",
+      "measured_mm": 107.1986,
+      "expected_mm": 107.199,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.shortWall.endCrease(35)",
+      "measured_mm": 34.9991,
+      "expected_mm": 35.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.shortWall.midHalfcut(76)",
+      "measured_mm": 76.0024,
+      "expected_mm": 76.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "lid.halfcut.total(366.4,P366.402)",
+      "measured_mm": 366.402,
+      "expected_mm": 366.402,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallTop_leftEnd.height(~5)",
+      "measured_mm": 4.9989,
+      "expected_mm": 4.999,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallTop_leftEnd.inset(~2.5)",
+      "measured_mm": 2.5012,
+      "expected_mm": 2.501,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallTop_rightEnd.height(~5)",
+      "measured_mm": 4.9989,
+      "expected_mm": 4.999,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallTop_rightEnd.inset(~2.5)",
+      "measured_mm": 2.4977,
+      "expected_mm": 2.501,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallBot_leftEnd.height(~5)",
+      "measured_mm": 4.9989,
+      "expected_mm": 4.999,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallBot_leftEnd.inset(~2.5)",
+      "measured_mm": 2.5012,
+      "expected_mm": 2.501,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallBot_rightEnd.height(~5)",
+      "measured_mm": 4.9989,
+      "expected_mm": 4.999,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "vRelief.shortWallBot_rightEnd.inset(~2.5)",
+      "measured_mm": 2.4977,
+      "expected_mm": 2.501,
+      "tol_mm": 0.015,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC22.R2",
+      "measured_mm": 2.0002,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC16.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC19.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC25.R2",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.sideInset(~2mm)",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.02,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC22.sideInset(2mm,independent)",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC16.sideInset(2mm,independent)",
+      "measured_mm": 2.0003,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC19.sideInset(2mm,independent)",
+      "measured_mm": 1.9967,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    },
+    {
+      "name": "bGusset.ARC25.sideInset(2mm,independent)",
+      "measured_mm": 1.9967,
+      "expected_mm": 2.0,
+      "tol_mm": 0.01,
+      "ok": true
+    }
+  ]
+}
