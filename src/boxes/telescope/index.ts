@@ -933,7 +933,7 @@ const invariants: BoxInvariant[] = [
       if (!anyGussetChainOmitted(params, result)) return { ok: true };
       return {
         ok: false,
-        message: { zh: '長壁過短，A 款角撐周邊複合 relief 鏈與 U-notch 或壁界衝突，已整鏈省略（gusset-relief-omitted）' },
+        message: { zh: 'A 款角撐周邊複合 relief 鏈與 U-notch／壁界衝突，或壁高偏離校準值致鏈自身扭曲自撞，已整鏈省略（gusset-relief-omitted）' },
         tags: ['aGussetPeriphery'],
       };
     },

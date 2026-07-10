@@ -8,6 +8,7 @@ import { getBox, resolveParams } from '@/core/registry';
 import { telescope, minStyleBHeight } from '@/boxes/telescope';
 import { deriveLinerFrame, generateLiner } from '@/boxes/telescope/liner';
 import { validatePieces } from '@/core/pieces';
+import fixtureRaw from './fixtures/telescope-production-details.json';
 
 // ── 測試專用查詢 helper（依 tray.ts 的 tags 慣例：['<landmark>', '<side>']）──
 
@@ -65,6 +66,28 @@ function findArc(paths: DielinePath[], r: number, e1: { x: number; y: number }, 
     const match = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.abs(p.x - q.x) <= tol && Math.abs(p.y - q.y) <= tol;
     return (match(start, e1) && match(end, e2)) || (match(start, e2) && match(end, e1));
   });
+}
+
+/**
+ * Fix 1（Medium，2026-07-11 re-review）四角逐段固定迴歸專用：把 T0 fixture 的原始 P-mm
+ * 座標（`telescope-production-details.json` 的 `aGussetPeriphery_reliefChain`／
+ * `aGussetPeriphery_tenDegCuts` 系列欄位）平移到 generateTray() 的面板中心局部座標系。
+ * 純平移（無旋轉/縮放）——由 abToXY(corner,sx,sy,{a,b})=corner+sx·a+sy·b 與 fixture 端
+ * 反推出的 (a,b)=sx·(P−fixtureCorner) 代數消去 sx/sy（sx²=sy²=1 恆成立）後可得
+ * world=fixtureP+(codeCorner−fixtureCorner)——與 tray.ts 的 A_GUSSET_* 常數表無關
+ * （直接讀 fixture 原始座標，不透過程式的常數表，避免「測試抄實作常數」的重言式）。
+ */
+function fixtureChainToWorld(
+  entries: Array<{ p1_mm: number[]; p2_mm: number[]; gid?: string }>,
+  translate: { x: number; y: number },
+): Array<{ x1: number; y1: number; x2: number; y2: number; gid: string }> {
+  return entries.map((e) => ({
+    x1: e.p1_mm[0]! + translate.x,
+    y1: e.p1_mm[1]! + translate.y,
+    x2: e.p2_mm[0]! + translate.x,
+    y2: e.p2_mm[1]! + translate.y,
+    gid: e.gid ?? '?',
+  }));
 }
 
 const EPS = 1e-6;
@@ -864,6 +887,58 @@ describe('generateTray: F6-A 平台端內縮＋角撐周邊複合 relief 鏈（A
     // （與 left-front 的 LINE92 同一 tongueFold/reach 幾何——這段兩模板數值相同，見
     // A_GUSSET_INNER_WALL_APPROACH_TR 最後一段）。
     expectLine(rfChain, rfX + 121.2003, rfY + 21.5018, rfX + 123.2006, rfY + 21.5018, T, 'right-front LINE22（notch 逼近終點→halfcut 邊界）');
+  });
+
+  it('四角逐段固定迴歸（Fix 1 re-review·2026-07-11）：topLeft/topRight 各 13 段直接對 T0 fixture 原始座標（不透過 tray.ts 常數表），bottomRight/bottomLeft 用各自對角模板的 180° 旋轉推導（無獨立量測——fixture _meta.verification.mirrorGidsCaveat 明記「bottomLeft/bottomRight 清單碎片化」）', () => {
+    // 動機：上一條「T0 座標表逐項對」只驗 2 個點（10° cut outer＋innerWallApproach
+    // 終點），SOL re-review 用 mutation 證實不夠——把 topRight fixture 的 LINE60
+    // （platformRelief 子鏈內部折點）端點暫改 1mm，既有四角相關的五項測試（180° 旋轉
+    // 實例化／相鄰角落非鏡射／T0 逐項對／複合鏈段數／全部不變式）全部維持綠燈：程式本身
+    // 沒錯，但迴歸網沒有任何一條斷言碰到那個座標，改錯了也測不出來。
+    //
+    // 本測試逐段覆蓋兩模板各自的 13 段（outer 1＋platformRelief 5＋innerWallApproach 7），
+    // 直接讀 fixture 原始 P-mm 座標換算（見 fixtureChainToWorld 推導），不經過 tray.ts 的
+    // A_GUSSET_* 常數表——避免「測試抄實作常數」的重言式（那樣常數表本身改錯也測不出來）。
+    const result = generateTray(baseOpts);
+    const halfL = baseOpts.panelL / 2;
+    const halfW = baseOpts.panelW / 2;
+    const T = 0.05; // T0 對算容差
+
+    const cornersMm = fixtureRaw.base.panel.corners_mm;
+    const chains = fixtureRaw.base.aGussetPeriphery_reliefChain;
+    const tenDegCuts = fixtureRaw.base.aGussetPeriphery_tenDegCuts;
+
+    // topLeft(fixture) → left-front(code, TL 模板)：translate = codeCorner − fixtureCorner。
+    const translateTL = { x: -halfL - cornersMm.topLeft[0]!, y: -halfW - cornersMm.topLeft[1]! };
+    const tlEntries = [tenDegCuts.topLeft, ...chains.topLeftCorner_platformRelief_chain, ...chains.topLeftCorner_innerWallApproach_chain];
+    expect(tlEntries, 'topLeft 模板應恰有 13 段 fixture 原始資料（1 outer＋5 platformRelief＋7 innerWallApproach）').toHaveLength(13);
+    const lfChain = findTagged(result.paths, 'aGussetPeriphery', 'left-front', 'cut');
+    const tlWorld = fixtureChainToWorld(tlEntries, translateTL);
+    for (const seg of tlWorld) {
+      expectLine(lfChain, seg.x1, seg.y1, seg.x2, seg.y2, T, `left-front（topLeft fixture ${seg.gid}）`);
+    }
+
+    // topRight(fixture) → right-front(code, TR 模板)。
+    const translateTR = { x: halfL - cornersMm.topRight[0]!, y: -halfW - cornersMm.topRight[1]! };
+    const trEntries = [...chains.topRightCorner_outer_cut, ...chains.topRightCorner_platformRelief_chain, ...chains.topRightCorner_innerWallApproach_chain];
+    expect(trEntries, 'topRight 模板應恰有 13 段 fixture 原始資料（1 outer＋5 platformRelief＋7 innerWallApproach）').toHaveLength(13);
+    const rfChain = findTagged(result.paths, 'aGussetPeriphery', 'right-front', 'cut');
+    const trWorld = fixtureChainToWorld(trEntries, translateTR);
+    for (const seg of trWorld) {
+      expectLine(rfChain, seg.x1, seg.y1, seg.x2, seg.y2, T, `right-front（topRight fixture ${seg.gid}）`);
+    }
+
+    // bottomRight(=right-back，TL 對角)／bottomLeft(=left-back，TR 對角)：無獨立量測，
+    // 改用「180° 旋轉＝負值」（與 tray.ts A_GUSSET_CHAIN_TL/TR 註解「對角角落才是數學
+    // 精確的 180° 旋轉」、本檔前段「180° 旋轉實例化」測試一致的關係）逐段對照。
+    const rbChain = findTagged(result.paths, 'aGussetPeriphery', 'right-back', 'cut');
+    for (const seg of tlWorld) {
+      expectLine(rbChain, -seg.x1, -seg.y1, -seg.x2, -seg.y2, T, `right-back（topLeft fixture ${seg.gid} 180° 旋轉）`);
+    }
+    const lbChain = findTagged(result.paths, 'aGussetPeriphery', 'left-back', 'cut');
+    for (const seg of trWorld) {
+      expectLine(lbChain, -seg.x1, -seg.y1, -seg.x2, -seg.y2, T, `left-back（topRight fixture ${seg.gid} 180° 旋轉）`);
+    }
   });
 });
 
