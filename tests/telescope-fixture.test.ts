@@ -910,11 +910,18 @@ const BOUNDARY_EXEMPT_TAGS: Record<string, readonly string[]> = {
   // 2026-07-09 T7 gate 重定義：liner-flange-fits→liner-flap-fits；豁免範圍改為新幾何
   // 的翼片 cut tag（'linerFlap'）——平台式重定義後底面 crease 不含 cut，'linerPad' 不需要豁免。
   'liner-flap-fits': ['linerFlap'],
-  // Slice 5 F4／F6-A（notch-reduced／notch-omitted／platform-corner-omitted）：豁免範圍
-  // 對應各自降級影響的幾何 tag（tray.ts buildUNotches／buildAPlatformCornerRelief）。
-  'notch-reduced': ['uNotch'],
-  'notch-omitted': ['uNotch'],
+  // Slice 5 F4／F6-A：platform-corner-omitted 降級影響的幾何 tag（tray.ts buildAPlatformCornerRelief）
+  // 仍需豁免（直角轉接本身不产生自撞問題，此條純粹是既有的合法幾何 tag 範圍）。
   'platform-corner-omitted': ['platformCorner'],
+  // Fix 2·2026-07-11 review H2：notch-reduced／notch-omitted 先前豁免 'uNotch' 是
+  // 掩蓋 uNotch×aGussetPeriphery 真自交的權宜之計（見下方 gusset-relief-omitted）——
+  // tray.ts 已改為鏈本身放不下就整鏈省略，notch 自己的幾何從不自撞，兩條豁免範圍收窄為
+  // 空陣列（保留分類完備性紀錄，不再實際豁免任何 tag——S1-S4 全部走未過濾 cut 自交斷言）。
+  'notch-reduced': [],
+  'notch-omitted': [],
+  // Fix 2·2026-07-11：複合 relief 鏈（aGussetPeriphery）放不下時整鏈省略，不留半成品
+  // 幾何——warning 是合法降級聲明，不是自交豁免，同樣不實際豁免任何 tag。
+  'gusset-relief-omitted': [],
 };
 
 type Overrides = Partial<Record<string, number | boolean | string>>;

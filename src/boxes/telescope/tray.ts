@@ -17,7 +17,7 @@
  */
 
 import type { Bounds, Segment } from '@/core/geometry';
-import { segmentsBounds } from '@/core/geometry';
+import { hasSelfIntersection, segmentsBounds } from '@/core/geometry';
 import { PathBuilder } from '@/core/path';
 import type { DielinePath, DielineText, LineType } from '@/core/types';
 
@@ -105,13 +105,28 @@ const PLATFORM_CORNER_R = 2.5;
 const PLATFORM_CORNER_MIN_WIDTH = 2.5;
 
 /**
- * A 款角撐周邊複合鏈（16 段，spec F6 v1.3：10° cut 為樞紐，連接 45° gusset 對角線／
- * 外壁 crease／平台內縮垂直線）——T0 `aGussetPeriphery_reliefChain` 逐點量得，topLeft
- * 角（sx=-1,sy=-1）為權威來源，其餘三角以 corner+sx×a+sy×b 實例化（見 buildAGussetPeriphery
- * 註解：對角角落＝數學精確 180° 旋轉；相鄰角落經獨立對照生產檔驗證同一公式在關鍵錨點
- * ——outerWall corner crease／R2.5 圓角／notch 逼近終點——仍精確吻合，任務報告記完整
- * 對算過程）。a＝沿長壁（x 向牆）向外距離、b＝沿短壁（y 向牆）向外距離。
- * 不試圖從參數重建內部頂點（spec 明文）——固定 offset，僅角落本身隨 panelL/panelW 移動。
+ * A 款角撐周邊複合鏈——P 原檔 topLeft 角完整量得 16 段（spec F6 v1.3：10° cut 為樞紐，
+ * 連接 45° gusset 對角線／外壁 crease／平台內縮垂直線），本檔實際消費 **13 段**
+ * （扣除與既有 buildGussetA 幾何重複的 LINE57/58/202，見 A_GUSSET_OUTER_TL 註解；
+ * Fix 5·2026-07-11：新 relief chain 13 段＋既有 gusset 對應 2 cut+1 crease＝合計覆蓋
+ * P 的 16 primitive，先前註解／測試訊息誤植「14 段／扣 2 段」已更正）。
+ *
+ * **兩組手性模板（Fix 1·2026-07-11 review H1）**：對角角落（topLeft↔bottomRight、
+ * topRight↔bottomLeft）才是數學精確的 180° 旋轉；相鄰角落（topLeft↔topRight）不是
+ * topLeft 的旋轉或鏡射——P 原檔在「平台端 zigzag」子鏈有真實走線差異（topLeft 的
+ * LINE108 對應段 b 範圍 [-4.5014,52.9978]／57.4992mm，topRight 的 LINE64 對應段
+ * b 範圍 [-4.5014,72.9968]／77.4982mm，相差整 20mm——對稱地 topLeft LINE113 對應段
+ * 78.4578mm vs topRight LINE59 對應段 58.4588mm，即 fixture _meta.verification 記錄的
+ * 「78.46 vs 58.46」手性不對稱）。先前實作誤把 topLeft 模板用 sx/sy 全部翻轉出四角，
+ * 在相鄰角落（right-front／left-back）做出鏡射而非旋轉，偏差達 8.8-39mm（結構級）。
+ * 修正：topLeft 模板（`_TL` 尾綴）供 left-front／right-back 使用；topRight 模板
+ * （`_TR` 尾綴，2026-07-11 從 raw_elements.json 獨立補量，見
+ * tests/fixtures/telescope-production-details.json 的 `topRightCorner_*` 三欄＋
+ * `topRightCorner_note`）供 right-front／left-back 使用——見 buildAGussetChain 呼叫端
+ * （generateTray 的 corner 迴圈按 sx===sy 選模板）。
+ *
+ * a＝沿長壁（x 向牆）向外距離、b＝沿短壁（y 向牆）向外距離；不試圖從參數重建內部頂點
+ * （spec 明文）——固定 offset，僅角落本身隨 panelL/panelW 移動。
  */
 interface ABPt {
   a: number;
@@ -124,7 +139,7 @@ interface ABLine {
 }
 
 /**
- * 外緣：10° cut 樞紐（LINE27）。
+ * 外緣：10° cut 樞紐（LINE27，topLeft 模板）。
  *
  * T0 原始鏈另含 LINE57/58（角落→45° 對角線 tip 附近的兩段）與 LINE202（outerWall
  * 角落收邊 crease）——經對算腳本核對後確認兩者都與**既有**幾何重複：
@@ -142,10 +157,10 @@ interface ABLine {
  * 錨定的是 outerWall（topStartAlong，wallTopCompensation 公式）而非 v3/v4
  * （reach，thickness 公式），是與既有幾何無關、確定新增的獨立特徵，保留。
  */
-const A_GUSSET_OUTER: ABLine[] = [{ p1: { a: 59.4995, b: 0 }, p2: { a: 64.4984, b: -0.8819 }, type: 'cut' }];
+const A_GUSSET_OUTER_TL: ABLine[] = [{ p1: { a: 59.4995, b: 0 }, p2: { a: 64.4984, b: -0.8819 }, type: 'cut' }];
 
-/** 平台端 relief zigzag（LINE108/109/110/111/112）。 */
-const A_GUSSET_PLATFORM_RELIEF: ABLine[] = [
+/** 平台端 relief zigzag（LINE108/109/110/111/112，topLeft 模板）。 */
+const A_GUSSET_PLATFORM_RELIEF_TL: ABLine[] = [
   { p1: { a: 64.4984, b: -4.5014 }, p2: { a: 64.4984, b: 52.9978 }, type: 'cut' },
   { p1: { a: 93.8495, b: 52.9978 }, p2: { a: 64.4984, b: 52.9978 }, type: 'cut' },
   { p1: { a: 83.5801, b: 52.9978 }, p2: { a: 73.3072, b: 57.9967 }, type: 'cut' },
@@ -153,8 +168,8 @@ const A_GUSSET_PLATFORM_RELIEF: ABLine[] = [
   { p1: { a: 73.3072, b: 72.9968 }, p2: { a: 121.2003, b: 72.9968 }, type: 'cut' },
 ];
 
-/** 內壁逼近 notch（LINE113/94/88/84/86/90/92）——終點 (123.2006,-21.5018) 即 halfcut 邊界。 */
-const A_GUSSET_INNER_WALL_APPROACH: ABLine[] = [
+/** 內壁逼近 notch（LINE113/94/88/84/86/90/92，topLeft 模板）——終點 (123.2006,-21.5018) 即 halfcut 邊界。 */
+const A_GUSSET_INNER_WALL_APPROACH_TL: ABLine[] = [
   { p1: { a: 121.2003, b: 72.9968 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 138.2007, b: -5.461 }, type: 'cut' },
   { p1: { a: 103.699, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
@@ -163,6 +178,48 @@ const A_GUSSET_INNER_WALL_APPROACH: ABLine[] = [
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 121.2003, b: -21.5018 }, type: 'cut' },
   { p1: { a: 121.2003, b: -21.5018 }, p2: { a: 123.2006, b: -21.5018 }, type: 'cut' },
 ];
+
+/**
+ * topRight 模板（Fix 1·2026-07-11 補量，raw_elements.json 獨立萃取——LINE12/55/56/203
+ * 等 gid，見 tests/fixtures/telescope-production-details.json 的 `topRightCorner_*` 欄）。
+ * OUTER（LINE12，10° cut）與 topLeft 的 LINE27 在 (a,b) 下精確相符（<0.0002mm）——這段
+ * 本身無手性差異，數值與 A_GUSSET_OUTER_TL 相同。5 個錨點 a 值（59.4995/64.4984/
+ * 121.2003/123.2006/138.2007）字面上刻意寫成與 topLeft 模板相同的常數，供 snapALongAnchor
+ * 精確命中（兩模板獨立量測，同一 nominal 錨點的量測殘差 <0.0002mm，snap 後精確重合，
+ * 與 topLeft 模板一致，見 buildAGussetChain 的 snapALongAnchor 呼叫）。
+ */
+const A_GUSSET_OUTER_TR: ABLine[] = [{ p1: { a: 59.4995, b: 0 }, p2: { a: 64.4984, b: -0.8819 }, type: 'cut' }];
+
+/**
+ * 平台端 relief zigzag（LINE64/60/61/62/63，topRight 模板）——與 topLeft 模板的結構性
+ * 差異就在這裡：LINE64（LINE108 對應段）reach 到 b=72.9968（不是 topLeft 的 52.9978），
+ * 對稱地 A_GUSSET_INNER_WALL_APPROACH_TR 的 LINE59 只到 b=52.9978（不是 topLeft 的
+ * 72.9968）——「平台端 zigzag」在相鄰角落與 topLeft 走線交叉不同，非鏡射也非旋轉。
+ */
+const A_GUSSET_PLATFORM_RELIEF_TR: ABLine[] = [
+  { p1: { a: 64.4984, b: -4.5014 }, p2: { a: 64.4984, b: 72.9968 }, type: 'cut' },
+  { p1: { a: 91.8492, b: 52.9978 }, p2: { a: 121.2003, b: 52.9978 }, type: 'cut' },
+  { p1: { a: 102.1185, b: 52.9978 }, p2: { a: 112.3879, b: 57.9967 }, type: 'cut' },
+  { p1: { a: 112.3879, b: 57.9967 }, p2: { a: 112.3879, b: 72.9968 }, type: 'cut' },
+  { p1: { a: 112.3879, b: 72.9968 }, p2: { a: 64.4984, b: 72.9968 }, type: 'cut' },
+];
+
+/** 內壁逼近 notch（LINE59/24/18/14/16/20/22，topRight 模板）——終點 (123.2006,-21.5018) 與 topLeft 模板相同（tongueFold/halfcut 邊界不受手性差異影響）。 */
+const A_GUSSET_INNER_WALL_APPROACH_TR: ABLine[] = [
+  { p1: { a: 121.2003, b: 52.9978 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
+  { p1: { a: 121.2003, b: -5.461 }, p2: { a: 138.2007, b: -5.461 }, type: 'cut' },
+  { p1: { a: 103.699, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
+  { p1: { a: 103.699, b: -2.5012 }, p2: { a: 103.699, b: -4.5014 }, type: 'cut' },
+  { p1: { a: 103.699, b: -4.5014 }, p2: { a: 103.699, b: -5.461 }, type: 'cut' },
+  { p1: { a: 121.2003, b: -5.461 }, p2: { a: 121.2003, b: -21.5018 }, type: 'cut' },
+  { p1: { a: 121.2003, b: -21.5018 }, p2: { a: 123.2006, b: -21.5018 }, type: 'cut' },
+];
+
+/** topLeft／topRight 兩組模板的完整（13 段）陣列——buildAGussetChain 依角落選用。
+ *  aGussetChainFits（可容納性判定，Fix 2）定義在 buildAGussetChain 之後——需要
+ *  resolveAGussetChainPoints／snapALongAnchor／LongWallAnchors，見該處。 */
+const A_GUSSET_CHAIN_TL: ABLine[] = [...A_GUSSET_OUTER_TL, ...A_GUSSET_PLATFORM_RELIEF_TL, ...A_GUSSET_INNER_WALL_APPROACH_TL];
+const A_GUSSET_CHAIN_TR: ABLine[] = [...A_GUSSET_OUTER_TR, ...A_GUSSET_PLATFORM_RELIEF_TR, ...A_GUSSET_INNER_WALL_APPROACH_TR];
 
 // ─────────────────────────────────────────────────────────────────────────
 // 內部型別
@@ -783,13 +840,6 @@ function abToXY(cornerX: number, cornerY: number, sx: Sign, sy: Sign, p: ABPt): 
 }
 
 /**
- * production-P 校準時的長壁／短壁參考距離（自角落起量，nominal 公式值，非量測殘差）——
- * 供下面的縮放＋錨點校正共用，見 LongWallAnchors 與 buildAGussetChain 註解。
- */
-const A_CHAIN_REF_LONG_OUTER = 59.5; // height(60) − wallTopCompensation(0.5)
-const A_CHAIN_REF_SHORT_OUTER = 60.5; // rootJog(0.5) + height(60)
-
-/**
  * 長壁（a 方向）沿線關鍵錨點的參數化距離（自角落起量）——與 computeWallGeom 用同一組
  * 公式重算，取代 A_GUSSET_* 常數表裡對應的「T0 原始量測固定值」（59.4995/64.4984/
  * 121.2003/123.2006）。這幾個點同時也是 buildWallTop（topStartAlong／topEndAlong）
@@ -818,47 +868,82 @@ function snapALongAnchor(raw: number, anchors: LongWallAnchors): number {
 }
 
 /**
- * A 款角撐周邊 16 段複合 relief 鏈（A_GUSSET_OUTER＋A_GUSSET_PLATFORM_RELIEF＋
- * A_GUSSET_INNER_WALL_APPROACH，見常數區塊）：逐段獨立 moveTo（鏈本身在 P 原檔含多處
- * 分岔／T 型交會，不是單一連續折線，見任務報告連通性分析）——每段依 ABLine.type
- * 各自輸出 cut／crease（僅 outer 組的 outerWall 收邊線是 crease，其餘皆 cut）。
+ * A 款角撐周邊 13 段複合 relief 鏈（template 參數＝A_GUSSET_CHAIN_TL 或 _TR，見常數區塊
+ * 與呼叫端 generateTray 的模板選擇）：逐段獨立 moveTo（鏈本身在 P 原檔含多處分岔／T 型
+ * 交會，不是單一連續折線，見任務報告連通性分析）——每段依 ABLine.type 各自輸出
+ * cut／crease（僅 outer 組的 outerWall 收邊線是 crease，其餘皆 cut）。
  *
- * 兩層修正（Slice 5 F6-A 對抗 cut 自撞掃描／param-sweep 實測發現，兩輪迭代）：
- * 1. **a 縮放**：production-P 只有一組校準樣本（H=60），非 production-P 的壁高（H×platform
- *    ×t 掃描含 H=30/45/90/150/200）若仍用固定 a offset，鏈在「長壁深度方向」的絕對尺寸
- *    不隨壁深縮放，會嚴重偏離該壁高下的實際 outerWall/tongueFold 位置，與其他幾何
- *    （notch、halfcut、tongueFlap）產生真交叉或幾何不可能（arcTo 弦長超過直徑）。按長壁
- *    outerLen 比例（anchors.distOuter/A_CHAIN_REF_LONG_OUTER）縮放鏈的 a 座標，讓鏈的
- *    「深度感」跟著壁高走——鏈的精確內部頂點雖非參數化重建（spec 明文），但整體縮放是
- *    必要的安全網。**b 不縮放**：b 座標代表「沿短壁方向」的位置，其量級由 baseLength／
- *    baseWidth（notch 比例位置、halfcut chainReach 皆不隨 height 變動）決定，與 height
- *    無關——若也按 a 的縮放比例等比縮放 b，在 height 遠離 60（如 200）時 b 會被拉伸到
- *    notch 的可容納安全邊之外，反而製造新的真交叉（param-sweep baseHeight=200 掃描曾
- *    在此抓到：uNotch 與 aGussetPeriphery 交叉）。
- * 2. **錨點校正**：縮放後再用 snapALongAnchor 把「已知等於某既有參數化幾何點」的 5 個
- *    a 值換成現場重算值（見該函式註解）——縮放本身無法保證這幾點精確重合（縮放比例
- *    是單一比例，各錨點的個別公式各自獨立），需要這一步補上精確重合。
+ * **不縮放，固定 nominal（Fix 3·2026-07-11 review M3——取代先前的無條件 a 縮放安全網）**：
+ * spec §縮放與降級規律明定「細節尺寸固定 nominal」，先前版本按長壁 outerLen 比例
+ * （anchors.distOuter/59.5）縮放鏈的 a 座標，對所有 H≠60 的組合都縮放（H=90→1.5×），
+ * 違反這條規則——production-P（H=60）因比例恰為 1 才「看起來」正確，是假綠燈。改為固定
+ * nominal＋Fix 2 的 aGussetChainFits 可容納判定（放不下就整鏈省略＋警告），不再縮放。
+ *
+ * **錨點校正仍保留**：snapALongAnchor 把「已知等於某既有參數化幾何點」的 5 個 a 值
+ * （59.4995/64.4984/121.2003/123.2006/138.2007，兩模板字面值刻意相同，見常數區塊）換成
+ * 現場重算值——這不是「縮放」，是接縫對齊：這幾點同時也是 buildWallTop／buildWallSideCuts／
+ * notch 等既有參數化幾何的連接點，就算固定 nominal 下的 production-P，量測殘差
+ * （量級 0.0001–0.002mm）也會讓兩邊座標出現非零但落在 CROSS_EPS(1e-7) 之上的縫，被
+ * hasSelfIntersection 誤判為真交叉——這幾個「連接點」需要精確重合，其餘（鏈內部頂點）
+ * 維持固定 nominal 不校正（spec 明文不從參數重建內部頂點）。
  */
-function buildAGussetChain(cornerX: number, cornerY: number, sx: Sign, sy: Sign, anchors: LongWallAnchors, side: string): PathDescriptor[] {
-  const scale = anchors.distOuter / A_CHAIN_REF_LONG_OUTER;
-  const lines = [...A_GUSSET_OUTER, ...A_GUSSET_PLATFORM_RELIEF, ...A_GUSSET_INNER_WALL_APPROACH];
-  // 錨點比對必須用「縮放前」的原始 a 值（常數表字面值）——先縮放再比對，字面值早已
-  // 被乘過 scale、再也不會精確等於 59.4995/64.4984/121.2003/123.2006/138.2007 任一個，
-  // snapALongAnchor 形同永遠不命中（Fix：H≠60 的組合掃描曾在此抓到殘留真交叉）。
-  const resolve = (p: ABPt): ABPt => {
-    const anchorHit = snapALongAnchor(p.a, anchors);
-    const a = anchorHit !== p.a ? anchorHit : p.a * scale;
-    return { a, b: p.b };
-  };
+/** template 的每段解出實際 (p1,p2,type)——buildAGussetChain（實際輸出）與
+ *  aGussetChainFits 的自撞自檢（Fix 2）共用同一份錨點校正邏輯，避免兩處各自維護、
+ *  漂移出不一致的判定。 */
+function resolveAGussetChainPoints(cornerX: number, cornerY: number, sx: Sign, sy: Sign, anchors: LongWallAnchors, template: ABLine[]): Array<{ p1: Point; p2: Point; type: LineType }> {
+  const resolve = (p: ABPt): ABPt => ({ a: snapALongAnchor(p.a, anchors), b: p.b });
+  return template.map((l) => ({
+    p1: abToXY(cornerX, cornerY, sx, sy, resolve(l.p1)),
+    p2: abToXY(cornerX, cornerY, sx, sy, resolve(l.p2)),
+    type: l.type,
+  }));
+}
+
+function buildAGussetChain(cornerX: number, cornerY: number, sx: Sign, sy: Sign, anchors: LongWallAnchors, template: ABLine[], side: string): PathDescriptor[] {
   const byType = new Map<LineType, Segment[]>();
-  for (const l of lines) {
-    const p1 = abToXY(cornerX, cornerY, sx, sy, resolve(l.p1));
-    const p2 = abToXY(cornerX, cornerY, sx, sy, resolve(l.p2));
-    const segs = byType.get(l.type) ?? [];
+  for (const { p1, p2, type } of resolveAGussetChainPoints(cornerX, cornerY, sx, sy, anchors, template)) {
+    const segs = byType.get(type) ?? [];
     segs.push(...new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).segments());
-    byType.set(l.type, segs);
+    byType.set(type, segs);
   }
   return [...byType.entries()].map(([type, segments]) => ({ type, tags: ['aGussetPeriphery', side], segments }));
+}
+
+/**
+ * 複合 relief 鏈可容納性（Fix 2·2026-07-11 review H2，取代先前的無條件 a 縮放安全網）：
+ * 兩層判定都不成立才算可容納，任一層失敗＝整鏈省略＋warning（index.ts 對應
+ * `gusset-relief-omitted`，同一門檻獨立重算）。
+ *
+ * ①**b 軸——與 U-notch 或壁界衝突**：鏈的內壁逼近段在 b 軸最深處＝A_CHAIN_REACH_LONGWALL，
+ * 這是鏈從角落沿長壁佔用的區域；notch 若擺在這個區域內會與鏈真自交（S2/S3 掃描抓到，
+ * 先前被測試「降級時排除 uNotch」豁免掩蓋）。壁界＝兩端鏈區不得互相重疊
+ * （wallSpan≥2×reach）；notch 衝突＝任一 notch 開口邊緣不得落進鏈區。
+ *
+ * ②**a 軸——鏈自身不得因錨點校正而扭曲成自撞**：Fix 3 移除縮放後，鏈的 5 個已知錨點
+ * （59.4995/64.4984/121.2003/123.2006/138.2007）會被 snapALongAnchor 換成現場重算值
+ * （隨 height/wallTopCompensation/platformWidth/innerWallReduction 變動），但鏈的其餘
+ * 內部頂點維持 T0 固定 nominal（不隨這些參數變動，spec 明文不從參數重建內部頂點）。
+ * 當現場錨點值大幅偏離 T0 校準值（height=60 時 distOuter≈59.5）——例如 height 很小
+ * 時錨點被壓縮到遠小於固定內部頂點、height 很大時錨點被拉伸到遠大於固定內部頂點——
+ * 兩者的相對順序/間距關係跟 T0 原始設計不再一致，鏈會扭曲出真自撞（param-sweep
+ * baseHeight∈{15,150} 兩端都曾在此抓到，不縮放的固定 nominal 是必然結果，不是遺漏）。
+ * 用 hasSelfIntersection 直接檢查解出的鏈段（不含其餘幾何）最穩健——不必手推一條
+ * 覆蓋所有參數交互作用的封閉不等式，直接量測「鏈本身還是不是一個合法形狀」。兩個模板
+ * （TL／TR）分別檢查，任一自撞就整鏈（四角同時）省略——維持四角對稱，不留半邊鏈的怪狀態。
+ */
+function aGussetChainSelfIntersects(anchors: LongWallAnchors, template: ABLine[]): boolean {
+  const segments: Segment[] = resolveAGussetChainPoints(0, 0, 1, 1, anchors, template).flatMap(({ p1, p2 }) => new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).segments());
+  return hasSelfIntersection(segments);
+}
+
+function aGussetChainFits(wallSpan: number, notchCenters: number[], anchors: LongWallAnchors): boolean {
+  const halfOpen = NOTCH_OPENING / 2;
+  const reachZoneStart = wallSpan / 2 - A_CHAIN_REACH_LONGWALL;
+  if (reachZoneStart < 0) return false;
+  if (!notchCenters.every((c) => Math.abs(c) + halfOpen <= reachZoneStart)) return false;
+  if (aGussetChainSelfIntersects(anchors, A_GUSSET_CHAIN_TL)) return false;
+  if (aGussetChainSelfIntersects(anchors, A_GUSSET_CHAIN_TR)) return false;
+  return true;
 }
 
 /**
@@ -867,17 +952,16 @@ function buildAGussetChain(cornerX: number, cornerY: number, sx: Sign, sy: Sign,
  * 圓角轉接（spec §縮放與降級表）；否則降級為直角（兩短邊直接以直線相接，platform-
  * corner-omitted，警告由 index.ts 依同一門檻獨立重算）。
  *
- * 同 buildAGussetChain：b 座標先按短壁 outerLen 比例縮放（防非 production-P 壁高下鏈
- * 尺寸失真），p0（LINE39 起點＝短壁 topStartAlong 角落端，與 buildWallSideCuts 的
- * sideCutEnd 共用同一點——短壁側邊 cut 從這裡收筆，見 buildWall）／p2/p3（buildWallTop
- * 內縮 crease 端點）再校正到現場值——避免與既有參數化幾何出現次毫米級縫隙/交叉；
- * p1（R2.5 圓角另一端）改由 p3.b−R 現場算出，不是固定 offset——確保圓角兩端點距離
- * 恆等於 R，縮放/校正後 arcTo 幾何仍然合法。
+ * **不縮放，固定 nominal（Fix 3·2026-07-11）**：p4/p5/p6（106.6976/109.6998/124.6999，
+ * 鏈本身固定 offset）先前按短壁 outerLen 比例縮放，同 buildAGussetChain 違反 spec「固定
+ * nominal」規則已移除。p0（LINE39 起點＝短壁 topStartAlong 角落端，與 buildWallSideCuts
+ * 的 sideCutEnd 共用同一點——短壁側邊 cut 從這裡收筆，見 buildWall）／p2/p3（buildWallTop
+ * 內縮 crease 端點）維持現場值（shortDistOuter／shortDistPlatformEnd 由呼叫端傳入，本來
+ * 就不是常數表字面值）——避免與既有參數化幾何出現次毫米級縫隙/交叉；p1（R2.5 圓角另一端）
+ * 改由 p3.b−R 現場算出，不是固定 offset——確保圓角兩端點距離恆等於 R，arcTo 幾何合法。
  */
 function buildAPlatformCornerRelief(cornerX: number, cornerY: number, sx: Sign, sy: Sign, platformWidth: number, shortDistOuter: number, shortDistPlatformEnd: number, side: string): PathDescriptor {
-  // production-P 校準：shortDistPlatformEnd＝A_CHAIN_REF_SHORT_OUTER(60.5)+platformWidth(5)＝65.5。
-  const scale = shortDistPlatformEnd / (A_CHAIN_REF_SHORT_OUTER + platformWidth);
-  const pt = (a: number, b: number): Point => abToXY(cornerX, cornerY, sx, sy, { a, b: b * scale });
+  const pt = (a: number, b: number): Point => abToXY(cornerX, cornerY, sx, sy, { a, b });
   const p0 = abToXY(cornerX, cornerY, sx, sy, { a: 0, b: shortDistOuter });
   const p1 = abToXY(cornerX, cornerY, sx, sy, { a: 0, b: shortDistPlatformEnd - PLATFORM_CORNER_R });
   const p2 = abToXY(cornerX, cornerY, sx, sy, { a: -2.5012, b: shortDistPlatformEnd });
@@ -953,6 +1037,12 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
   const shortDistOuter = rootJog + height;
   const shortDistPlatformEnd = shortDistOuter + platformWidth;
 
+  // 複合 relief 鏈可容納性（Fix 2）：長壁（x 向牆，2-notch）span＝panelW，與 buildATongueTopology
+  // 內部呼叫 longWallNotchPlan 用同一輸入——這裡重算一次（純函式，成本可忽略）取得目前實際
+  // 會生成的 notch 中心列，供 aGussetChainFits 判斷放不放得下；不可容納時整鏈省略＋
+  // index.ts 對應 warning（同一門檻獨立重算，見該檔 gussetChainFits）。
+  const chainFits = useThickStyle ? aGussetChainFits(panelW, longWallNotchPlan(panelW).centers, longAnchors) : true;
+
   for (const { sx, sy, label } of CORNERS) {
     const cornerX = sx * halfL;
     const cornerY = sy * halfW;
@@ -961,11 +1051,16 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
         ? buildGussetA(cornerX, cornerY, sx, sy, height, thickness, rootJog, label)
         : buildGussetB(cornerX, cornerY, sx, sy, height, thickness, label)),
     );
-    // A 款平台端＋角撐周邊複合 relief 鏈（Slice 5 F6-A）：topLeft（'left-front'）角
-    // T0 逐點量得為權威，其餘三角以 corner+sx×a+sy×b 實例化——四角共用同一組 (a,b)
-    // 常數，見 buildAGussetChain／buildAPlatformCornerRelief 註解。
+    // A 款平台端＋角撐周邊複合 relief 鏈（Slice 5 F6-A；Fix 1 兩手性模板）：對角角落配對
+    // （left-front↔right-back、right-front↔left-back）各自 180° 旋轉——sx===sy 的兩角
+    // （left-front、right-back）用 topLeft 模板，sx!==sy 的兩角（right-front、left-back）
+    // 用 topRight 模板（見常數區塊 A_GUSSET_CHAIN_TL/_TR 註解：相鄰角落不是同一模板的鏡射，
+    // 是獨立量測的不同拓撲）。
     if (useThickStyle) {
-      descriptors.push(...buildAGussetChain(cornerX, cornerY, sx, sy, longAnchors, label));
+      if (chainFits) {
+        const template = sx === sy ? A_GUSSET_CHAIN_TL : A_GUSSET_CHAIN_TR;
+        descriptors.push(...buildAGussetChain(cornerX, cornerY, sx, sy, longAnchors, template, label));
+      }
       descriptors.push(buildAPlatformCornerRelief(cornerX, cornerY, sx, sy, platformWidth, shortDistOuter, shortDistPlatformEnd, label));
     }
   }
