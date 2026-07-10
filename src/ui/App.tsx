@@ -46,13 +46,16 @@
  * 見 `overlay/layers.ts` `createOverlayLayer` 文件的既有理由）；用 ref 而非 state 是因為
  * 計數器遞增本身不需要觸發重渲染，只有呼叫端（LayersPanel 匯入 handler）讀取當下值。
  *
- * `appMode`／`impositionState`（Slice 4 Task 4，spec F6／「組裝」段）：頂部「刀模設計｜
- * 拼版估算」切換鈕決定側欄下半部與主區渲染哪一組元件——`'design'` 維持原本的 LayersPanel／
- * ExportBar／Canvas；`'imposition'` 側欄改渲染 `ImpositionControls`、主區改渲染
- * `ImpositionResults`（T3，`@/ui/ImpositionView`），兩者與 Canvas／ExportBar 一樣共用同一個
- * `result`（spec「組裝」：`App` 只生成一次 `result`，不因模式切換重新計算）。`ParamPanel`與
- * 盒型選擇不隨模式隱藏（F6「組裝」列），使用者可以留在拼版模式下直接調整盒參數，兩張方向卡
- * 透過 `ImpositionView.tsx` 的 `computeImpositionView` 隨新的 `result` 即時重算（F6「即時性」）。
+ * `appMode`／`impositionState`（Slice 4 Task 4，spec F6／「組裝」段；T4 toolbar 化改版面
+ * 佈局，見下）：頂部「刀模設計｜拼版估算」切換鈕決定側欄下半部與主區渲染哪一組元件——
+ * `'design'` 維持原本的 LayersPanel／ExportBar／Canvas；`'imposition'` 側欄不再渲染任何
+ * 拼版專屬元件（只剩上方共用的 ParamPanel／盒型選擇），主區改渲染 `ImpositionControls`
+ * （橫排 toolbar，`@/ui/ImpositionView`）＋`ImpositionResults`（`@/ui/ImpositionResults`）
+ * 垂直堆疊——法蘭 gate 反饋「放在右側預覽區域上方，把紙張規格、方向、作業模式改成按鈕
+ * 形式」，取代 T3 的側欄掛法。兩者與 Canvas／ExportBar 一樣共用同一個 `result`（spec
+ * 「組裝」：`App` 只生成一次 `result`，不因模式切換重新計算）。`ParamPanel`與盒型選擇不隨
+ * 模式隱藏（F6「組裝」列），使用者可以留在拼版模式下直接調整盒參數，兩張方向卡透過
+ * `computeImpositionView`（`@/ui/ImpositionResults`）隨新的 `result` 即時重算（F6「即時性」）。
  *
  * `impositionState.pieceId` 是與 `selectedPieceId`（上方，設計模式專用）完全分離的一顆
  * state（F6「state 分離」）——兩者語意不同：拼版沒有「null＝全版」，`null` 只在 RTE 這種
@@ -310,7 +313,9 @@ export function App() {
           onHighlight={setHighlightTags}
         />
 
-        {appMode === 'design' ? (
+        {/* 拼版模式下側欄不再渲染任何拼版專屬元件（T4：`ImpositionControls` 搬到主區
+            toolbar，見下方 `<main>`）——側欄只剩上方共用的 ParamPanel／盒型選擇。 */}
+        {appMode === 'design' && (
           <>
             <LayersPanel
               layers={layersState}
@@ -324,8 +329,6 @@ export function App() {
 
             <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
           </>
-        ) : (
-          <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
         )}
       </aside>
 
@@ -343,7 +346,12 @@ export function App() {
             onCalibratingChange={setCalibrating}
           />
         ) : (
-          <ImpositionResults result={result} state={impositionState} />
+          // T4：拼版模式主區改「toolbar 在上、結果卡在下」垂直堆疊，取代 T3 的側欄＋主區
+          // 左右分割（法蘭 gate 反饋「放在右側預覽區域上方」）。
+          <div className="flex-1 flex flex-col gap-4">
+            <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
+            <ImpositionResults result={result} state={impositionState} />
+          </div>
         )}
       </main>
 
