@@ -95,7 +95,7 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
           <h2 className="text-lg font-bold tracking-wide text-zinc-900">
             open-dieline{' '}
             <span className="align-middle text-xs font-normal tracking-normal text-zinc-400">
-              v0.3.0 開發測試版
+              v0.4.0 開發測試版
             </span>
           </h2>
 
