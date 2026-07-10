@@ -4,3 +4,7 @@ refs/
 *.ai
 *.eps
 .vercel
+
+# 內部工作文件不進公開 repo（2026-07-11 維護者定案·本地保留）
+docs/plans/
+docs/specs/
