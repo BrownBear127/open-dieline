@@ -4,3 +4,7 @@ refs/
 *.ai
 *.eps
 .vercel
+
+# local-only working files（不進 repo）
+docs/plans/
+docs/specs/
