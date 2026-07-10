@@ -1220,6 +1220,30 @@ describe('telescope: notch-reduced／notch-omitted／platform-corner-omitted（U
     const cornerInv = telescope.invariants.find((i) => i.id === 'platform-corner-omitted')!;
     expect(cornerInv.check(params, result), 'lidPlatformWidth=2<2.5 應觸發').toMatchObject({ ok: false });
   });
+
+  it('S1-S4：未過濾 uNotch／aGussetPeriphery／platformCorner 的 cut 自交零斷言（Fix 2·2026-07-11 review H2——warning 是合法降級聲明，不是自交豁免；S2/S3 降級後 uNotch×aGussetPeriphery 曾在此真自交，被舊版「降級時排除 uNotch」豁免隱藏，這裡刻意不對這三個 tag 套用任何豁免，直接驗證）', () => {
+    // 只排除 tongueFlap／linerFlap 兩個 tag——這兩者是 tongue-flap-fits／liner-flap-fits
+    // 既有、已記錄在案、與本輪 Fix 2（uNotch/aGussetPeriphery）無關的獨立已知降級（見
+    // BOUNDARY_EXEMPT_TAGS 對這兩條 invariant 的豁免仍保留，以及「豁免案例現狀記錄」
+    // 系列測試）；S3（baseWidth=30<33）會觸發 tongue-flap-fits，預設 linerEnabled=true
+    // 下 baseWidth=30 也會觸發 liner-flap-fits 條件 3（翼片外緣反轉）——兩者都是已知、
+    // 已測試涵蓋的獨立退化，混進本測試的斷言範圍只會製造假失敗，不代表 Fix 2 沒修好。
+    const cases: Array<[string, Record<string, number>]> = [
+      ['S1（production-P 對應等效組）', { baseLength: 179, baseWidth: 124, basePlatformWidth: 5 }],
+      ['S2（baseLength=60,baseWidth=40，notch-reduced）', { baseLength: 60, baseWidth: 40 }],
+      ['S3（baseLength=40,baseWidth=30，notch-reduced+notch-omitted）', { baseLength: 40, baseWidth: 30 }],
+      ['S4（basePlatformWidth=2，platform-corner-omitted）', { basePlatformWidth: 2 }],
+    ];
+    for (const [label, overrides] of cases) {
+      const params = resolveParams(telescope, overrides);
+      const result = telescope.generate(params);
+      const scopedCutSegs = result.paths
+        .filter((p) => p.type === 'cut' && !p.tags?.includes('tongueFlap') && !p.tags?.includes('linerFlap'))
+        .flatMap((p) => p.segments);
+      expect(hasSelfIntersection(scopedCutSegs), `${label}：cut（排除已知獨立降級 tongueFlap／linerFlap）不應自交`).toBe(false);
+      expect(hasNaN(result.paths.flatMap((p) => p.segments)), `${label}：不應有 NaN`).toBe(false);
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
