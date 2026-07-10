@@ -245,7 +245,7 @@ describe('parseOverlaySvg — path：A（橢圓弧）', () => {
 
   it('phi≠0 的真橢圓弧（釘住 x-axis-rotation branch，先前所有 A 測試 phi 皆為 0）：獨立重寫 F.6.5 + a2c 腳本核對，非呼叫 parse.ts', () => {
     // 橢圓 cx=2,cy=-1,rx=6,ry=3,phi=30°，θ1=20°→θ2=100°（80° 掃角，sweep=1／largeArc=0）。
-    // 半徑/角度取自法蘭給定的獨立 round-trip 驗證案例（cx=2,cy=-1,rx=6,ry=3,phi=30°），僅將
+    // 半徑/角度取自維護者給定的獨立 round-trip 驗證案例（cx=2,cy=-1,rx=6,ry=3,phi=30°），僅將
     // θ2 由 110°改為 100°：110°會讓掃角恰為 90°，endpoint→center 反算回來的 deltaTheta 因浮
     // 點誤差落在 90.00000000000001°，使 segCount=ceil(deltaTheta/90°) 從 1 變 2、多出一段
     // bezier；80° 掃角離邊界夠遠，segCount 穩定為 1，測試不會因無關的浮點捨入而變脆弱。

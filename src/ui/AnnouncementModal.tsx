@@ -1,7 +1,7 @@
 /**
- * AnnouncementModal：公開發布宣告視窗（法蘭定稿文案，內文逐字使用，不可改寫）。
+ * AnnouncementModal：公開發布宣告視窗（維護者定稿文案，內文逐字使用，不可改寫）。
  * v0.2.0 首版；v0.3.0 上線後補測試版定位聲明、本地處理與問題回報等備注（2026-07-09
- * 法蘭指示），dismiss key 同步 bump v1→v2 讓既有訪客再看一次新內容。
+ * 維護者指示），dismiss key 同步 bump v1→v2 讓既有訪客再看一次新內容。
  *
  * 顯示邏輯：首次訪問（localStorage 沒有 dismiss key）自動開啟；使用者透過 × 鈕／backdrop
  * 點擊／卡片底部「開始使用」關閉時都會寫入 localStorage，之後重新載入不再自動彈出。Esc

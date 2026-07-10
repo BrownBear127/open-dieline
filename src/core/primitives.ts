@@ -2,7 +2,7 @@
  * 可複用刀模構件庫：摩擦扣（friction lock）、J-Hook 避讓槽（relief slot）、標註線（dimension line）。
  *
  * 這是「移植保真」模組——幾何行為完全對齊前身 ReverseTuckEnd.ts（唯讀參照，
- * /Users/fran/Desktop/trouver.crm-rebuild/components/Tools/Packaging/models/ReverseTuckEnd.ts）
+ * trouver.crm-rebuild/components/Tools/Packaging/models/ReverseTuckEnd.ts）
  * 的 drawLock/drawRelief/drawDim/drawDimV，只是把字串拼接的 SVG `d` 改產結構化 Segment、
  * 把行內 helper 抽成獨立可測試函式，供後續盒型（Task 6 RTE 及未來盒型）共用。
  * 純 TS 模組，不 import React 或任何 UI。座標單位一律 mm。

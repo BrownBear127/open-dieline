@@ -19,7 +19,7 @@
  * domain 錯誤顯示／preview cap 語意等完整契約說明見 `./ImpositionResults.tsx` 檔頭與
  * `computeImpositionView` docblock（現在的實際定義處）。
  *
- * 佈局（T4 定案，取代 T1 側欄直排暫時形態——法蘭 gate 反饋「放在右側預覽區域上方，把紙張
+ * 佈局（T4 定案，取代 T1 側欄直排暫時形態——gate 驗收反饋「放在右側預覽區域上方，把紙張
  * 規格、方向、作業模式改成按鈕形式」）：`ImpositionControls` 是掛在 App 主區、預覽正上方的
  * 橫排 toolbar（件選擇／紙規／方向／裁切／旋轉／咬口／刀線間距，分組＋icon+短 label 按鈕），
  * `ImpositionResults` 緊接在下方（工作尺寸文字＋0°/90° 兩張同等權重卡片，各自內嵌一份真實
@@ -121,7 +121,7 @@ function PaperPresetIcon({ id }: { id: string }) {
 }
 
 /** 拼版控制面板：件選擇／紙規／方向／裁切／旋轉／咬口／刀線間距，橫排 toolbar（T4，取代
- *  T1 暫時形態的左側欄直排下拉／checkbox——法蘭 gate 反饋「放在右側預覽區域上方，把紙張
+ *  T1 暫時形態的左側欄直排下拉／checkbox——gate 驗收反饋「放在右側預覽區域上方，把紙張
  *  規格、方向、作業模式改成按鈕形式（繪製好看的SVG）」）。T4 掛入 App 主區、`ImpositionResults`
  *  正上方（spec「組裝」段）；可獨立於 `ImpositionResults` 掛載，唯一互動出口是 `onChange`。
  *  裁切（cutV/cutH）不再走「作業模式」四選一下拉——兩顆獨立 toggle 按鈕直接疊加（四開＝

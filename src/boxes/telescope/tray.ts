@@ -217,11 +217,11 @@ function buildWallTop(axis: Axis, geom: WallGeom, perpHalf: number, platformWidt
  * 舌摺線：中段 halfcut＋兩端各 TONGUE_END_RECESS 長的 cut（讓位角撐，見量測表
  * 「舌片兩端讓位」）。recess 對過窄的牆做防禦性鉗制（避免 perp 區間反轉）。
  *
- * 法蘭裁決（軋斷需求·2026-07-09 T7 樣張 gate 反饋）：兩端讓位段線型是 cut，不是 crease——
+ * 維護者裁決（軋斷需求·2026-07-09 T7 樣張 gate 反饋）：兩端讓位段線型是 cut，不是 crease——
  * 「否則刀模軋下來那裡不會斷，會連在紙上」。物理：這兩段的外側是角撐讓位缺口，線的下方
  * 沒有舌片相連（自由邊），刀模必須把它軋斷，不能只留壓痕。量測表原判讀（見
  * `.superpowers/sdd/slice2-appendix.md` 「舌片兩端讓位」條）誤將這兩段歸類為 crease，
- * 係生產 SVG 顏色分類誤差（黑/綠兩色在低解析度掃描檔上易混淆）；本次以法蘭現場操作
+ * 係生產 SVG 顏色分類誤差（黑/綠兩色在低解析度掃描檔上易混淆）；本次以維護者現場操作
  * 裁決為準，優先於量測表。中段 halfcut（軋半斷，供實際摺疊）不受影響、不動。
  */
 function buildTongueFold(axis: Axis, geom: WallGeom, perpHalf: number, side: string): PathDescriptor[] {

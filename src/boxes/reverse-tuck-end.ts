@@ -2,7 +2,7 @@
  * RTE 反插式尾封盒（Reverse Tuck End）—— 移植保真模組。
  *
  * 幾何邏輯逐段對齊前身 `ReverseTuckEnd.ts`（唯讀參照，全 357 行，未修改：
- * /Users/fran/Desktop/trouver.crm-rebuild/components/Tools/Packaging/models/ReverseTuckEnd.ts）。
+ * trouver.crm-rebuild/components/Tools/Packaging/models/ReverseTuckEnd.ts）。
  * 座標鏈、糊邊、摩擦扣、避讓槽、標註線的計算方式與前身完全一致，只是輸出改為
  * 結構化 `Segment`（經 `PathBuilder`），並把摩擦扣/避讓槽/標註線的畫線邏輯換成呼叫
  * `core/primitives.ts`（Task 5 已從前身同一份程式碼抽出）。
@@ -221,7 +221,7 @@ function addPath(paths: DielinePath[], type: LineType, tag: string | undefined, 
  * 索引依攤平圖「從糊邊側起算」的面板序 P1..P4：貼糊邊的面板不補償（+0），往外每過一道
  * 摺線多補一個紙厚（+t、+t），離糊邊最遠的面板累積 +2t——紙繞盒身一圈，外層每摺一次要
  * 多走約一個紙厚，離黏合基準面愈遠累積愈多。無前身 ground truth，數值為業界常規，
- * 定案依據＝Codex review＋法蘭生產經驗＋樣張 gate 實摺驗證。
+ * 定案依據＝Codex review＋維護者生產經驗＋樣張 gate 實摺驗證。
  */
 const GIRTH_COMP_FROM_GLUE = [0, 1, 1, 2] as const;
 
@@ -398,7 +398,7 @@ function generate(p: ResolvedParams): GenerateResult {
     const yTuck = yFold + ySign * hTuck;
     const xt1 = lid.start + tInset;
     const xt2 = lid.end - tInset;
-    // 插舌圓角鉗制（T9 樣張 gate 第二輪法蘭反饋，修復 1）——前身既有 bug，等價移植照搬：
+    // 插舌圓角鉗制（T9 樣張 gate 第二輪驗收反饋，修復 1）——前身既有 bug，等價移植照搬：
     // 垂直邊畫到 `yTuck - ySign*r`，r > hTuck 時這個點會越過摺線 yFold 翻到另一側（例如
     // top 側 ySign=-1 時算出 yTuck+r，r=14>hTuck=10 會得到 yFold 上方的 -51，超出
     // [yTuck,yFold]=[-65,-55] 的合法區間），垂直邊反向翻出、圓弧從錯位點畫回，自撞退化。

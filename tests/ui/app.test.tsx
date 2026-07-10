@@ -418,7 +418,7 @@ describe('Canvas 高亮疊加', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// T7 樣張 gate 第一輪法蘭反饋修 3（2026-07-09）：多片盒型（天地盒）auto-fit 預設縮放 130%，
+// T7 樣張 gate 第一輪驗收反饋修 3（2026-07-09）：多片盒型（天地盒）auto-fit 預設縮放 130%，
 // RTE（單片）維持 1.0×fit 不變。jsdom 沒有真實 layout，containerRef 的 clientWidth/
 // clientHeight 恆為 0——`computeFitScale` 因此對任何 bounds 都會被 MIN_SCALE 夾住（見
 // Canvas.tsx computeFitScale：availableW/H 用 Math.max(0-FIT_PADDING,1)=1，newScale 遠小於
@@ -1194,7 +1194,7 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
     expect(substackLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('法蘭定稿文案關鍵片段逐字呈現（不可誤刪或改寫）：產品定位／使用注意三則／授權與商業聯絡信箱', async () => {
+  it('維護者定稿文案關鍵片段逐字呈現（不可誤刪或改寫）：產品定位／使用注意三則／授權與商業聯絡信箱', async () => {
     localStorage.clear();
     render(<App />);
     const dialog = await screen.findByRole('dialog');

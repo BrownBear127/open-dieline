@@ -142,7 +142,7 @@ const EXTRACTORS: Record<string, Extractor> = {
   'base.x.panel': (b) => minAbsGap(creaseAlongValues(b, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(b, 'wallRoot', 'right', 'x', 'crease')),
   'base.x.outerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(b, 'wallTop', 'left', 'x', 'crease')),
   'base.x.platform': (b) => creaseSpan(b, 'wallTop', 'left', 'x', 'crease'),
-  // 舌摺線兩端讓位段線型 2026-07-09 T7 gate 反饋改 crease→cut（法蘭裁決·軋斷需求，見
+  // 舌摺線兩端讓位段線型 2026-07-09 T7 gate 反饋改 crease→cut（維護者裁決·軋斷需求，見
   // tray.ts buildTongueFold 註解）；下面 4 條 innerWall／4 條 tuckFlap 抽取式原本查
   // tongueFold+crease，改查 tongueFold+cut——抽出的駐留座標數值不變（同一條線只換線型)。
   'base.x.innerWall': (b) => minAbsGap(creaseAlongValues(b, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(b, 'tongueFold', 'left', 'x', 'cut')),
@@ -241,7 +241,7 @@ function judgeNumericSlot(slot: SlotFixture, generated: number, formulaValue: nu
 
 /**
  * base.x.tuckFoldLine 結構檢查：舌摺線應同時有 halfcut（中段 1 段）與 cut（兩端共 2 段）。
- * 兩端讓位段線型 2026-07-09 T7 gate 反饋由 crease 改 cut（法蘭裁決·軋斷需求，
+ * 兩端讓位段線型 2026-07-09 T7 gate 反饋由 crease 改 cut（維護者裁決·軋斷需求，
  * 見 tray.ts buildTongueFold 註解）。
  */
 function checkTuckFoldLineStructure(paths: DielinePath[], side: string): Verdict {
@@ -347,7 +347,7 @@ function checkYProfileSequence(paths: DielinePath[], side: 'back' | 'front', pla
  * 合成一組「健康形狀」的 y 向剖面資料（fix wave F4 負類測試用；back 側、platform=5 型）：
  * 雙 crease 根（gap 0.4）→ 壁頂兩線（60.4/65.4）→ 舌摺線（cut 兩端＋halfcut 中段，
  * 224.6）→ 插底舌斜線（最深 239.6）。數值只需序位正確，不對應任何真實參數組。
- * 舌摺線兩端線型 2026-07-09 T7 gate 反饋由 crease 改 cut（法蘭裁決·軋斷需求）。
+ * 舌摺線兩端線型 2026-07-09 T7 gate 反饋由 crease 改 cut（維護者裁決·軋斷需求）。
  */
 function syntheticYProfile(): DielinePath[] {
   const yLine = (y: number): Segment => ({ kind: 'line', x1: 0, y1: y, x2: 10, y2: y });

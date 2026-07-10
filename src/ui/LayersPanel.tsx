@@ -1,6 +1,6 @@
 /**
  * LayersPanel：側欄區塊（位於 ParamPanel 之後），取代 Slice 3 Task 4 的 OverlayPanel
- * （Slice 3 gate round 1 T2，法蘭 gate 反饋②③——圖層顯示/隱藏＋線型分層＋匯入獨立多層）。
+ * （Slice 3 gate round 1 T2，gate 驗收反饋②③——圖層顯示/隱藏＋線型分層＋匯入獨立多層）。
  *
  * 兩段式面板：
  * - 「生成圖層」：`GENERATED_LAYER_ORDER` 四列固定顯示（cut/crease/halfcut/dimensions），
@@ -27,7 +27,7 @@
  * 讓使用者一定先點列名選取，再按校準，操作順序與 Canvas 的實際行為一致，不會讓人以為點了
  * 某一層的「校準」鈕卻改到另一層的 scale。
  *
- * 「重新置中」取代舊版「快速對齊」三鈕（左上/中心/bbox，gate 反饋①明確要求退役——法蘭
+ * 「重新置中」取代舊版「快速對齊」三鈕（左上/中心/bbox，gate 反饋①明確要求退役——驗收
  * 反饋「快速對齊不實用」）：只保留一個以 `alignOffset(..., 'center')` 重算選中層 offset 的
  * 動作，未選中任何層時 disabled。
  *
@@ -100,7 +100,7 @@ export function LayersPanel({
   onCalibratingChange,
   createOverlayId,
 }: LayersPanelProps) {
-  const [unit, setUnit] = useState<OverlayUnit>('pt'); // 法蘭生產檔慣例，見 brief UI 規格（沿用舊 OverlayPanel 預設）
+  const [unit, setUnit] = useState<OverlayUnit>('pt'); // 維護者生產檔慣例，見 brief UI 規格（沿用舊 OverlayPanel 預設）
   // file input 是 uncontrolled 元件，瀏覽器選過檔後「再選同一個檔案」不會觸發 onChange
   // （value 沒變）。舊版只在「清除」（整個疊圖歸零）時遞增這個 key 強制重掛載；多層模型
   // 沒有整體清除動作了（改成逐層刪除，不影響 file input 本身的已選檔案記憶），改成每次
