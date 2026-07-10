@@ -341,6 +341,36 @@ function creaseAlongValues(paths: DielinePath[], landmark: string, side: string,
 }
 
 /**
+ * y 向 wallRoot(front/back) 的 nominal＋offset 兩個駐留值（Slice 5 Fix2·SOL review
+ * Finding 1 回歸修正）：B 款（薄壁角撐，platformWidth=0，如 lid）自本輪修正起，
+ * wallRoot 自身只留中央 offset 一個值——nominal 移到相鄰角落 gussetFold 的 y 軸摺線
+ * 端點（tray.ts buildWallRoot／buildGussetA 分工說明）。measuredPanel 這類「從幾何反推
+ * 量測值」的函式原本假設 wallRoot 自己就同時持有 nominal/offset 兩點，B 款現在要跨
+ * entity 合併才推得出正確的 nominal-to-nominal 跨距——否則 pieces-identity 會把 lid.y
+ * 誤測成多算 2×rootJog（central fold span，不是 side-root span）。A 款（厚壁角撐）
+ * wallRoot 自身仍有兩值，這裡對它是無害 no-op（不觸發角落查找，直接回傳既有值）。
+ */
+function yRootAlongsWithNominal(paths: DielinePath[], side: 'front' | 'back'): number[] {
+  const own = [...new Set(creaseAlongValues(paths, 'wallRoot', side, 'y'))];
+  if (own.length !== 1) return own;
+  const offset = own[0]!;
+  const corner = side === 'back' ? 'right-back' : 'right-front';
+  const foldVals: number[] = [];
+  for (const p of paths) {
+    if (p.type !== 'crease' || !p.tags?.includes('gussetFold') || !p.tags?.includes(corner)) continue;
+    for (const s of p.segments) {
+      // y 軸摺線＝沿 y 變化、x 定值的那一段（另一段是 x 軸摺線，會被這個篩選排除）。
+      if (s.kind === 'line' && Math.abs(s.x1 - s.x2) < 1e-6 && Math.abs(s.y1 - s.y2) > 1e-6) {
+        foldVals.push(s.y1, s.y2);
+      }
+    }
+  }
+  if (foldVals.length === 0) return own; // 防禦：找不到摺線就退回原值，下游容差會攔下異常
+  const nominal = foldVals.reduce((best, v) => (Math.abs(v - offset) < Math.abs(best - offset) ? v : best), foldVals[0]!);
+  return [offset, nominal];
+}
+
+/**
  * 兩組候選駐留座標之間的「最小絕對距離」——雙 crease（後摺壁根）／雙 wallTop（厚壁平台）
  * 等有多個候選值時，穩健抓出真正相鄰的那一對：不相關的配對距離（面板全寬等級）遠大於
  * 相鄰配對距離（紙厚或平台寬等級），取最小值即為相鄰對，不需要知道座標系符號/方向。
@@ -357,7 +387,9 @@ function minAbsGap(as: number[], bs: number[]): number {
 function measuredPanel(paths: DielinePath[]): { x: number; y: number } {
   return {
     x: minAbsGap(creaseAlongValues(paths, 'wallRoot', 'left', 'x'), creaseAlongValues(paths, 'wallRoot', 'right', 'x')),
-    y: minAbsGap(creaseAlongValues(paths, 'wallRoot', 'front', 'y'), creaseAlongValues(paths, 'wallRoot', 'back', 'y')),
+    // y 向用 yRootAlongsWithNominal（非直接 creaseAlongValues）：B 款 wallRoot 只剩 offset，
+    // 需要跨 entity 合併回 nominal 才能量出正確的 side-root（nominal-to-nominal）跨距。
+    y: minAbsGap(yRootAlongsWithNominal(paths, 'front'), yRootAlongsWithNominal(paths, 'back')),
   };
 }
 
