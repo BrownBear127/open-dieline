@@ -1,11 +1,11 @@
 {
-  "note": "Slice 2 Task 5 生產刀模具名槽位對帳 fixture。數值逐槽抄自 .superpowers/sdd/slice2-appendix.md（base/lid 槽位表），比對規則見 spec §4.2：t 無關槽位 x 向 ±0.05／t 相關槽位公式自洽＋x 向 ≤0.15 對量測／corrected 槽只驗公式修正值 ≤0.05 不對量測／y 向只驗公式關係＋序列完整性，不驗與生產品的絕對差。撞到槽位表以外的落差回報、不得放寬容差硬讓測試變綠。Slice 5 T1 遷移（F1/F3）：params.lidMargin 拆 lidMarginX/lidMarginY（兩軸皆填 13.5，數值不變、只是欄位形狀跟 schema 走——保留這個 fixture 原本 x/y 同值的設計）；新增 rootJog/innerWallReduction/wallTopCompensation 三個解耦參數，值選 0.4/0.8/0.4 讓 base 側與 lid.y 側全部既有槽位數值零位移（沿用舊 thickness=0.4 驅動的等價結果）。lid.x.outerWall／lid.x.innerWall 因 B-06（上蓋左右壁平齊特例移除，恆傳 wallTopCompensation=0）從「corrected」改判「measured」——新公式（lidHeight／lidHeight−innerWallReduction）本身就與量測值 45.0／44.2 精確相等，不再是刻意偏離量測的設計選擇，expected 隨之更新（44.6→45.0、43.8→44.2）。",
+  "note": "Slice 2 Task 5 生產刀模具名槽位對帳 fixture。數值逐槽抄自 .superpowers/sdd/slice2-appendix.md（base/lid 槽位表），比對規則見 spec §4.2：t 無關槽位 ±0.05／t 相關槽位公式自洽＋±0.15 對量測（x/y 向皆適用，Slice 5 Fix2 起 y 向不再豁免）／corrected 槽只驗公式修正值 ≤0.05 不對量測。撞到槽位表以外的落差回報、不得放寬容差硬讓測試變綠。Slice 5 T1 遷移（F1/F3）：params.lidMargin 拆 lidMarginX/lidMarginY（兩軸皆填 13.5，數值不變、只是欄位形狀跟 schema 走——保留這個 fixture 原本 x/y 同值的設計）；新增 rootJog/innerWallReduction/wallTopCompensation 三個解耦參數，值選 0.4/0.8/0.4 讓 base 側與 lid.y 側全部既有槽位數值零位移（沿用舊 thickness=0.4 驅動的等價結果）。lid.x.outerWall／lid.x.innerWall 因 B-06（上蓋左右壁平齊特例移除，恆傳 wallTopCompensation=0）從「corrected」改判「measured」——新公式（lidHeight／lidHeight−innerWallReduction）本身就與量測值 45.0／44.2 精確相等，不再是刻意偏離量測的設計選擇，expected 隨之更新（44.6→45.0、43.8→44.2）。Slice 5 Fix2（SOL review，controller 裁決全收）：judgeNumericSlot 的 y 向 blanket exemption 刪除；params.lidMarginY 隨之改採 spec 新預設 18.5（原沿用舊值 13.5，見 F1）——這是本次唯一連動的 params 數值變更，因為只有 lid.y.panel 的公式（baseLength+2×lidMarginY）依賴這個參數，其餘 y 槽（doubleCreaseGap/outerWall/innerWall/tuckFlap）皆為相對位移量，不受 alongHalfSpan 平移影響；lid.y.panel expected 206→216（與 measured 216 精確相等，見該槽 note）。Slice 5 Fix3（同批 review）：base.x.outerWall/innerWall、base.y.doubleCreaseGap/innerWall、lid.x.innerWall、lid.y.doubleCreaseGap/innerWall 共 7 槽的公式（F3 解耦後）不再含 thickness，tIndependent 由 false 改 true（欄位語意＝公式是否含 thickness；base.y.outerWall／lid.y.outerWall／lid.y.panel 雖然公式也不含 thickness，但那是 F1/既有設計本來就與 t 無關、非 F3 解耦造成，維持 false 不動——僅重分類旗標，不動這 7 槽本身的 expected/measured 數值）。",
   "params": {
     "baseLength": 179,
     "baseWidth": 124,
     "baseHeight": 60,
     "lidMarginX": 13.5,
-    "lidMarginY": 13.5,
+    "lidMarginY": 18.5,
     "lidHeight": 45,
     "basePlatformWidth": 5,
     "lidPlatformWidth": 0,
@@ -18,24 +18,24 @@
   },
   "slots": [
     { "name": "base.x.panel", "expected": 124.0, "measured": 124.0, "lineType": "crease（單）", "source": "measured", "tIndependent": true },
-    { "name": "base.x.outerWall", "expected": 59.6, "measured": 59.5, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−wallTopCompensation（頂緣平齊修正；Slice 5 F3 解耦，fixture 令 wallTopCompensation=0.4 與舊 t 同值，槽位數值不變）" },
+    { "name": "base.x.outerWall", "expected": 59.6, "measured": 59.5, "lineType": "—", "source": "measured", "tIndependent": true, "note": "H−wallTopCompensation（頂緣平齊修正；Slice 5 F3 解耦，fixture 令 wallTopCompensation=0.4 與舊 t 同值，槽位數值不變）。Fix3：公式不再含 thickness，tIndependent false→true" },
     { "name": "base.x.platform", "expected": 5.0, "measured": 5.0, "lineType": "crease×2", "source": "measured", "tIndependent": true },
-    { "name": "base.x.innerWall", "expected": 58.8, "measured": 58.7, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−wallTopCompensation−innerWallReduction（Slice 5 F3 解耦，fixture 令 innerWallReduction=0.8 與舊 2t 同值，槽位數值不變）" },
+    { "name": "base.x.innerWall", "expected": 58.8, "measured": 58.7, "lineType": "—", "source": "measured", "tIndependent": true, "note": "H−wallTopCompensation−innerWallReduction（Slice 5 F3 解耦，fixture 令 innerWallReduction=0.8 與舊 2t 同值，槽位數值不變）。Fix3：公式不再含 thickness，tIndependent false→true" },
     { "name": "base.x.tuckFoldLine", "expected": null, "measured": null, "lineType": "halfcut 中段＋cut 兩端", "source": "measured", "tIndependent": true, "structural": true, "note": "2026-07-09 T7 gate 反饋：兩端讓位段線型由 crease 改 cut（維護者裁決·軋斷需求；量測表原判讀係 SVG 顏色分類誤差）" },
     { "name": "base.x.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true },
-    { "name": "base.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": false, "note": "rootJog（Slice 5 F3 解耦，原讀 t；fixture 令 rootJog=0.4 與舊 t 同值，槽位數值不變）" },
+    { "name": "base.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": true, "note": "rootJog（Slice 5 F3 解耦，原讀 t；fixture 令 rootJog=0.4 與舊 t 同值，槽位數值不變）。Fix3：公式不再含 thickness，tIndependent false→true；y 向 blanket exemption 刪除後（Fix2）本槽走 tIndependent 分支（±0.05 對 expected），非 measured 分支" },
     { "name": "base.y.outerWall", "expected": 60.0, "measured": 60.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H，自雙 crease 外線起量（不做平齊修正）" },
     { "name": "base.y.platform", "expected": 5.0, "measured": 5.0, "lineType": "crease×2", "source": "measured", "tIndependent": true },
-    { "name": "base.y.innerWall", "expected": 59.2, "measured": 59.2, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−innerWallReduction（Slice 5 F3 解耦，原讀 2t）" },
+    { "name": "base.y.innerWall", "expected": 59.2, "measured": 59.2, "lineType": "—", "source": "measured", "tIndependent": true, "note": "H−innerWallReduction（Slice 5 F3 解耦，原讀 2t）。Fix3：公式不再含 thickness，tIndependent false→true" },
     { "name": "base.y.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true, "note": "7.5+7.5 梯形" },
     { "name": "lid.x.panel", "expected": 151.0, "measured": 151.0, "lineType": "crease（單）", "source": "measured", "tIndependent": true, "note": "124+2×13.5（lidMarginX）" },
     { "name": "lid.x.outerWall", "expected": 45.0, "measured": 45.0, "lineType": "—", "source": "measured", "tIndependent": true, "note": "H；Slice 5 F3 B-06：上蓋左右壁平齊特例移除，四面外壁恆＝壁高（不吃 wallTopCompensation，上蓋恆傳 0）——原 corrected 槽（H−t，刻意偏離量測）自此撤銷，公式值與量測值精確相等" },
-    { "name": "lid.x.innerWall", "expected": 44.2, "measured": 44.2, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−innerWallReduction；同上改判 measured（原 H−3t corrected 槽撤銷），公式值與量測值精確相等" },
+    { "name": "lid.x.innerWall", "expected": 44.2, "measured": 44.2, "lineType": "—", "source": "measured", "tIndependent": true, "note": "H−innerWallReduction；同上改判 measured（原 H−3t corrected 槽撤銷），公式值與量測值精確相等。Fix3：公式不再含 thickness，tIndependent false→true（比照已在 T1 改判的 lid.x.outerWall）" },
     { "name": "lid.x.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true },
-    { "name": "lid.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": false, "note": "rootJog（Slice 5 F3 解耦，原讀 t；fixture 令 rootJog=0.4 與舊 t 同值，槽位數值不變）" },
+    { "name": "lid.y.doubleCreaseGap", "expected": 0.4, "measured": 0.5, "lineType": "crease×2", "source": "measured", "tIndependent": true, "note": "rootJog（Slice 5 F3 解耦，原讀 t；fixture 令 rootJog=0.4 與舊 t 同值，槽位數值不變）。Fix3：公式不再含 thickness，tIndependent false→true；y 向 blanket exemption 刪除後（Fix2）本槽走 tIndependent 分支（±0.05 對 expected），非 measured 分支" },
     { "name": "lid.y.outerWall", "expected": 45.0, "measured": 45.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H" },
-    { "name": "lid.y.innerWall", "expected": 44.2, "measured": 44.2, "lineType": "—", "source": "measured", "tIndependent": false, "note": "H−innerWallReduction（Slice 5 F3 解耦，原讀 2t）" },
+    { "name": "lid.y.innerWall", "expected": 44.2, "measured": 44.2, "lineType": "—", "source": "measured", "tIndependent": true, "note": "H−innerWallReduction（Slice 5 F3 解耦，原讀 2t）。Fix3：公式不再含 thickness，tIndependent false→true" },
     { "name": "lid.y.tuckFlap", "expected": 15.0, "measured": 15.0, "lineType": "cut", "source": "measured", "tIndependent": true, "note": "7.5+7.5" },
-    { "name": "lid.y.panel", "expected": 206.0, "measured": 216.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "y 絕對不對帳（D12：單一等邊 margin 定案已知後果）——僅驗序列與公式；lidMarginY=13.5（fixture 沿用舊值，未切到 spec 新預設 18.5）" }
+    { "name": "lid.y.panel", "expected": 216.0, "measured": 216.0, "lineType": "—", "source": "measured", "tIndependent": false, "note": "Slice 5 Fix2（SOL review）：fixture 改採 lidMarginY 新預設 18.5（原沿用舊值 13.5），公式值 179+2×18.5=216 與量測值 216 精確相等；y 向 blanket exemption 已刪除，本槽現在也走 measured 分支（±0.15）比對，不再僅驗公式" }
   ]
 }
