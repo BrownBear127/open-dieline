@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Segment } from '@/core/geometry';
 import { hasNaN, hasSelfIntersection, normalizeSegments, segmentsBounds } from '@/core/geometry';
+import { segmentsToSvgD } from '@/core/path';
 import type { DielinePath, GenerateResult, LineType } from '@/core/types';
 import { generateTray, type TrayOpts } from '@/boxes/telescope/tray';
 import { getBox, resolveParams } from '@/core/registry';
@@ -142,14 +143,17 @@ describe('generateTray', () => {
     expect(flapAlongs.some((v) => Math.abs(v - deepestAlong) < 1e-6), 'tongueFlap 應有一點落在全深 15mm 處').toBe(true);
   });
 
-  it('y 向（後摺壁）駐留間距：雙 crease gap=rootJog=0.5、外壁 60、平台 5、內壁 59.2、舌 15', () => {
+  it('y 向（後摺壁）駐留間距：階梯 jog gap=rootJog=0.5、外壁 60、平台 5、內壁 59.2、舌 15', () => {
     const result = generateTray(baseOpts);
     const halfW = baseOpts.panelW / 2;
 
     const root = findTagged(result.paths, 'wallRoot', 'back', 'crease');
     expect(root).toHaveLength(1);
-    expect(root[0]!.segments, 'y 向 wallRoot 應有兩條 crease（雙 crease 根，rootJog>0）').toHaveLength(2);
-    const rootAlongs = [...new Set(root[0]!.segments.map((s) => alongOf(s, 'y')))].sort((a, b) => a - b);
+    // Slice 5 F2：階梯 jog 取代舊「雙 crease 根」——中央 offset crease（跨整個 perp 範圍）＋
+    // 兩端各一段 jog 短接段，共 3 段；但仍只有 2 個相異駐留座標（nominal/offset），
+    // doubleCreaseGap 的抽取語意不變（用 allAlongValues 寬鬆抽取，不假設每段都是定值線）。
+    expect(root[0]!.segments, 'y 向 wallRoot 應有 3 段（中央 offset crease＋兩端 jog 短段，baseOpts=A 款獨立短線）').toHaveLength(3);
+    const rootAlongs = [...new Set(allAlongValues(root[0]!.segments, 'y'))].sort((a, b) => a - b);
     expect(rootAlongs).toHaveLength(2);
     const doubleCreaseGap = rootAlongs[1]! - rootAlongs[0]!;
     expect(doubleCreaseGap, 'doubleCreaseGap = rootJog = 0.5（F3 解耦，不再讀 t=0.4）').toBeCloseTo(0.5, 6);
@@ -305,7 +309,10 @@ describe('generateTray', () => {
       const result = generateTray({ ...baseOpts, thickness });
 
       const rootBack = findTagged(result.paths, 'wallRoot', 'back', 'crease');
-      const gapAlongs = [...new Set(rootBack[0]!.segments.map((s) => alongOf(s, 'y')))].sort((a, b) => a - b);
+      // F2 階梯 jog 後 wallRoot(back) 可能有 3 段（中央+兩端短段），連 jog 短段一起用寬鬆
+      // 的 allAlongValues 抽取（不能用 alongOf——它假設每段在該軸上是定值，jog 短段本身
+      // 就是「該軸不是定值」的線，直接呼叫會擲錯）。
+      const gapAlongs = [...new Set(allAlongValues(rootBack[0]!.segments, 'y'))].sort((a, b) => a - b);
       const doubleCreaseGap = gapAlongs[1]! - gapAlongs[0]!;
 
       const rootLeft = findTagged(result.paths, 'wallRoot', 'left', 'crease');
@@ -331,6 +338,62 @@ describe('generateTray', () => {
     expect(at04.doubleCreaseGap, '= rootJog（baseOpts=0.5）').toBeCloseTo(0.5, 6);
     expect(at04.outerWall, '= H − wallTopCompensation = 60 − 0.5').toBeCloseTo(59.5, 6);
     expect(at04.innerWall, '= outerWall − innerWallReduction = 59.5 − 0.8').toBeCloseTo(58.7, 6);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 F2：wallRoot 階梯 jog——退役「中央面板兩條 full-length 平行 crease」，改為
+// 分段 stagger（中央留外移後那一條、兩端以 jog 短段接回 nominal）。生產依據：P（天地盒
+// 刀模.svg）逐 entity 反推，下盒（A 款）LINE204/206/207＝中央 crease＋兩端各自獨立的短
+// jog 段（P:734-756）；上蓋（B 款）LINE242＝nominal→offset→offset→nominal 一筆連續
+// lineTo 鏈，未另造獨立短線 entity（P:797-861）——本檔 baseOpts(platformWidth=5)＝A 款、
+// lidOpts(platformWidth=0)＝B 款，與 generateTray 內部 useThickStyle 判準一致。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('generateTray: F2 階梯 jog（wallRoot 分段 stagger 取代 full-length 雙 crease）', () => {
+  it('結構斷言：中央無 full-length 平行雙 crease——wallRoot(back) 只有 1 段有 perp 方向延伸（舊結構是 2 段）', () => {
+    const result = generateTray(baseOpts);
+    const root = findTagged(result.paths, 'wallRoot', 'back', 'crease');
+    expect(root).toHaveLength(1);
+    // perp 方向（y 向牆＝x 軸）有延伸的線段＝候選「跨全 perp 範圍」的 crease；退役前的舊
+    // 結構會有 2 段（nominal 一條、offset 一條，皆全長平行）。中央只留外移後那一條，
+    // 兩端 jog 短段本身是零 perp 位移（純 along 方向），不會被這個篩選誤算進來。
+    const perpExtentSegs = root[0]!.segments.filter((s) => s.kind === 'line' && Math.abs(s.x2 - s.x1) > 1e-6);
+    expect(perpExtentSegs, '應恰有 1 段有 perp 延伸（中央 offset crease），不是 2 段 full-length 平行線').toHaveLength(1);
+    expect(Math.abs((perpExtentSegs[0] as Extract<Segment, { kind: 'line' }>).x2 - (perpExtentSegs[0] as Extract<Segment, { kind: 'line' }>).x1), '該段應跨整個 perp 全長（panelL）').toBeCloseTo(baseOpts.panelL, 6);
+  });
+
+  it('jog 短段存在性：兩端各一段，零 perp 位移、長度=rootJog', () => {
+    const result = generateTray(baseOpts);
+    const root = findTagged(result.paths, 'wallRoot', 'back', 'crease');
+    const jogSegs = root[0]!.segments.filter((s) => {
+      if (s.kind !== 'line') return false;
+      const perpDelta = Math.abs(s.x2 - s.x1);
+      const alongDelta = Math.abs(s.y2 - s.y1);
+      return perpDelta < 1e-9 && Math.abs(alongDelta - baseOpts.rootJog) < 1e-6;
+    });
+    expect(jogSegs, '應有 2 段零 perp 位移、長度=rootJog 的短接段（兩端各一，接回 nominal 角落）').toHaveLength(2);
+  });
+
+  it('A／B entity 形態差異：base（A 款，platformWidth>0）jog 短段各自獨立起筆；lid（B 款，platformWidth=0）併入一筆連續 crease', () => {
+    const baseRoot = findTagged(generateTray(baseOpts).paths, 'wallRoot', 'back', 'crease')[0]!;
+    const lidRoot = findTagged(generateTray(lidOpts).paths, 'wallRoot', 'back', 'crease')[0]!;
+    // segmentsToSvgD 依端點連續性決定要不要重新發 M——3 段互不相連＝3 個 M（A 款，
+    // 中央/兩端各自獨立 entity）；nominal→offset→offset→nominal 一筆 lineTo 鏈＝1 個 M
+    // （B 款，jog 併入這一整條「較長」crease，不另造獨立短線 entity）。
+    const baseMoves = (segmentsToSvgD(baseRoot.segments).match(/M/g) ?? []).length;
+    const lidMoves = (segmentsToSvgD(lidRoot.segments).match(/M/g) ?? []).length;
+    expect(baseMoves, 'A 款：中央＋兩端短段互不相連，3 個獨立起筆（P:734-756 形態）').toBe(3);
+    expect(lidMoves, 'B 款：一筆連續 nominal→offset→offset→nominal，只有 1 個起筆（P:797-861 形態）').toBe(1);
+  });
+
+  it('rootJog=0 時（S5 等價形態）A／B 兩款皆收斂為單一共線 crease，無重複線', () => {
+    for (const opts of [baseOpts, lidOpts]) {
+      const result = generateTray({ ...opts, rootJog: 0 });
+      const root = findTagged(result.paths, 'wallRoot', 'back', 'crease');
+      expect(root, `${opts.idPrefix}`).toHaveLength(1);
+      expect(root[0]!.segments, `${opts.idPrefix}: rootJog=0 應 collapse 為單一共線 crease（A/B 款差異在此退化，不適用）`).toHaveLength(1);
+    }
   });
 });
 

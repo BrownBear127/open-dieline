@@ -184,18 +184,57 @@ function computeWallGeom(
 }
 
 /**
- * 壁根摺線：x 向牆單 crease；y 向牆雙 crease（rootJog=0 時 collapse 為單線，不得輸出兩條
- * 重合線）。Slice 5 F3 解耦：collapse 門檻改看 rootJog，不再是 thickness（thickness=0 但
- * rootJog≠0 時雙線仍照畫）。
+ * 壁根摺線：x 向牆單 crease；y 向牆階梯 jog（Slice 5 F2，取代舊「中央面板兩條 full-length
+ * 平行 crease」——那是量測表誤讀，生產檔其實是中央/側翼錯開、角落用短段接回，見
+ * `dieline-audit-telescope.md` B-01）。rootJog=0 時 collapse 為單線（不得輸出兩條重合線，
+ * 語意同 F3：門檻看 rootJog 不是 thickness）。
+ *
+ * 階梯 jog 結構（hasDoubleRoot 且 rootJog>0）：中央只留外移後那一條 crease（geom.
+ * outerStartAlong，跨整個 perp 範圍、corner-to-corner）、兩端各以一段零 perp 位移、
+ * 長度=rootJog 的短段接回 nominal（geom.rootAlong，角落錨點——buildWallSideCuts／
+ * buildGussetA／B 的 corner 座標不受 jog 影響，短段終點必須精確落在那裡才能對齊，F6
+ * 角撐本身凍結不動）。
+ *
+ * A／B 款 entity 形態差異（P:734-756 vs P:797-861，spec F2）：獨立逐 entity 反推生產檔
+ * 發現下盒（A 款，厚壁角撐）的中央 crease 與兩端短段是 3 個互不相連的獨立 entity；上蓋
+ * （B 款，薄壁角撐）沒有獨立短線——nominal→offset→offset→nominal 併成一筆連續
+ * lineTo 鏈（本身就是那條「較長」crease，不必另造短線）。兩款 segments 陣列的座標集合
+ * 相同（不影響任何數值錨或 doubleCreaseGap 抽取，皆走 allAlongValues 寬鬆抽取），差異
+ * 只在陣列順序／端點連續性（segmentsToSvgD 因此輸出的 M 指令數：A=3、B=1）。這個分野
+ * 用 independentJogEntity（＝呼叫端傳入的 useThickStyle）表達——生產真正的成因是 B 角撐
+ * y 軸 web 摺線本身經過那個座標而不需額外線（F6 角撐範圍，本 task 不動），這裡以陣列
+ * 連續性表達同一設計意圖下可測的結構差異，非逐位元反推。
  */
-function buildWallRoot(axis: Axis, geom: WallGeom, perpHalf: number, hasDoubleRoot: boolean, rootJog: number, side: string): PathDescriptor {
-  const p1 = toXY(axis, geom.rootAlong, -perpHalf);
-  const p2 = toXY(axis, geom.rootAlong, perpHalf);
-  const b = new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
-  if (hasDoubleRoot && rootJog > 0) {
-    const q1 = toXY(axis, geom.outerStartAlong, -perpHalf);
-    const q2 = toXY(axis, geom.outerStartAlong, perpHalf);
-    b.moveTo(q1.x, q1.y).lineTo(q2.x, q2.y);
+function buildWallRoot(
+  axis: Axis,
+  geom: WallGeom,
+  perpHalf: number,
+  hasDoubleRoot: boolean,
+  rootJog: number,
+  side: string,
+  independentJogEntity: boolean,
+): PathDescriptor {
+  if (!hasDoubleRoot || rootJog <= 0) {
+    const p1 = toXY(axis, geom.rootAlong, -perpHalf);
+    const p2 = toXY(axis, geom.rootAlong, perpHalf);
+    const b = new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
+    return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
+  }
+
+  const nomNeg = toXY(axis, geom.rootAlong, -perpHalf);
+  const offNeg = toXY(axis, geom.outerStartAlong, -perpHalf);
+  const offPos = toXY(axis, geom.outerStartAlong, perpHalf);
+  const nomPos = toXY(axis, geom.rootAlong, perpHalf);
+
+  const b = new PathBuilder();
+  if (independentJogEntity) {
+    // A 款：中央 crease、負端 jog 短段、正端 jog 短段——三段各自 moveTo，互不相連。
+    b.moveTo(offNeg.x, offNeg.y).lineTo(offPos.x, offPos.y);
+    b.moveTo(nomNeg.x, nomNeg.y).lineTo(offNeg.x, offNeg.y);
+    b.moveTo(offPos.x, offPos.y).lineTo(nomPos.x, nomPos.y);
+  } else {
+    // B 款：一筆連續 lineTo 鏈，jog 併入這條「較長」crease，不另起 moveTo。
+    b.moveTo(nomNeg.x, nomNeg.y).lineTo(offNeg.x, offNeg.y).lineTo(offPos.x, offPos.y).lineTo(nomPos.x, nomPos.y);
   }
   return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
 }
@@ -307,10 +346,11 @@ function buildWall(
   innerWallReduction: number,
   platformWidth: number,
   sideCutStart: number,
+  independentJogEntity: boolean,
 ): PathDescriptor[] {
   const geom = computeWallGeom(sign, alongHalfSpan, outerLen, hasDoubleRoot, rootJog, innerWallReduction, platformWidth);
   return [
-    buildWallRoot(axis, geom, perpHalfSpan, hasDoubleRoot, rootJog, side),
+    buildWallRoot(axis, geom, perpHalfSpan, hasDoubleRoot, rootJog, side, independentJogEntity),
     buildWallSideCuts(axis, sign, geom, perpHalfSpan, sideCutStart, side),
     buildWallTop(axis, geom, perpHalfSpan, platformWidth, side),
     ...buildTongueFold(axis, geom, perpHalfSpan, side),
@@ -513,13 +553,16 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
   const descriptors: PathDescriptor[] = [
     // x 向牆（左右，先摺）：單 crease 根、外壁＝height−wallTopCompensation（頂緣平齊修正，
     // F3 解耦改讀 wallTopCompensation；呼叫端分流：base 傳真實參數值、lid 恆傳 0——
-    // B-06 特例移除，見 index.ts buildLidPiece）；側邊 cut 自 anchors.x 起
-    ...buildWall('x', -1, 'left', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x),
-    ...buildWall('x', 1, 'right', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x),
-    // y 向牆（前後，後摺）：雙 crease 根（間距＝rootJog）、外壁＝height（自雙 crease 外線
-    // 起量，base／lid 皆不作平齊補償——spec F3「前後外壁 H」兩件一致）；側邊 cut 自 anchors.y 起
-    ...buildWall('y', -1, 'front', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y),
-    ...buildWall('y', 1, 'back', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y),
+    // B-06 特例移除，見 index.ts buildLidPiece）；側邊 cut 自 anchors.x 起。x 向牆
+    // hasDoubleRoot=false，independentJogEntity 不生效，仍統一傳 useThickStyle 保持簽名一致。
+    ...buildWall('x', -1, 'left', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x, useThickStyle),
+    ...buildWall('x', 1, 'right', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x, useThickStyle),
+    // y 向牆（前後，後摺）：階梯 jog 根（F2，中央 offset＋兩端短段接回 nominal，間距＝
+    // rootJog）、外壁＝height（自 jog 外線起量，base／lid 皆不作平齊補償——spec F3「前後
+    // 外壁 H」兩件一致）；側邊 cut 自 anchors.y 起。jog entity 形態（獨立短線 vs 併入較長
+    // crease）跟 useThickStyle 走——與角撐 A/B 款判準一致（生產上兩者同源於厚壁/薄壁角撐）。
+    ...buildWall('y', -1, 'front', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y, useThickStyle),
+    ...buildWall('y', 1, 'back', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y, useThickStyle),
   ];
 
   for (const { sx, sy, label } of CORNERS) {
