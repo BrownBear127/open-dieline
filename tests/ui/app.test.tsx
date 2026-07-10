@@ -418,7 +418,7 @@ describe('Canvas 高亮疊加', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// T7 樣張 gate 第一輪維護者反饋修 3（2026-07-09）：多片盒型（天地盒）auto-fit 預設縮放 130%，
+// T7 樣張 gate 第一輪驗收反饋修 3（2026-07-09）：多片盒型（天地盒）auto-fit 預設縮放 130%，
 // RTE（單片）維持 1.0×fit 不變。jsdom 沒有真實 layout，containerRef 的 clientWidth/
 // clientHeight 恆為 0——`computeFitScale` 因此對任何 bounds 都會被 MIN_SCALE 夾住（見
 // Canvas.tsx computeFitScale：availableW/H 用 Math.max(0-FIT_PADDING,1)=1，newScale 遠小於

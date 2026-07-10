@@ -1,6 +1,6 @@
 /**
  * LayersPanel：側欄區塊（位於 ParamPanel 之後），取代 Slice 3 Task 4 的 OverlayPanel
- * （Slice 3 gate round 1 T2，維護者 gate 反饋②③——圖層顯示/隱藏＋線型分層＋匯入獨立多層）。
+ * （Slice 3 gate round 1 T2，gate 驗收反饋②③——圖層顯示/隱藏＋線型分層＋匯入獨立多層）。
  *
  * 兩段式面板：
  * - 「生成圖層」：`GENERATED_LAYER_ORDER` 四列固定顯示（cut/crease/halfcut/dimensions），
@@ -27,7 +27,7 @@
  * 讓使用者一定先點列名選取，再按校準，操作順序與 Canvas 的實際行為一致，不會讓人以為點了
  * 某一層的「校準」鈕卻改到另一層的 scale。
  *
- * 「重新置中」取代舊版「快速對齊」三鈕（左上/中心/bbox，gate 反饋①明確要求退役——維護者
+ * 「重新置中」取代舊版「快速對齊」三鈕（左上/中心/bbox，gate 反饋①明確要求退役——驗收
  * 反饋「快速對齊不實用」）：只保留一個以 `alignOffset(..., 'center')` 重算選中層 offset 的
  * 動作，未選中任何層時 disabled。
  *

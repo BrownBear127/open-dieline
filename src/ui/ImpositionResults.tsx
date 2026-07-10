@@ -100,7 +100,7 @@ const USABLE_ZONE_STROKE = '#e4e4e7'; // zinc-200
  * 紙張結構線（外框／裁切中線／可用區框）的 px 語意線寬——T3 取代舊版
  * `PREVIEW_STROKE_SCALE`（乘大 mm 級線寬撐視覺）的做法，改搭配下方所有結構線元素的
  * `vectorEffect="non-scaling-stroke"`：這幾個數字是畫面上恆定的 CSS 像素寬度，不隨
- * viewBox／紙張 mm 尺度縮放。維護者 gate 反饋「線條粗細統一和單紙盒刀模一致」：刀模
+ * viewBox／紙張 mm 尺度縮放。gate 驗收反饋「線條粗細統一和單紙盒刀模一致」：刀模
  * paths 沿用 `LINE_STYLES[type].strokeWidth` 原始值＋non-scaling-stroke（與 Canvas.tsx
  * 逐字同構，見該檔 docblock），使得全紙縮到卡片大小時的刀模線觀感與單片畫布視圖同一個
  * CSS 像素粗細；紙張結構線（不是刀模幾何本身）用獨立一組較粗的常數，純視覺分層，不影響
@@ -145,7 +145,7 @@ function sectionRenders(
 
 /**
  * 工作尺寸文字（T3）：整紙（`!cutV && !cutH`）維持舊格式逐字不變（spec 附錄「回歸保證」）；
- * 有裁切時補上全紙尺寸——維護者 gate 反饋「一律顯示全紙尺寸」後，使用者需要同時看到「這張
+ * 有裁切時補上全紙尺寸——gate 驗收反饋「一律顯示全紙尺寸」後，使用者需要同時看到「這張
  * 紙原本多大」與「可落版的子紙多大」兩個尺度，缺一都會誤讀（只看子紙會誤以為紙變小了、
  * 只看全紙不知道實際可用區縮水多少）。四開／對開用不同名詞（「四開子紙」／「半張子紙」）
  * 呼應 `directionCardText` 卡片文字的「每四開」／「每半張」措辭，維持全元件詞彙一致。
@@ -229,7 +229,7 @@ function SectionGroup({
  * 單一方向（0°／90°）結果卡：兩卡同等權重、無「最佳／推薦」標記（spec review F9）——
  * 兩張卡呼叫時傳入完全對稱的 props，樣式（class）逐字相同，不因方向而有任何視覺差異。
  *
- * T3 全紙預覽重寫（維護者 gate 反饋「一律顯示全紙尺寸,選擇不同的裁切方式用線條加上去
+ * T3 全紙預覽重寫（gate 驗收反饋「一律顯示全紙尺寸,選擇不同的裁切方式用線條加上去
  * 示意,然後要動的只有可落版的區域」）：viewBox 恆為 `fullSheet.w×fullSheet.h`，不因
  * cutV/cutH 而改變；裁切中線畫在全紙正中央示意；每子紙一個 `<g data-testid="section">`
  * （`SectionGroup`，`sections` prop 是呼叫端 `sectionRenders` 算好的左上角偏移＋該子紙
@@ -293,7 +293,7 @@ function DirectionCard({
           aria-label={`${label} 排列預覽`}
           className="w-full border border-zinc-100 bg-white"
         >
-          {/* 全紙外框：恆顯示整張紙尺寸，不因裁切而縮小（維護者 gate 反饋「一律顯示全紙尺寸」）。 */}
+          {/* 全紙外框：恆顯示整張紙尺寸，不因裁切而縮小（gate 驗收反饋「一律顯示全紙尺寸」）。 */}
           <rect
             data-testid="sheet-frame"
             x={0}

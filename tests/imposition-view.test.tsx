@@ -580,7 +580,7 @@ describe('ImpositionView — 整體錯誤（review 測試縫 3）', () => {
 // 取代舊「對開切線與區域幾何（review 測試縫 4）」的單子紙視圖測試） ─────────────────
 
 describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
-  it('viewBox 恆為 fullW×fullH，不因裁切而改變（同一份紙規，切前切後比較——維護者 gate 反饋「紙不動,只有可落版區域變」）', () => {
+  it('viewBox 恆為 fullW×fullH，不因裁切而改變（同一份紙規，切前切後比較——gate 驗收反饋「紙不動,只有可落版區域變」）', () => {
     const flat: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200 };
     const { rerender } = render(<ImpositionView result={SINGLE_PIECE_RESULT} state={flat} onChange={vi.fn()} />);
     expect(screen.getByTestId('direction-card-0').querySelector('svg')).toHaveAttribute('viewBox', '0 0 100 200');

@@ -6,9 +6,9 @@
  * `export/svg.ts` 的 `toSvgDocument()` 產生（與畫布共用 LINE_STYLES 同一來源，
  * 不再是第二條手刻序列化路徑——這正是 spec §3.2 要修正的前身「漂移」問題）。
  *
- * 「含尺寸標註」checkbox 已於 Slice 3 gate round 1 T2 退役（原本 T9 樣張 gate 第二輪維護者
+ * 「含尺寸標註」checkbox 已於 Slice 3 gate round 1 T2 退役（原本 T9 樣張 gate 第二輪驗收
  * 反饋修復 3 把這顆 checkbox 的 state 提升到 App.tsx、同時餵給 Canvas，讓下載內容與畫布
- * 顯示同步）。gate round 1 維護者反饋把「顯示哪些線型」升級成 LayersPanel 的圖層可見性
+ * 顯示同步）。gate round 1 驗收反饋把「顯示哪些線型」升級成 LayersPanel 的圖層可見性
  * （`layersState.generatedVisible`，純畫布顯示層級的開關），而匯出這邊改為 plan 明文
  * 裁決「匯出恆全量」：`toSvgDocument(exportResult)` 呼叫時不傳第二參數——`includeDimensions`
  * opts 已於 T4 退役，`toSvgDocument` 現在只接受一個參數、恆全量輸出，畫布圖層可見性完全不

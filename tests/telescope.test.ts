@@ -164,7 +164,7 @@ describe('generateTray', () => {
     expect(flapAlongs.some((v) => Math.abs(v - deepestAlong) < 1e-6), 'tongueFlap 應有一點落在全深 15mm 處').toBe(true);
   });
 
-  it('線型斷言：舌摺線含 halfcut 段（中段）與 cut 段（兩端讓位角撐，裁決需軋斷·2026-07-09 T7 gate）', () => {
+  it('線型斷言：舌摺線含 halfcut 段（中段）與 cut 段（兩端讓位角撐，維護者裁決需軋斷·2026-07-09 T7 gate）', () => {
     const result = generateTray(baseOpts);
     const halfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
     const cut = findTagged(result.paths, 'tongueFold', 'left', 'cut');
@@ -420,7 +420,7 @@ describe('telescope', () => {
 });
 
 describe('telescope: liner 導出鏈（deriveLinerFrame／generateLiner，2026-07-09 T7 gate 反饋重定義：平台式）', () => {
-  // 平台式重定義（裁決，取代圍框版）：底面錨定＝下盒內淨（不再是上蓋內淨），
+  // 平台式重定義（維護者裁決，取代圍框版）：底面錨定＝下盒內淨（不再是上蓋內淨），
   // 四翼向下摺＝腳架、翼深＝linerFlapDepth（架高量）、四邊同深單一參數、免膠無 tab。
   // 驗算錨（spec 自檢，controller 手算）：t=0.4/fitGap=0.5/base 179×124/flapDepth=15
   // → 底面 176.4×121.4、攤平 206.4×151.4；t=0.3 預設 → 底面 176.8×121.8。

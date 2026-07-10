@@ -9,7 +9,7 @@ import {
 } from '@/core/primitives';
 
 // 全部手算數值依前身 ReverseTuckEnd.ts（唯讀參照，
-// /Users/fran/Desktop/trouver.crm-rebuild/components/Tools/Packaging/models/ReverseTuckEnd.ts）
+// trouver.crm-rebuild/components/Tools/Packaging/models/ReverseTuckEnd.ts）
 // 的 drawLock/drawRelief/drawDim/drawDimV 邏輯逐步推導；含 0.3 乘數的浮點值另外用
 // node 腳本驗證過實際 IEEE-754 結果（不是憑十進位直覺假設），見各測試內註解。
 

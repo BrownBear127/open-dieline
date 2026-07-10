@@ -233,7 +233,7 @@ export function hasNaN(list: Segment[]): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 自撞（self-intersection）偵測（T9 樣張 gate 第二輪維護者反饋，修復 2A）
+// 自撞（self-intersection）偵測（T9 樣張 gate 第二輪驗收反饋，修復 2A）
 // ─────────────────────────────────────────────────────────────────────────
 
 type Point = { x: number; y: number };

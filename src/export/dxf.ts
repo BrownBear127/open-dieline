@@ -8,7 +8,7 @@
  *
  * **座標系決策（v1）**：Segment 的 y 軸沿用 SVG 慣例（向下為正），DXF 標準座標系 y 軸向上——
  * v1 刻意不做 y 翻轉，讓畫布／SVG／DXF 三種輸出鏡像一致；單面刀模對鏡像不敏感，刀模廠的
- * 排版軟體通常會自行翻面。是否需要加翻轉選項，留待實際送檔流程驗證後再決定（T6 gate）。
+ * 排版軟體通常會自行翻面。是否需要加翻轉選項，留待維護者實際送檔流程驗證後再決定（T6 gate）。
  *
  * **圖層排除規則（生產檔裁決）**：dimension/annotation 線型與全部 `texts` 一律不輸出到 DXF——
  * 口徑與 `export/svg.ts` 的 `DIMENSION_LINE_TYPES`（`manufacturingBounds` 排除標註取幾何包絡

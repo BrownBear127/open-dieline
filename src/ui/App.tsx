@@ -6,7 +6,7 @@
  * values 或 result 變動時重新跑全部 `mod.invariants`，not-ok 的收集成
  * `invariantWarnings` 往下傳給 Canvas（畫警告條＋高亮 tags）。
  *
- * `includeDimensions`（T9 樣張 gate 第二輪維護者反饋修復 3，已於 Slice 3 gate round 1 T2 退役）：
+ * `includeDimensions`（T9 樣張 gate 第二輪驗收反饋修復 3，已於 Slice 3 gate round 1 T2 退役）：
  * 曾經 state 提升到這裡（原本只活在 ExportBar 內部），同時傳給 Canvas（控制畫布是否畫尺寸
  * 標註）與 ExportBar（控制下載內容、也是 checkbox 顯示值的來源），兩處視覺才會同步——維護者
  * 實測發現取消勾選只影響下載的 SVG，畫布仍照樣顯示標註，就是因為這顆 state 原本沒有被畫布
@@ -52,7 +52,7 @@
  * 拼版專屬元件（只剩上方共用的 ParamPanel／盒型選擇），主區改渲染 `ImpositionControls`
  * （橫排 toolbar，`@/ui/ImpositionView`）＋`ImpositionResults`（`@/ui/ImpositionResults`，
  * 經 `@/ui/ImpositionView` facade re-export 取用，見該檔檔頭 docblock「檔案拆分」一節）
- * 垂直堆疊——維護者 gate 反饋「放在右側預覽區域上方，把紙張規格、方向、作業模式改成按鈕
+ * 垂直堆疊——gate 驗收反饋「放在右側預覽區域上方，把紙張規格、方向、作業模式改成按鈕
  * 形式」，取代 T3 的側欄掛法。兩者與 Canvas／ExportBar 一樣共用同一個 `result`（spec
  * 「組裝」：`App` 只生成一次 `result`，不因模式切換重新計算）。`ParamPanel`與盒型選擇不隨
  * 模式隱藏（F6「組裝」列），使用者可以留在拼版模式下直接調整盒參數，兩張方向卡透過
@@ -348,7 +348,7 @@ export function App() {
           />
         ) : (
           // T4：拼版模式主區改「toolbar 在上、結果卡在下」垂直堆疊，取代 T3 的側欄＋主區
-          // 左右分割（維護者 gate 反饋「放在右側預覽區域上方」）。
+          // 左右分割（gate 驗收反饋「放在右側預覽區域上方」）。
           <div className="flex-1 flex flex-col gap-4">
             <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
             <ImpositionResults result={result} state={impositionState} />
