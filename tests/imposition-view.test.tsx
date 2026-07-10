@@ -256,30 +256,96 @@ describe('ImpositionView — 對開模式', () => {
   });
 });
 
-// ── 作業模式 select 映射表（Fix 4·gate round 1 T1 review Low：舊測試只選 halfV 一項，
-// 未覆蓋 full/halfH/quarter，映射本身正確〔review 已驗〕，這裡純補測試鑑別力）──────
+// ── toolbar 按鈕組（T4：紙規／方向／裁切／旋轉全面改按鈕，取代 T1「作業模式」四選一
+// 暫時下拉；裁切改成 cutV/cutH 各自獨立 toggle，可疊加＝四開，不再是四選一映射） ────────
 
-describe('ImpositionControls — 作業模式 select 映射表（Fix 4）', () => {
-  const MODE_TABLE: { value: 'full' | 'halfV' | 'halfH' | 'quarter'; cutV: boolean; cutH: boolean }[] = [
-    { value: 'full', cutV: false, cutH: false },
-    { value: 'halfV', cutV: true, cutH: false },
-    { value: 'halfH', cutV: false, cutH: true },
-    { value: 'quarter', cutV: true, cutH: true },
-  ];
-
-  it.each(MODE_TABLE)('select→state：選「$value」→ onChange 收到 cutV=$cutV、cutH=$cutH', ({ value, cutV, cutH }) => {
+describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
+  it('紙規 4 顆按鈕（3 preset＋自訂）：aria-pressed 反映 state.paperPresetId，點擊呼叫 onChange', () => {
     const onChange = vi.fn();
-    render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={onChange} />);
+    render(
+      <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, paperPresetId: '31x43' }} onChange={onChange} />,
+    );
 
-    fireEvent.change(screen.getByLabelText('作業模式'), { target: { value } });
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV, cutH }));
+    const paperGroup = within(screen.getByRole('group', { name: '紙規' }));
+    expect(paperGroup.getByRole('button', { name: /31/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(paperGroup.getByRole('button', { name: /25/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(paperGroup.getByRole('button', { name: /27/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(paperGroup.getByRole('button', { name: '自訂' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(paperGroup.getByRole('button', { name: /25/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ paperPresetId: '25x35' }));
+
+    fireEvent.click(paperGroup.getByRole('button', { name: '自訂' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ paperPresetId: 'custom' }));
   });
 
-  it.each(MODE_TABLE)('state→select 回讀：cutV=$cutV、cutH=$cutH → 下拉顯示「$value」', ({ value, cutV, cutH }) => {
-    const state: ImpositionState = { ...BASE_STATE, cutV, cutH };
-    render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+  it('自訂紙規選中時展開 W/H 輸入；選 preset 時收合（isCustomPaper 沿用既有計算，僅觸發方式從 select 改按鈕）', () => {
+    const { rerender } = render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+    expect(screen.getByLabelText('W (mm)')).toBeInTheDocument(); // BASE_STATE.paperPresetId==='custom'
+    expect(screen.getByLabelText('H (mm)')).toBeInTheDocument();
 
-    expect((screen.getByLabelText('作業模式') as HTMLSelectElement).value).toBe(value);
+    rerender(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, paperPresetId: '31x43' }} onChange={vi.fn()} />);
+    expect(screen.queryByLabelText('W (mm)')).toBeNull();
+    expect(screen.queryByLabelText('H (mm)')).toBeNull();
+  });
+
+  it('方向 2 顆按鈕（直放/橫放）：aria-pressed 反映 state.orientation，點擊呼叫 onChange', () => {
+    const onChange = vi.fn();
+    render(
+      <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, orientation: 'portrait' }} onChange={onChange} />,
+    );
+
+    const orientationGroup = within(screen.getByRole('group', { name: '方向' }));
+    expect(orientationGroup.getByRole('button', { name: '直放' })).toHaveAttribute('aria-pressed', 'true');
+    expect(orientationGroup.getByRole('button', { name: '橫放' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(orientationGroup.getByRole('button', { name: '橫放' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ orientation: 'landscape' }));
+  });
+
+  it('裁切 2 顆按鈕（對開V/對開H）：各自獨立 toggle、可疊加＝四開，不是互斥四選一', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: false, cutH: false }} onChange={onChange} />,
+    );
+
+    const cutGroup = within(screen.getByRole('group', { name: '裁切' }));
+    expect(cutGroup.getByRole('button', { name: '對開 V' })).toHaveAttribute('aria-pressed', 'false');
+    expect(cutGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(cutGroup.getByRole('button', { name: '對開 V' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV: true, cutH: false }));
+
+    // cutH 的點擊不受 cutV 目前是否按下影響（獨立 toggle，不是四選一映射的一部分）。
+    rerender(
+      <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: true, cutH: false }} onChange={onChange} />,
+    );
+    fireEvent.click(within(screen.getByRole('group', { name: '裁切' })).getByRole('button', { name: '對開 H' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV: true, cutH: true }));
+
+    rerender(
+      <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: true, cutH: true }} onChange={onChange} />,
+    );
+    const bothPressedGroup = within(screen.getByRole('group', { name: '裁切' }));
+    expect(bothPressedGroup.getByRole('button', { name: '對開 V' })).toHaveAttribute('aria-pressed', 'true');
+    expect(bothPressedGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('可轉 90° 按鈕：aria-pressed 反映 state.allowRotate，點擊呼叫 onChange 取反（取代 T1 的 checkbox）', () => {
+    const onChange = vi.fn();
+    render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, allowRotate: false }} onChange={onChange} />);
+
+    const rotateButton = screen.getByRole('button', { name: /可轉 90/ });
+    expect(rotateButton).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(rotateButton);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ allowRotate: true }));
+  });
+
+  it('咬口／刀線間距輸入仍在、欄位錯誤紅字仍在（沿用既有 domain 驗證接線，未受按鈕化影響）', () => {
+    render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, gap: 2.9 }} onChange={vi.fn()} />);
+    expect(screen.getByLabelText('咬口 (mm)')).toBeInTheDocument();
+    expect(screen.getByLabelText('刀線間距 (mm)')).toBeInTheDocument();
+    expect(screen.getByText(`不得小於 ${MIN_GAP_MM}mm`)).toBeInTheDocument();
   });
 });
 
