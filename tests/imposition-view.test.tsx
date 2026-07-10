@@ -122,13 +122,18 @@ const DEGENERATE_ZERO_HEIGHT_RESULT: GenerateResult = {
   bounds: { minX: 0, maxX: 10, minY: 7, maxY: 7 },
 };
 
+// allowRotate:false（T1 消費端最小遷移）：保留這個共用 fixture 底下所有既有數字錨（8 模等）
+// 逐字不變——這個測試檔的職責是 UI 接線／欄位級行為，不是補排演算法本身（那是
+// tests/imposition.test.ts 的職責，已有專屬的附錄數值錨表＋極端分支覆蓋）。
 const BASE_STATE: ImpositionState = {
   pieceId: null,
   paperPresetId: 'custom',
   customW: 50,
   customH: 50,
   orientation: 'portrait',
-  mode: 'full',
+  cutV: false,
+  cutH: false,
+  allowRotate: false,
   gripper: 0,
   gap: 3,
 };
@@ -191,7 +196,7 @@ describe('ImpositionView — 界線聲明', () => {
 
 describe('ImpositionView — 對開模式', () => {
   it('對開 V：顯示「每半張」與 working 尺寸文字（customW=100,customH=200,gripper=10 → working 50.0×200.0，可用區 30.0×180.0）', () => {
-    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, mode: 'halfV' };
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: false };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     expect(
@@ -415,7 +420,7 @@ describe('ImpositionView — 整體錯誤（review 測試縫 3）', () => {
 
 describe('ImpositionView — 對開切線與區域幾何（review 測試縫 4）', () => {
   it('對開 V：切線 x＝workingSheet.w、跨滿 fullSheet 高度；原紙外框＝fullSheet 尺寸；working half 可用區與原紙外框分離', () => {
-    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, mode: 'halfV' };
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: false };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');
@@ -439,7 +444,7 @@ describe('ImpositionView — 對開切線與區域幾何（review 測試縫 4）
   });
 
   it('對開 H：切線 y＝workingSheet.h、跨滿 fullSheet 寬度', () => {
-    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, mode: 'halfH' };
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: false, cutH: true };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');

@@ -143,15 +143,17 @@ describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar
 });
 
 describe('App：拼版預設值與即時性（spec 驗收條件 1 數值錨＋驗收條件 9）', () => {
-  it('RTE 預設參數進拼版模式：0°＝3列×4行＝12模、90°＝2列×4行＝8模（spec 驗收條件 1 硬編碼數值錨，31"×43"／直放／整紙／咬口20／gap3）', () => {
+  it('RTE 預設參數進拼版模式：0°＝3列×4行＝12模、90°＝2列×4行＝12模（allowRotate 預設 true，90° 卡含 L 形補排 1×4=4 件，gate round 1 T1 數值錨表第 3/4 列）', () => {
     render(<App />);
     switchToImposition();
 
     const card0 = screen.getByTestId('direction-card-0');
     const card90 = screen.getByTestId('direction-card-90');
     // 用 .* 跳過排版用的全形符號（＝/×），只鎖字面數字本身，避免測試對特殊字元的脆弱依賴。
+    // cols/rows 顯示主格點（語意不變）；模數＝count（gridCount＋補排），App 預設
+    // allowRotate:true 讓 90° 卡從舊版 8 模變成 12 模（right-full 補上 1×4=4 件）。
     expect(within(card0).getByText(/3\s*列.*4\s*行.*12\s*模/)).toBeInTheDocument();
-    expect(within(card90).getByText(/2\s*列.*4\s*行.*8\s*模/)).toBeInTheDocument();
+    expect(within(card90).getByText(/2\s*列.*4\s*行.*12\s*模/)).toBeInTheDocument();
   });
 
   it('拼版模式下直接調整盒參數（L，不需切回設計模式——ParamPanel 兩模式皆可調）→ 方向卡即時重算（驗收條件9 抽驗一組）', () => {

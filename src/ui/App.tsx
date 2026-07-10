@@ -184,7 +184,9 @@ export function App() {
     customW: PAPER_PRESETS[0]!.w,
     customH: PAPER_PRESETS[0]!.h,
     orientation: 'portrait',
-    mode: 'full',
+    cutV: false,
+    cutH: false,
+    allowRotate: true,
     gripper: 20,
     gap: MIN_GAP_MM,
   }));
