@@ -466,6 +466,40 @@ describe('computeImposition — 計算矩陣（portrait/landscape × full/cutV/c
       deg0: { cols: 10, rows: 2, count: 20, utilization: 0.6516 },
       deg90: { cols: 7, rows: 3, count: 21, utilization: 0.6842 },
     },
+    // final review review Minor：spec delta 要 8 組（原本 6 組只覆蓋 full/cutV/cutH 三種裁切，
+    // 缺四開 cutV+cutH）。四開子紙尺寸與上方「裁切等式」describe 的 cutV／cutH 手算結果可疊
+    // 加驗證（portrait：cutV 子紙 393.5×1092、cutH 子紙 787×546 → 四開＝393.5×546；landscape
+    // 同理＝546×393.5，長短邊對調）。expected 由 resolveWorkingSheet 轉換鏈＋fitCount 公式
+    // 手算、並以獨立 computeImposition 呼叫交叉核對（非由被測函式反推，防自我循環）：
+    //   portrait×quarter sheet=393.5×546,usable=353.5×506：
+    //     deg0（pieceForCols=100,pieceForRows=140）
+    //       cols=fitCount(353.5,100,3)=3（3×100+2×3=306≤353.5；4×100+3×3=409>353.5）
+    //       rows=fitCount(506,140,3)=3（3×140+2×3=426≤506；4×140+3×3=569>506）；count=9
+    //       utilization=9×14000÷(393.5×546)=126000÷214851=0.586453...→0.5865
+    //     deg90（pieceForCols=140,pieceForRows=100）
+    //       cols=fitCount(353.5,140,3)=2（2×140+1×3=283≤353.5；3×140+2×3=426>353.5）
+    //       rows=fitCount(506,100,3)=4（4×100+3×3=409≤506；5×100+4×3=512>506）；count=8
+    //       utilization=8×14000÷214851=112000÷214851=0.521291...→0.5213
+    //   landscape×quarter sheet=546×393.5,usable=506×353.5（子紙長短邊對調，數字與 portrait
+    //   互換——同一份 787×1092 紙轉 90° 看，跟「deg90 對稱性質」describe 驗證的鏡射關係一致）：
+    //     deg0（pieceForCols=100,pieceForRows=140）
+    //       cols=fitCount(506,100,3)=4（4×100+3×3=409≤506；5×100+4×3=512>506）
+    //       rows=fitCount(353.5,140,3)=2（2×140+1×3=283≤353.5；3×140+2×3=426>353.5）；count=8
+    //       utilization=8×14000÷(546×393.5)=112000÷214851=0.521291...→0.5213（與 portrait deg90 同值：面積與 count 皆相同）
+    //     deg90（pieceForCols=140,pieceForRows=100）
+    //       cols=fitCount(506,140,3)=3（3×140+2×3=426≤506；4×140+3×3=569>506）
+    //       rows=fitCount(353.5,100,3)=3（3×100+2×3=306≤353.5；4×100+3×3=409>353.5）；count=9
+    //       utilization=9×14000÷214851=126000÷214851=0.586453...→0.5865（與 portrait deg0 同值）
+    {
+      orientation: 'portrait', cutV: true, cutH: true,
+      deg0: { cols: 3, rows: 3, count: 9, utilization: 0.5865 },
+      deg90: { cols: 2, rows: 4, count: 8, utilization: 0.5213 },
+    },
+    {
+      orientation: 'landscape', cutV: true, cutH: true,
+      deg0: { cols: 4, rows: 2, count: 8, utilization: 0.5213 },
+      deg90: { cols: 3, rows: 3, count: 9, utilization: 0.5865 },
+    },
   ];
 
   it.each(cases)('$orientation × cutV=$cutV,cutH=$cutH', ({ orientation, cutV, cutH, deg0, deg90 }) => {

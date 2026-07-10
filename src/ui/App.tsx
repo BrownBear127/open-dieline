@@ -50,7 +50,8 @@
  * 佈局，見下）：頂部「刀模設計｜拼版估算」切換鈕決定側欄下半部與主區渲染哪一組元件——
  * `'design'` 維持原本的 LayersPanel／ExportBar／Canvas；`'imposition'` 側欄不再渲染任何
  * 拼版專屬元件（只剩上方共用的 ParamPanel／盒型選擇），主區改渲染 `ImpositionControls`
- * （橫排 toolbar，`@/ui/ImpositionView`）＋`ImpositionResults`（`@/ui/ImpositionResults`）
+ * （橫排 toolbar，`@/ui/ImpositionView`）＋`ImpositionResults`（`@/ui/ImpositionResults`，
+ * 經 `@/ui/ImpositionView` facade re-export 取用，見該檔檔頭 docblock「檔案拆分」一節）
  * 垂直堆疊——維護者 gate 反饋「放在右側預覽區域上方，把紙張規格、方向、作業模式改成按鈕
  * 形式」，取代 T3 的側欄掛法。兩者與 Canvas／ExportBar 一樣共用同一個 `result`（spec
  * 「組裝」：`App` 只生成一次 `result`，不因模式切換重新計算）。`ParamPanel`與盒型選擇不隨
