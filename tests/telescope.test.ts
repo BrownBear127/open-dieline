@@ -530,29 +530,33 @@ describe('gusset 幾何（座標級迴歸）', () => {
     const folds = findTagged(result.paths, 'gussetFold', 'right-back', 'crease');
     const T = 1e-6;
 
-    // web 摺線：角落沿兩軸到 V3/V4（reach = H−t = 59.6）。y 軸摺線起點在 offset
-    // （cornerY+rootJog=89.5+0.5=90.0，Slice 5 Fix2·review Finding 1：避免與相鄰
-    // wallRoot jog 短段共線重疊，見 buildGussetA）；x 軸摺線起點仍在角落——x 向牆無 jog。
-    expectLine(folds, 62, 89.5, 121.6, 89.5, T, 'A web 摺線（x 軸）');
-    expectLine(folds, 62, 90.0, 62, 149.1, T, 'A web 摺線（y 軸，起點在 offset）');
+    // web 摺線：角落沿兩軸到 V3/V4（reach = H−wallTopCompensation = 59.5——Fix 4·2026-07-11
+    // review M4：先前殘留 height−thickness 舊公式＝59.6，T1 參數遷移漏網已修正，
+    // P 實測長壁 outerWall=59.4995 對 59.5 差 0.0005mm ✓，對舊公式 59.6 差 0.1005mm）。
+    // y 軸摺線起點在 offset（cornerY+rootJog=89.5+0.5=90.0，Slice 5 Fix2·review
+    // Finding 1：避免與相鄰 wallRoot jog 短段共線重疊，見 buildGussetA）；x 軸摺線起點
+    // 仍在角落——x 向牆無 jog。
+    expectLine(folds, 62, 89.5, 121.5, 89.5, T, 'A web 摺線（x 軸）');
+    expectLine(folds, 62, 90.0, 62, 149.0, T, 'A web 摺線（y 軸，起點在 offset）');
 
-    // 對角線：角落半段 cut、外半段 crease（單軸位移 25.2906 級）
+    // 對角線：角落半段 cut、外半段 crease（單軸位移 25.2906 級——diagHalf 只吃 height，
+    // 不吃 reach，Fix 4 不影響這兩條）
     const diagCut = g.filter((p) => p.type === 'cut');
     const diagCrease = g.filter((p) => p.type === 'crease');
     expectLine(diagCut, 62, 89.5, 87.2906, 114.7906, 1e-4, 'A 對角 cut 半段');
     expectLine(diagCrease, 87.2906, 114.7906, 112.5812, 140.0812, 1e-4, 'A 對角 crease 半段');
 
     // 外緣斜切：V4→tip→V3
-    expectLine(diagCut, 62, 149.1, 112.5812, 140.0812, 1e-4, 'A 外緣 V4→tip');
-    expectLine(diagCut, 112.5812, 140.0812, 121.6, 89.5, 1e-4, 'A 外緣 tip→V3');
+    expectLine(diagCut, 62, 149.0, 112.5812, 140.0812, 1e-4, 'A 外緣 V4→tip');
+    expectLine(diagCut, 112.5812, 140.0812, 121.5, 89.5, 1e-4, 'A 外緣 tip→V3');
 
     // 牆側邊 cut 從錨點（V3/V4）起，不得在角落到錨點之間有 cut（web 與牆相連）
     const rightWallSide = findTagged(result.paths, 'wallSide', 'right', 'cut');
     const sideXs = allAlongValues(rightWallSide[0]!.segments, 'x');
-    expect(Math.min(...sideXs), 'x 向牆側邊 cut 應從 V3（62+59.6）起').toBeCloseTo(121.6, 6);
+    expect(Math.min(...sideXs), 'x 向牆側邊 cut 應從 V3（62+59.5）起').toBeCloseTo(121.5, 6);
     const backWallSide = findTagged(result.paths, 'wallSide', 'back', 'cut');
     const sideYs = allAlongValues(backWallSide[0]!.segments, 'y');
-    expect(Math.min(...sideYs), 'y 向牆側邊 cut 應從 V4（89.5+59.6）起').toBeCloseTo(149.1, 6);
+    expect(Math.min(...sideYs), 'y 向牆側邊 cut 應從 V4（89.5+59.5）起').toBeCloseTo(149.0, 6);
   });
 
   it('style B 校準點（t=0.4/H=45/platform=0）：讓位槽鏈全點位＋弧半徑＋apex 相切', () => {
@@ -789,37 +793,77 @@ describe('generateTray: F6-A 平台端內縮＋角撐周邊複合 relief 鏈（A
     }
   });
 
-  it('180° 旋轉實例化：對角角落（left-front↔right-back）座標精確互為負值（角落為旋轉中心，見 buildAGussetChain）', () => {
+  it('180° 旋轉實例化：兩組對角配對（left-front↔right-back、right-front↔left-back）座標精確互為負值（角落為旋轉中心，見 buildAGussetChain；Fix 1·2026-07-11 擴充覆蓋第二組對角——先前只驗第一組，相鄰角落誤鏡射的 bug 不會被這條測試單獨抓到）', () => {
     const result = generateTray(baseOpts);
-    const lf = findTagged(result.paths, 'aGussetPeriphery', 'left-front', 'cut')[0]!.segments as LineSeg[];
-    const rb = findTagged(result.paths, 'aGussetPeriphery', 'right-back', 'cut')[0]!.segments as LineSeg[];
-    expect(lf).toHaveLength(rb.length);
-    // 逐點反向比對：lf 第 i 段的兩端點，180° 旋轉（negate x,y）後應精確等於 rb 第 i 段
-    // 對應端點（corner+sx*a+sy*b 這個實例化公式，對角角落數學上恆等於 180° 旋轉，見
-    // 開發紀錄 對算過程——本測試釘住這個關係不被意外破壞）。
-    for (let i = 0; i < lf.length; i++) {
-      const a = lf[i]!;
-      const b = rb[i]!;
-      expect(-a.x1).toBeCloseTo(b.x1, 6);
-      expect(-a.y1).toBeCloseTo(b.y1, 6);
-      expect(-a.x2).toBeCloseTo(b.x2, 6);
-      expect(-a.y2).toBeCloseTo(b.y2, 6);
+    const diagonalPairs: Array<[string, string]> = [
+      ['left-front', 'right-back'],
+      ['right-front', 'left-back'],
+    ];
+    for (const [cornerA, cornerB] of diagonalPairs) {
+      const a = findTagged(result.paths, 'aGussetPeriphery', cornerA, 'cut')[0]!.segments as LineSeg[];
+      const b = findTagged(result.paths, 'aGussetPeriphery', cornerB, 'cut')[0]!.segments as LineSeg[];
+      expect(a, `${cornerA}/${cornerB} 段數應相等`).toHaveLength(b.length);
+      // 逐點反向比對：a 第 i 段的兩端點，180° 旋轉（negate x,y）後應精確等於 b 第 i 段
+      // 對應端點（corner+sx*a+sy*b 這個實例化公式，對角角落數學上恆等於 180° 旋轉，見
+      // 開發紀錄 對算過程——本測試釘住這個關係不被意外破壞）。
+      for (let i = 0; i < a.length; i++) {
+        const segA = a[i]!;
+        const segB = b[i]!;
+        expect(-segA.x1, `${cornerA}/${cornerB} 段 ${i} x1`).toBeCloseTo(segB.x1, 6);
+        expect(-segA.y1, `${cornerA}/${cornerB} 段 ${i} y1`).toBeCloseTo(segB.y1, 6);
+        expect(-segA.x2, `${cornerA}/${cornerB} 段 ${i} x2`).toBeCloseTo(segB.x2, 6);
+        expect(-segA.y2, `${cornerA}/${cornerB} 段 ${i} y2`).toBeCloseTo(segB.y2, 6);
+      }
     }
   });
 
-  it('T0 座標表逐項對（left-front 角，±0.05mm）：10° cut、角撐周邊鏈終點（halfcut 邊界）、平台角圓角轉接鏈端點', () => {
-    // baseOpts 角落 left-front = (-62, -89.5)；T0 topLeft 對應同一角。座標换算：本函式
-    // 用的 (a,b) 與 T0 fixture 的 P 絕對座標差一個仿射變換，這裡改用「相對角落的位移」
-    // 直接比對（T0 座標見 aGussetPeriphery_reliefChain 的 (a,b) 換算，開發紀錄）。
+  it('相鄰角落非鏡射（Fix 1·2026-07-11 review H1 迴歸釘樁）：right-front 的平台端 zigzag 深度與 left-front 不同——若誤用 topLeft 模板鏡射四角，這裡會抓到約 20mm 偏差', () => {
+    // 相鄰角落（topLeft/topRight）在 T0 原始量測裡走線不同，不是同一模板的鏡射或旋轉
+    // （見 tray.ts A_GUSSET_PLATFORM_RELIEF_TR 註解：topLeft 對應段 b 範圍到 52.9978，
+    // topRight 對應段 b 範圍到 72.9968，相差 20mm）。用「若誤鏡射會產生的座標」與
+    // 「正確 topRight 模板應產生的座標」兩者中只有一個該存在來鎖住這個修正。
     const result = generateTray(baseOpts);
-    const cornerX = -62;
+    const rf = findTagged(result.paths, 'aGussetPeriphery', 'right-front', 'cut');
+    const cornerX = 62;
     const cornerY = -89.5;
-    const chain = findTagged(result.paths, 'aGussetPeriphery', 'left-front', 'cut');
     const T = 0.05;
-    // LINE27（10° cut）：corner+(59.4995,0) → corner+(64.4984,-0.8819)
-    expectLine(chain, cornerX - 59.4995, cornerY, cornerX - 64.4984, cornerY + 0.8819, T, '10° cut（LINE27）');
-    // LINE92 終點＝角撐周邊鏈與 halfcut 邊界的交會點：corner+(123.2006,-21.5018)（tongueFold 距離,鏈 reach）
-    expectLine(chain, cornerX - 121.2003, cornerY + 21.5018, cornerX - 123.2006, cornerY + 21.5018, T, 'LINE92（notch 逼近終點→halfcut 邊界）');
+    // 正確（topRight 模板）：a≈64.4984（snap 到 distPlatformEnd≈64.5）沿線一路到 b=72.9968。
+    expectLine(rf, cornerX + 64.4984, cornerY + 4.5014, cornerX + 64.4984, cornerY - 72.9968, T, 'right-front 正確 topRight 深度（b=72.9968）');
+    // 錯誤（若誤把 topLeft 模板鏡射到此角）：同一 a，但只到 b=52.9978——不應存在。
+    const lines = rf.flatMap((p) => p.segments).filter((s): s is LineSeg => s.kind === 'line');
+    const wrongMirrorHit = lines.some(
+      (s) => Math.abs(s.x1 - (cornerX + 64.4984)) <= T && Math.abs(s.y1 - (cornerY - 52.9978)) <= T && Math.abs(s.x2 - (cornerX + 64.4984)) <= T,
+    );
+    expect(wrongMirrorHit, 'right-front 不應出現 topLeft 鏡射深度（b=52.9978）—— 若出現代表退回誤鏡射的舊 bug').toBe(false);
+  });
+
+  it('T0 座標表逐項對（left-front／right-front 兩角，±0.05mm）：10° cut、角撐周邊鏈終點（halfcut 邊界）——Fix 1·2026-07-11 擴充覆蓋 right-front（先前只驗 left-front）', () => {
+    // baseOpts 角落 left-front = (-62, -89.5)、right-front = (62, -89.5)；T0 topLeft／
+    // topRight 分別對應同一角。座標换算：本函式用的 (a,b) 與 T0 fixture 的 P 絕對座標差
+    // 一個仿射變換，這裡改用「相對角落的位移」直接比對（T0 座標見 aGussetPeriphery_reliefChain
+    // 的 topLeftCorner_*／topRightCorner_* 系列欄位，開發紀錄／Fix 1 補量記錄）。
+    const result = generateTray(baseOpts);
+    const T = 0.05;
+
+    const lfChain = findTagged(result.paths, 'aGussetPeriphery', 'left-front', 'cut');
+    const lfX = -62;
+    const lfY = -89.5;
+    // LINE27（10° cut，topLeft）：corner+(59.4995,0) → corner+(64.4984,-0.8819)
+    expectLine(lfChain, lfX - 59.4995, lfY, lfX - 64.4984, lfY + 0.8819, T, 'left-front 10° cut（LINE27）');
+    // LINE92 終點＝角撐周邊鏈與 halfcut 邊界的交會點：corner+(123.2006,-21.5018)
+    expectLine(lfChain, lfX - 121.2003, lfY + 21.5018, lfX - 123.2006, lfY + 21.5018, T, 'left-front LINE92（notch 逼近終點→halfcut 邊界）');
+
+    const rfChain = findTagged(result.paths, 'aGussetPeriphery', 'right-front', 'cut');
+    const rfX = 62;
+    const rfY = -89.5;
+    // LINE12（10° cut，topRight，獨立補量——非 LINE27 鏡射，但這兩點恰好數值相符，
+    // 見 tray.ts A_GUSSET_OUTER_TR 註解）：corner+(59.4995,0) → corner+(64.4984,-0.8819)，
+    // sx=+1 時符號與 left-front 相反（outward 是 +x 而非 -x）。
+    expectLine(rfChain, rfX + 59.4995, rfY, rfX + 64.4984, rfY + 0.8819, T, 'right-front 10° cut（LINE12）');
+    // LINE22 終點＝topRight 角撐周邊鏈與 halfcut 邊界的交會點：corner+(123.2006,-21.5018)
+    // （與 left-front 的 LINE92 同一 tongueFold/reach 幾何——這段兩模板數值相同，見
+    // A_GUSSET_INNER_WALL_APPROACH_TR 最後一段）。
+    expectLine(rfChain, rfX + 121.2003, rfY + 21.5018, rfX + 123.2006, rfY + 21.5018, T, 'right-front LINE22（notch 逼近終點→halfcut 邊界）');
   });
 });
 
