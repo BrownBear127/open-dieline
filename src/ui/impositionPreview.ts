@@ -6,11 +6,12 @@
  * DOM 結構、驗不到「變換本身對不對」。抽出來後 `tests/imposition-preview.test.ts` 才能
  * 直接對 transform 字串與衍生的 cell 矩形數值做代數驗證。純 TS 模組，座標單位一律 mm。
  *
- * T2（gate round 1）新增兩個給 T3 消費的函式：`directionInstances`（單子紙完整排列＝主格點
- * ＋L 形補排條帶，budget cap）與 `sectionOffsets`（多子紙左上角偏移，讀 `WorkingSheet.cutV/
- * cutH` 旗標）。`instanceTransforms`／`directionInstances` 共用同一顆 `buildGrid` 引擎，
- * 避免兩處分別實作 0°/90° 變換數學互相漂移。`instanceTransforms` 保留給既有呼叫點
- * （`ImpositionView.tsx`）；T3 改吃 `directionInstances`/`sectionOffsets`。
+ * `directionInstances`（單子紙完整排列＝主格點＋L 形補排條帶，budget cap）與
+ * `sectionOffsets`（多子紙左上角偏移，讀 `WorkingSheet.cutV/cutH` 旗標）是 T3
+ * `ImpositionView.tsx` 全紙預覽重寫的唯一消費入口。T2 曾另外提供 `instanceTransforms`
+ * （只排主格點、origin 固定咬口內角，供 T1 interim 的單子紙視圖沿用）；T3 controller
+ * 裁決刪除——它唯一的消費者（`DirectionCard`）已改吃 `directionInstances`，兩者原本共用
+ * 同一顆私有 `buildGrid` 引擎，刪除後這顆引擎變成 `directionInstances` 專用，行為不變。
  */
 
 import type { Bounds } from '@/core/geometry';
@@ -33,9 +34,8 @@ export interface PreviewInstance {
 }
 
 /**
- * 單一格點 grid 的 instance 建構引擎——`instanceTransforms`（主格點，origin 固定在咬口內角
- * `(gripper,gripper)`）與 `directionInstances`（主格點＋補排條帶，origin 依條帶起點浮動）
- * 共用同一套 0°/90° 變換數學，避免兩處分別實作互相漂移（這段代數是本模組測試的存在理由，
+ * 單一格點 grid 的 instance 建構引擎——`directionInstances`（主格點＋補排條帶，origin 依
+ * 條帶起點浮動，唯一呼叫端）用它處理 0°/90° 變換數學（這段代數是本模組測試的存在理由，
  * 見檔頭 docblock）。
  *
  * - 先 `translate(-mb.minX, -mb.minY)` 把製造 bounds 局部化到 (0,0) 原點，幾何恆落在
@@ -83,23 +83,6 @@ function buildGrid(
         : `translate(${cellX} ${cellY}) translate(${h} 0) rotate(90) ${localize}`;
     return { transform, cellX, cellY, cellW, cellH };
   });
-}
-
-/**
- * 主格點（單一子紙、單一方向）排列——`ImpositionView.tsx` 既有呼叫點沿用的介面，origin
- * 固定在咬口內角 `(gripper,gripper)`，cap 固定用 `MAX_PREVIEW_INSTANCES`。變換數學與 cap
- * 語意見 `buildGrid` docblock；`directionInstances`（主格點＋補排件＋可調 budget cap）是
- * 給 T3 用的擴充版本，兩者共用同一顆 `buildGrid` 引擎、不會互相漂移。
- */
-export function instanceTransforms(
-  dir: 0 | 90,
-  cols: number,
-  rows: number,
-  mb: Bounds,
-  gripper: number,
-  gap: number,
-): PreviewInstance[] {
-  return buildGrid(gripper, gripper, dir, cols, rows, mb, gap, MAX_PREVIEW_INSTANCES);
 }
 
 /** budget 正規化：`NaN`→0；`+Infinity`→`MAX_PREVIEW_INSTANCES`；其餘 `≤0`（含 `-Infinity`）

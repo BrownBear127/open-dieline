@@ -122,6 +122,17 @@ const DEGENERATE_ZERO_HEIGHT_RESULT: GenerateResult = {
   bounds: { minX: 0, maxX: 10, minY: 7, maxY: 7 },
 };
 
+// 4×2mm 小片（RTE）：搭配 17×11 橫放紙／gripper0／gap3／allowRotate:true，0° 卡在主格點
+// 之外用 right-full 補上 1×2=2 件（gridCount4＋補2＝6模）、90° 卡剛好鋪滿無補排（gridCount8＝
+// count8）——同一份 fixture 同時覆蓋「整紙有補排」與「整紙無補排（不顯示＋補0）」兩種卡片
+// 文字格式（T3「卡片文字格式」RED）。數字已用獨立 computeImposition 呼叫驗算（非憑空推算，
+// 過程見 task-3-report 附錄），不是由被測元件反推（spec F8 鐵則）。
+const FILL_FORMAT_RESULT: GenerateResult = {
+  paths: [{ id: 'cut-1', type: 'cut', segments: rectSegments(0, 0, 4, 2) }],
+  texts: [],
+  bounds: { minX: 0, maxX: 4, minY: 0, maxY: 2 },
+};
+
 // allowRotate:false（T1 消費端最小遷移）：保留這個共用 fixture 底下所有既有數字錨（8 模等）
 // 逐字不變——這個測試檔的職責是 UI 接線／欄位級行為，不是補排演算法本身（那是
 // tests/imposition.test.ts 的職責，已有專屬的附錄數值錨表＋極端分支覆蓋）。
@@ -181,6 +192,31 @@ describe('ImpositionView — 兩方向卡片', () => {
   });
 });
 
+// ── 卡片文字格式：整紙有補排（T3） ──────────────────────────────────────────
+
+describe('ImpositionView — 卡片文字格式：整紙有補排（T3）', () => {
+  it('0° 卡有補排（gridCount4＋補2＝6模）顯示「＋ 補 N」；90° 卡無補排（count8）沿用舊格式、不顯示「＋ 補 0」', () => {
+    const state: ImpositionState = {
+      ...BASE_STATE,
+      customW: 17,
+      customH: 11,
+      orientation: 'landscape',
+      gripper: 0,
+      gap: 3,
+      allowRotate: true,
+    };
+    render(<ImpositionView result={FILL_FORMAT_RESULT} state={state} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0'); // cols=2,rows=2,gridCount=4,補2＝6模
+    expect(card0.textContent).toContain('2 列 × 2 行 ＋ 補 2 ＝ 6 模');
+    expect(card0.textContent).toContain('外接矩形利用率 25.67%');
+
+    const card90 = screen.getByTestId('direction-card-90'); // cols=4,rows=2,無補排，8模
+    expect(card90.textContent).toContain('4 列 × 2 行 ＝ 8 模');
+    expect(card90.textContent).not.toContain('＋ 補');
+  });
+});
+
 // ── 界線聲明 ─────────────────────────────────────────────────────────────
 
 describe('ImpositionView — 界線聲明', () => {
@@ -195,22 +231,28 @@ describe('ImpositionView — 界線聲明', () => {
 // ── 對開模式：每半張＋working 尺寸文字 ────────────────────────────────────
 
 describe('ImpositionView — 對開模式', () => {
-  it('對開 V：顯示「每半張」與 working 尺寸文字（customW=100,customH=200,gripper=10 → working 50.0×200.0，可用區 30.0×180.0）', () => {
+  it('對開 V：working 尺寸文字含全紙／半張子紙／可用區數字（T3：裁切時全紙＋子紙兩層資訊，測數字存在不測全文；customW=100,customH=200,gripper=10 → 全紙100.0×200.0、半張子紙50.0×200.0、可用30.0×180.0）；卡片文字改「每半張 N 模 × 2 ＝ M 模」格式、不再顯示「N 列」', () => {
     const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: false };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
-    expect(
-      screen.getByText('工作尺寸：50.0 × 200.0 mm（可用區 30.0 × 180.0 mm）'),
-    ).toBeInTheDocument();
+    const sizeText = screen.getByText(/全紙/).textContent ?? '';
+    expect(sizeText).toContain('100.0'); // fullW
+    expect(sizeText).toContain('200.0'); // fullH（＝workingSheet.h，cutH 為 false）
+    expect(sizeText).toContain('50.0'); // workingSheet.w（V 切半：100/2）
+    expect(sizeText).toContain('30.0'); // usableW
+    expect(sizeText).toContain('180.0'); // usableH
 
-    const card0 = screen.getByTestId('direction-card-0'); // cols=1,rows=14,count=14
+    const card0 = screen.getByTestId('direction-card-0'); // cols=1,rows=14,count=14,totalCount=28
     expect(card0.textContent).toContain('每半張');
     expect(card0.textContent).toContain('14 模');
+    expect(card0.textContent).toContain('28 模'); // totalCount＝count×2
+    expect(card0.textContent).not.toMatch(/\d+\s*列/); // 裁切格式整套替換,不是在整紙格式後加註記
   });
 
-  it('整紙模式（非對開）：不顯示「每半張」', () => {
+  it('整紙模式（非對開）：不顯示「每半張」，working 尺寸文字維持整紙舊格式逐字不變（回歸，spec 附錄「回歸保證」）', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
     expect(screen.getByTestId('direction-card-0').textContent).not.toContain('每半張');
+    expect(screen.getByText('工作尺寸：50.0 × 50.0 mm（可用區 50.0 × 50.0 mm）')).toBeInTheDocument();
   });
 });
 
@@ -443,43 +485,138 @@ describe('ImpositionView — 整體錯誤（review 測試縫 3）', () => {
   });
 });
 
-// ── review 測試縫 4：對開切線與區域幾何 ────────────────────────────────────
+// ── T3：全紙預覽 SVG 結構（全紙外框恆在＋裁切中線＋每子紙分區＋non-scaling-stroke，
+// 取代舊「對開切線與區域幾何（review 測試縫 4）」的單子紙視圖測試） ─────────────────
 
-describe('ImpositionView — 對開切線與區域幾何（review 測試縫 4）', () => {
-  it('對開 V：切線 x＝workingSheet.w、跨滿 fullSheet 高度；原紙外框＝fullSheet 尺寸；working half 可用區與原紙外框分離', () => {
+describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
+  it('viewBox 恆為 fullW×fullH，不因裁切而改變（同一份紙規，切前切後比較——法蘭 gate 反饋「紙不動,只有可落版區域變」）', () => {
+    const flat: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200 };
+    const { rerender } = render(<ImpositionView result={SINGLE_PIECE_RESULT} state={flat} onChange={vi.fn()} />);
+    expect(screen.getByTestId('direction-card-0').querySelector('svg')).toHaveAttribute('viewBox', '0 0 100 200');
+
+    rerender(<ImpositionView result={SINGLE_PIECE_RESULT} state={{ ...flat, cutV: true }} onChange={vi.fn()} />);
+    expect(screen.getByTestId('direction-card-0').querySelector('svg')).toHaveAttribute('viewBox', '0 0 100 200');
+  });
+
+  it('全紙外框恆顯示 fullSheet 尺寸（裁切時不縮小），帶 non-scaling-stroke', () => {
     const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: false };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
-    const card0 = screen.getByTestId('direction-card-0');
-    const halfLine = within(card0).getByTestId('half-cut-line');
-    expect(halfLine).toHaveAttribute('x1', '50');
-    expect(halfLine).toHaveAttribute('x2', '50');
-    expect(halfLine).toHaveAttribute('y1', '0');
-    expect(halfLine).toHaveAttribute('y2', '200');
-
-    const svg = card0.querySelector('svg')!;
-    expect(svg).toHaveAttribute('viewBox', '0 0 100 200'); // fullSheet＝未切半的整張紙
-
-    const rects = svg.querySelectorAll('rect');
-    // DOM 順序：[0]=原紙外框、[1]=working half 咬口區（全範圍）、[2]=可用區（扣咬口）。
-    expect(rects[0]).toHaveAttribute('width', '100');
-    expect(rects[0]).toHaveAttribute('height', '200');
-    expect(rects[1]).toHaveAttribute('width', '50'); // workingSheet.w（V 切半：100/2）
-    expect(rects[1]).toHaveAttribute('height', '200');
-    expect(rects[2]).toHaveAttribute('width', '30'); // usableW = 50 - 2*10
-    expect(rects[2]).toHaveAttribute('height', '180'); // usableH = 200 - 2*10
+    const frame = within(screen.getByTestId('direction-card-0')).getByTestId('sheet-frame');
+    expect(frame).toHaveAttribute('width', '100');
+    expect(frame).toHaveAttribute('height', '200');
+    expect(frame).toHaveAttribute('vector-effect', 'non-scaling-stroke');
   });
 
-  it('對開 H：切線 y＝workingSheet.h、跨滿 fullSheet 寬度', () => {
-    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: false, cutH: true };
+  it('cutV：cut-line-v 畫在 x=fullW/2、跨滿全高；不畫 cut-line-h', () => {
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, cutV: true, cutH: false };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');
-    const halfLine = within(card0).getByTestId('half-cut-line');
-    expect(halfLine).toHaveAttribute('x1', '0');
-    expect(halfLine).toHaveAttribute('x2', '100');
-    expect(halfLine).toHaveAttribute('y1', '100');
-    expect(halfLine).toHaveAttribute('y2', '100');
+    const line = within(card0).getByTestId('cut-line-v');
+    expect(line).toHaveAttribute('x1', '50');
+    expect(line).toHaveAttribute('x2', '50');
+    expect(line).toHaveAttribute('y1', '0');
+    expect(line).toHaveAttribute('y2', '200');
+    expect(line).toHaveAttribute('vector-effect', 'non-scaling-stroke');
+    expect(within(card0).queryByTestId('cut-line-h')).toBeNull();
+  });
+
+  it('cutH：cut-line-h 畫在 y=fullH/2、跨滿全寬', () => {
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, cutV: false, cutH: true };
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    const line = within(screen.getByTestId('direction-card-0')).getByTestId('cut-line-h');
+    expect(line).toHaveAttribute('x1', '0');
+    expect(line).toHaveAttribute('x2', '100');
+    expect(line).toHaveAttribute('y1', '100');
+    expect(line).toHaveAttribute('y2', '100');
+  });
+
+  it('四開（cutV+cutH）：cut-line-v／cut-line-h 同時出現＋四個 section 依左上/右上/左下/右下排列＋translate 位移正確', () => {
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: true };
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0');
+    expect(within(card0).getByTestId('cut-line-v')).toBeInTheDocument();
+    expect(within(card0).getByTestId('cut-line-h')).toBeInTheDocument();
+
+    const sections = within(card0).getAllByTestId('section');
+    expect(sections).toHaveLength(4);
+    expect(sections.map((s) => s.getAttribute('transform'))).toEqual([
+      'translate(0 0)',
+      'translate(50 0)',
+      'translate(0 100)',
+      'translate(50 100)',
+    ]);
+  });
+
+  it('每子紙咬口區／可用區尺寸＝workingSheet.w/h、usableW/usableH，四個 section 內一致（同版複製）', () => {
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: true };
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    const sections = within(screen.getByTestId('direction-card-0')).getAllByTestId('section');
+    expect(sections).toHaveLength(4);
+    for (const section of sections) {
+      const gripperZone = within(section).getByTestId('gripper-zone');
+      expect(gripperZone).toHaveAttribute('width', '50'); // workingSheet.w
+      expect(gripperZone).toHaveAttribute('height', '100'); // workingSheet.h
+
+      const usableZone = within(section).getByTestId('usable-zone');
+      expect(usableZone).toHaveAttribute('x', '10'); // gripper
+      expect(usableZone).toHaveAttribute('y', '10');
+      expect(usableZone).toHaveAttribute('width', '30'); // usableW = 50 - 2*10
+      expect(usableZone).toHaveAttribute('height', '80'); // usableH = 100 - 2*10
+      expect(usableZone).toHaveAttribute('vector-effect', 'non-scaling-stroke');
+    }
+  });
+
+  it('每子紙同一份排列（同版複製）：四開情境下每個 section 的 preview-instance 數量都等於 direction.count（不是 totalCount）', () => {
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: true };
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0'); // cols=1,rows=6,count=6,totalCount=24（獨立 computeImposition 驗算）
+    expect(card0.textContent).toContain('每四開 6 模 × 4 ＝ 24 模');
+    const sections = within(card0).getAllByTestId('section');
+    for (const section of sections) {
+      expect(within(section).getAllByTestId('preview-instance')).toHaveLength(6);
+    }
+    expect(within(card0).getAllByTestId('preview-instance')).toHaveLength(24);
+  });
+
+  it('跨子紙 remainingBudget 鏈＋四開漏報回歸（brief 附錄）：每子紙 150、全紙 600、cap 500 → 依左上/右上/左下/右下順序扣預算，前三子紙各拿滿 150、第四子紙只拿 50，總數恰 500 且顯示截斷提示', () => {
+    const state: ImpositionState = {
+      ...BASE_STATE,
+      customW: 114,
+      customH: 74,
+      orientation: 'landscape',
+      cutV: true,
+      cutH: true,
+      gripper: 0,
+      gap: 3,
+      allowRotate: false,
+    };
+    render(<ImpositionView result={TINY_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0'); // cols=15,rows=10,count=150,totalCount=600（獨立驗算）
+    expect(card0.textContent).toContain('每四開 150 模 × 4 ＝ 600 模');
+
+    const sections = within(card0).getAllByTestId('section');
+    expect(sections).toHaveLength(4);
+    const perSectionCounts = sections.map((s) => within(s).getAllByTestId('preview-instance').length);
+    expect(perSectionCounts).toEqual([150, 150, 150, 50]); // 左上/右上/左下/右下順序，不均分
+
+    expect(within(card0).getAllByTestId('preview-instance')).toHaveLength(500); // renderedCount=min(600,500)
+    expect(within(card0).getByText('數量過大，預覽已簡化')).toBeInTheDocument(); // totalCount(600) > renderedCount(500)
+  });
+
+  it('paths 帶 vector-effect=non-scaling-stroke，strokeWidth＝LINE_STYLES 原始值（不再乘 PREVIEW_STROKE_SCALE）', () => {
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0');
+    const path = within(card0).getAllByTestId('preview-instance')[0]!.querySelector('path')!;
+    expect(path).toHaveAttribute('vector-effect', 'non-scaling-stroke');
+    expect(path).toHaveAttribute('stroke-width', '0.4'); // LINE_STYLES.cut.strokeWidth，未乘舊 PREVIEW_STROKE_SCALE(6)
   });
 });
 
