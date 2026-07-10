@@ -49,11 +49,16 @@ interface FixtureParams {
   baseLength: number;
   baseWidth: number;
   baseHeight: number;
-  lidMargin: number;
+  lidMarginX: number;
+  lidMarginY: number;
   lidHeight: number;
   basePlatformWidth: number;
   lidPlatformWidth: number;
   thickness: number;
+  // Slice 5 F3：與 thickness 解耦的三個獨立補償參數（原本這三處都讀 thickness）。
+  rootJog: number;
+  innerWallReduction: number;
+  wallTopCompensation: number;
   linerEnabled: boolean;
   linerFitGap: number;
   // index signature：滿足 registry.ts OverrideMap（Partial<Record<string,...>>）的結構要求，
@@ -163,26 +168,31 @@ const EXTRACTORS: Record<string, Extractor> = {
   'lid.y.panel': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'front', 'y', 'crease'), creaseAlongValues(l, 'wallRoot', 'back', 'y', 'crease')),
 };
 
+// Slice 5 F3：base.x.outerWall/innerWall 與 base/lid.y.doubleCreaseGap 改讀 wallTopCompensation／
+// innerWallReduction／rootJog（與 thickness 解耦，原本讀 thickness/2×thickness）。
+// lid.x.outerWall/innerWall：B-06 左右壁特例移除，四面外壁不再吃 wallTopCompensation
+// （上蓋恆傳 0，見 index.ts buildLidPiece）——公式因此單純化為 lidHeight／lidHeight−innerWallReduction，
+// 不再是「corrected」（刻意偏離量測值），公式值現在直接等於量測值（見 fixture slots 對應更新）。
 const FORMULAS: Record<string, Formula> = {
   'base.x.panel': (p) => p.baseWidth,
-  'base.x.outerWall': (p) => p.baseHeight - p.thickness,
+  'base.x.outerWall': (p) => p.baseHeight - p.wallTopCompensation,
   'base.x.platform': (p) => p.basePlatformWidth,
-  'base.x.innerWall': (p) => p.baseHeight - 3 * p.thickness,
+  'base.x.innerWall': (p) => p.baseHeight - p.wallTopCompensation - p.innerWallReduction,
   'base.x.tuckFlap': () => TUCK_FLAP_DEPTH,
-  'base.y.doubleCreaseGap': (p) => p.thickness,
+  'base.y.doubleCreaseGap': (p) => p.rootJog,
   'base.y.outerWall': (p) => p.baseHeight,
   'base.y.platform': (p) => p.basePlatformWidth,
-  'base.y.innerWall': (p) => p.baseHeight - 2 * p.thickness,
+  'base.y.innerWall': (p) => p.baseHeight - p.innerWallReduction,
   'base.y.tuckFlap': () => TUCK_FLAP_DEPTH,
-  'lid.x.panel': (p) => p.baseWidth + 2 * p.lidMargin,
-  'lid.x.outerWall': (p) => p.lidHeight - p.thickness,
-  'lid.x.innerWall': (p) => p.lidHeight - 3 * p.thickness,
+  'lid.x.panel': (p) => p.baseWidth + 2 * p.lidMarginX,
+  'lid.x.outerWall': (p) => p.lidHeight,
+  'lid.x.innerWall': (p) => p.lidHeight - p.innerWallReduction,
   'lid.x.tuckFlap': () => TUCK_FLAP_DEPTH,
-  'lid.y.doubleCreaseGap': (p) => p.thickness,
+  'lid.y.doubleCreaseGap': (p) => p.rootJog,
   'lid.y.outerWall': (p) => p.lidHeight,
-  'lid.y.innerWall': (p) => p.lidHeight - 2 * p.thickness,
+  'lid.y.innerWall': (p) => p.lidHeight - p.innerWallReduction,
   'lid.y.tuckFlap': () => TUCK_FLAP_DEPTH,
-  'lid.y.panel': (p) => p.baseLength + 2 * p.lidMargin,
+  'lid.y.panel': (p) => p.baseLength + 2 * p.lidMarginY,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -716,26 +726,38 @@ describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描
     // 壁高 10＋薄壁觸發 gusset-b-fits、腳架深度（linerFlapDepth 未覆寫＝預設 15）＞壁高 10
     // 觸發 liner-flap-fits（2026-07-09 平台式重定義後 lidMargin 與內襯無關，min 組合改由
     // 這條件觸發）——三條邊界警告各自豁免自己的 tag 範圍，其餘 cut 照驗（F5）。
+    // Slice 5 F1／F3：lidMargin 拆 lidMarginX/lidMarginY（min=5/max=60）；新增
+    // rootJog/innerWallReduction/wallTopCompensation 一併推到 min/max——三者皆由
+    // generateTray 自我一致地消費（rim-flush/pieces-identity 為結構性恆真，見該不變式
+    // 推導），推到極端不會產生新的「必過」不變式失敗，只強化這組極端組合的覆蓋面。
     assertTelescopeSafe('全部關鍵參數同時取 min', {
       baseLength: 30,
       baseWidth: 30,
       baseHeight: 10,
-      lidMargin: 1,
+      lidMarginX: 5,
+      lidMarginY: 5,
       lidHeight: 10,
       basePlatformWidth: 0,
       lidPlatformWidth: 0,
       thickness: 0,
+      rootJog: 0,
+      innerWallReduction: 0,
+      wallTopCompensation: 0,
       linerFitGap: 0.2,
     });
     assertTelescopeSafe('全部關鍵參數同時取 max', {
       baseLength: 600,
       baseWidth: 600,
       baseHeight: 200,
-      lidMargin: 40,
+      lidMarginX: 60,
+      lidMarginY: 60,
       lidHeight: 200,
       basePlatformWidth: 15,
       lidPlatformWidth: 15,
       thickness: 0.8,
+      rootJog: 3,
+      innerWallReduction: 5,
+      wallTopCompensation: 5,
       linerFitGap: 2,
     });
     assertTelescopeSafe('大長寬比面板（baseLength=max, baseWidth=min）', { baseLength: 600, baseWidth: 30 });
