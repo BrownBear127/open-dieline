@@ -69,6 +69,60 @@ function findArc(paths: DielinePath[], r: number, e1: { x: number; y: number }, 
 
 const EPS = 1e-6;
 
+/**
+ * 「同線型（LineType）共線區間重疊」偵測（Slice 5 Fix2·review Finding 1 新增，通用
+ * helper 供之後 task 沿用）——補既有兩種檢查之間的缺口：
+ * - `hasSelfIntersection`（core/geometry.ts）刻意排除共線重疊（刀模轉角正常銜接，不是
+ *   幾何錯誤），抓不到這裡要抓的東西；
+ * - 本檔「無同型重複線段」測試（見 't/rootJog/.../全零' 案例）用 normalizeSegments 端點
+ *   正規化比對，只抓「兩條線段端點集合完全相同」，抓不到「短線完整落在長線內」這種
+ *   部分重複（Finding 1 原始 bug：jog 短段與角撐 y 軸摺線 0.5mm 共線重疊，兩者端點都
+ *   不同，不是同一組端點）。
+ * 回傳重疊描述陣列（空＝無重疊）。ANGLE_TOL 判平行（正規化方向向量的叉積，無量綱）、
+ * DIST_TOL 判同線＋量重疊長度（mm，遠低於刀模物理精度）。
+ */
+function findCollinearOverlaps(paths: DielinePath[]): string[] {
+  const ANGLE_TOL = 1e-6;
+  const DIST_TOL = 1e-4;
+  type Entry = { pathId: string; seg: LineSeg };
+  const byType = new Map<LineType, Entry[]>();
+  for (const p of paths) {
+    for (const s of p.segments) {
+      if (s.kind !== 'line') continue;
+      if (Math.hypot(s.x2 - s.x1, s.y2 - s.y1) < 1e-9) continue; // 零長度另有專門檢查
+      const list = byType.get(p.type) ?? [];
+      list.push({ pathId: p.id, seg: s });
+      byType.set(p.type, list);
+    }
+  }
+  const overlaps: string[] = [];
+  for (const [type, entries] of byType) {
+    for (let i = 0; i < entries.length; i++) {
+      const a = entries[i]!.seg;
+      const lenA = Math.hypot(a.x2 - a.x1, a.y2 - a.y1);
+      const ux = (a.x2 - a.x1) / lenA;
+      const uy = (a.y2 - a.y1) / lenA;
+      for (let j = i + 1; j < entries.length; j++) {
+        const b = entries[j]!.seg;
+        const lenB = Math.hypot(b.x2 - b.x1, b.y2 - b.y1);
+        const vx = (b.x2 - b.x1) / lenB;
+        const vy = (b.y2 - b.y1) / lenB;
+        if (Math.abs(ux * vy - uy * vx) > ANGLE_TOL) continue; // 不平行
+        const perpDist = Math.abs((b.x1 - a.x1) * uy - (b.y1 - a.y1) * ux);
+        if (perpDist > DIST_TOL) continue; // 平行但不共線
+        const proj = (x: number, y: number) => (x - a.x1) * ux + (y - a.y1) * uy;
+        const bMin = Math.min(proj(b.x1, b.y1), proj(b.x2, b.y2));
+        const bMax = Math.max(proj(b.x1, b.y1), proj(b.x2, b.y2));
+        const overlapLen = Math.min(lenA, bMax) - Math.max(0, bMin);
+        if (overlapLen > DIST_TOL) {
+          overlaps.push(`${type}: ${entries[i]!.pathId} 與 ${entries[j]!.pathId} 共線重疊 ${overlapLen.toFixed(4)}mm`);
+        }
+      }
+    }
+  }
+  return overlaps;
+}
+
 // 生產下盒（base）：t=0.4、H=60、platform=5、panel 124(x)×179(y) —— spec Step 1 核心案例。
 // rootJog/innerWallReduction/wallTopCompensation 取 spec F3 宣告預設（0.5/0.8/0.5）——
 // 刻意與 thickness=0.4 不同值，讓下面各測試的數字能直接證明三補償與 t 已解耦（Slice 5 F3）。
@@ -343,11 +397,21 @@ describe('generateTray', () => {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Slice 5 F2：wallRoot 階梯 jog——退役「中央面板兩條 full-length 平行 crease」，改為
-// 分段 stagger（中央留外移後那一條、兩端以 jog 短段接回 nominal）。生產依據：P（天地盒
-// 刀模.svg）逐 entity 反推，下盒（A 款）LINE204/206/207＝中央 crease＋兩端各自獨立的短
-// jog 段（P:734-756）；上蓋（B 款）LINE242＝nominal→offset→offset→nominal 一筆連續
-// lineTo 鏈，未另造獨立短線 entity（P:797-861）——本檔 baseOpts(platformWidth=5)＝A 款、
-// lidOpts(platformWidth=0)＝B 款，與 generateTray 內部 useThickStyle 判準一致。
+// 分段 stagger（中央留外移後那一條、兩端是否補 jog 短段依 A／B 款而異）。生產依據：P
+// （天地盒刀模.svg）逐 entity 反推，下盒（A 款）LINE204/206/207＝中央 crease＋兩端各自
+// 獨立的短 jog 段（P:734-756）；上蓋（B 款）LINE242＝只有中央線，沒有獨立短線 entity，
+// nominal↔offset 區間落在既有角撐 y 軸 web 摺線（LINE240/245）路徑內（P:797-861）——本檔
+// baseOpts(platformWidth=5)＝A 款、lidOpts(platformWidth=0)＝B 款，與 generateTray 內部
+// useThickStyle 判準一致。
+//
+// Slice 5 Fix2（review Finding 1）：本區塊原本誤判 B 款「nominal→offset→offset→
+// nominal 併成一筆連續 lineTo 鏈」——逐 entity 對照 P 原始 SVG 後證實這是錯的，B 根本不
+// 該有 nomNeg/nomPos 這兩個端點；正確形態＝wallRoot 只留中央 offset crease，nominal 端
+// 由角撐（gussetFold）既有的 y 軸摺線涵蓋，不重畫。舊實作因此在 A/B 兩款都與 gussetFold
+// 的 y 軸摺線同線型共線重疊 rootJog（A 端點對齊 nominal 角落、B 多畫了兩段）；修法：A 款
+// 把 gussetFold y 軸摺線起點移到 offset（見 tray.ts buildGussetA），B 款 wallRoot 直接
+// 不畫 jog 短段。下面測試改為逐 entity 座標驗證＋共線重疊掃描，不再只看 segmentsToSvgD
+// 的 M 指令數（B 款退化成單段後，M 數本身已不再能反映「有沒有多畫 jog」）。
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('generateTray: F2 階梯 jog（wallRoot 分段 stagger 取代 full-length 雙 crease）', () => {
@@ -363,7 +427,7 @@ describe('generateTray: F2 階梯 jog（wallRoot 分段 stagger 取代 full-leng
     expect(Math.abs((perpExtentSegs[0] as Extract<Segment, { kind: 'line' }>).x2 - (perpExtentSegs[0] as Extract<Segment, { kind: 'line' }>).x1), '該段應跨整個 perp 全長（panelL）').toBeCloseTo(baseOpts.panelL, 6);
   });
 
-  it('jog 短段存在性：兩端各一段，零 perp 位移、長度=rootJog', () => {
+  it('jog 短段存在性（A 款）：兩端各一段，零 perp 位移、長度=rootJog', () => {
     const result = generateTray(baseOpts);
     const root = findTagged(result.paths, 'wallRoot', 'back', 'crease');
     const jogSegs = root[0]!.segments.filter((s) => {
@@ -375,16 +439,59 @@ describe('generateTray: F2 階梯 jog（wallRoot 分段 stagger 取代 full-leng
     expect(jogSegs, '應有 2 段零 perp 位移、長度=rootJog 的短接段（兩端各一，接回 nominal 角落）').toHaveLength(2);
   });
 
-  it('A／B entity 形態差異：base（A 款，platformWidth>0）jog 短段各自獨立起筆；lid（B 款，platformWidth=0）併入一筆連續 crease', () => {
-    const baseRoot = findTagged(generateTray(baseOpts).paths, 'wallRoot', 'back', 'crease')[0]!;
-    const lidRoot = findTagged(generateTray(lidOpts).paths, 'wallRoot', 'back', 'crease')[0]!;
-    // segmentsToSvgD 依端點連續性決定要不要重新發 M——3 段互不相連＝3 個 M（A 款，
-    // 中央/兩端各自獨立 entity）；nominal→offset→offset→nominal 一筆 lineTo 鏈＝1 個 M
-    // （B 款，jog 併入這一整條「較長」crease，不另造獨立短線 entity）。
-    const baseMoves = (segmentsToSvgD(baseRoot.segments).match(/M/g) ?? []).length;
-    const lidMoves = (segmentsToSvgD(lidRoot.segments).match(/M/g) ?? []).length;
-    expect(baseMoves, 'A 款：中央＋兩端短段互不相連，3 個獨立起筆（P:734-756 形態）').toBe(3);
-    expect(lidMoves, 'B 款：一筆連續 nominal→offset→offset→nominal，只有 1 個起筆（P:797-861 形態）').toBe(1);
+  it('A／B entity 形態差異：base（A 款）中央＋兩端 jog 三段互不相連，逐 entity 座標對照；lid（B 款）僅中央 offset 一段、不新增 jog（Slice 5 Fix2·Finding 1 校正，P:LINE204/206/207 vs P:LINE242）', () => {
+    const baseRootPaths = findTagged(generateTray(baseOpts).paths, 'wallRoot', 'back', 'crease');
+    const lidRootPaths = findTagged(generateTray(lidOpts).paths, 'wallRoot', 'back', 'crease');
+    const baseRoot = baseRootPaths[0]!;
+    const lidRoot = lidRootPaths[0]!;
+
+    const baseHalfL = baseOpts.panelL / 2;
+    const baseNominal = baseOpts.panelW / 2;
+    const baseOffset = baseNominal + baseOpts.rootJog;
+    expect(baseRoot.segments, 'A 款仍是 3 段（中央 offset crease＋兩端 jog）').toHaveLength(3);
+    expectLine(baseRootPaths, -baseHalfL, baseOffset, baseHalfL, baseOffset, EPS, 'A 中央 offset crease（跨整個 perp 全長）');
+    expectLine(baseRootPaths, -baseHalfL, baseNominal, -baseHalfL, baseOffset, EPS, 'A 負端 jog 短段（nominal→offset）');
+    expectLine(baseRootPaths, baseHalfL, baseOffset, baseHalfL, baseNominal, EPS, 'A 正端 jog 短段（offset→nominal）');
+
+    const lidHalfL = lidOpts.panelL / 2;
+    const lidOffset = lidOpts.panelW / 2 + lidOpts.rootJog;
+    expect(lidRoot.segments, 'B 款只有 1 段（中央 offset crease），不新增獨立 jog 短段（Finding 1 修正：舊版誤多畫了 nomNeg→offNeg／offPos→nomPos 兩段）').toHaveLength(1);
+    expectLine(lidRootPaths, -lidHalfL, lidOffset, lidHalfL, lidOffset, EPS, 'B 中央 offset crease（跨整個 perp 全長）');
+
+    // segmentsToSvgD 的 M 指令數是這個結構差異的匯出投影，仍可作輔助交叉驗證（A 三段
+    // 互不相連＝3 個 M；B 現在退化成單段＝1 個 M——這裡數字巧合跟舊版一樣，但語意完全
+    // 不同：舊版的 1 是「4 端點一筆連續」、新版的 1 是「根本只有 1 段」，上面座標級
+    // 斷言才是真正驗到差異的地方，M 數只是順帶驗證匯出投影沒有跟著壞掉）。
+    expect((segmentsToSvgD(baseRoot.segments).match(/M/g) ?? []).length).toBe(3);
+    expect((segmentsToSvgD(lidRoot.segments).match(/M/g) ?? []).length).toBe(1);
+  });
+
+  it('B 款（lid）entity 結構驗證：wallRoot(back) 中央 offset crease 兩端由相鄰角落 gussetFold 的 y 軸摺線涵蓋 nominal→offset（Finding 1：不得留缺口，也不得共線重疊）', () => {
+    const result = generateTray(lidOpts);
+    const halfW = lidOpts.panelW / 2;
+    const nominal = halfW;
+    const offset = halfW + lidOpts.rootJog;
+
+    for (const { label, cornerX } of [
+      { label: 'left-back', cornerX: -lidOpts.panelL / 2 },
+      { label: 'right-back', cornerX: lidOpts.panelL / 2 },
+    ]) {
+      const folds = findTagged(result.paths, 'gussetFold', label, 'crease')[0]!;
+      const yFold = (folds.segments as LineSeg[]).find((s) => Math.abs(s.x1 - cornerX) < EPS && Math.abs(s.x2 - cornerX) < EPS);
+      expect(yFold, `${label}: 應有 x=${cornerX} 的 y 向 web 摺線`).toBeDefined();
+      const yMin = Math.min(yFold!.y1, yFold!.y2);
+      const yMax = Math.max(yFold!.y1, yFold!.y2);
+      expect(Math.min(Math.abs(yMin - nominal), Math.abs(yMax - nominal)), `${label}: 摺線應有一端精確在 nominal=${nominal}（B 款不變的既有行為）`).toBeLessThan(EPS);
+      expect(offset, `${label}: 摺線範圍 [${yMin},${yMax}] 應涵蓋 offset=${offset}（否則 wallRoot 中央段與摺線之間會留缺口）`).toBeGreaterThanOrEqual(yMin - EPS);
+      expect(offset).toBeLessThanOrEqual(yMax + EPS);
+    }
+  });
+
+  it('無同線型共線區間重疊（baseOpts/lidOpts 預設 rootJog=0.5，非 collapse 案例）：Finding 1 原始 bug——jog 短段與角撐 y 軸摺線重疊 0.5mm——不得再現', () => {
+    for (const opts of [baseOpts, lidOpts]) {
+      const overlaps = findCollinearOverlaps(generateTray(opts).paths);
+      expect(overlaps, `${opts.idPrefix}: ${overlaps.join('; ')}`).toEqual([]);
+    }
   });
 
   it('rootJog=0 時（S5 等價形態）A／B 兩款皆收斂為單一共線 crease，無重複線', () => {
@@ -409,9 +516,11 @@ describe('gusset 幾何（座標級迴歸）', () => {
     const folds = findTagged(result.paths, 'gussetFold', 'right-back', 'crease');
     const T = 1e-6;
 
-    // web 摺線：角落沿兩軸到 V3/V4（reach = H−t = 59.6）
+    // web 摺線：角落沿兩軸到 V3/V4（reach = H−t = 59.6）。y 軸摺線起點在 offset
+    // （cornerY+rootJog=89.5+0.5=90.0，Slice 5 Fix2·review Finding 1：避免與相鄰
+    // wallRoot jog 短段共線重疊，見 buildGussetA）；x 軸摺線起點仍在角落——x 向牆無 jog。
     expectLine(folds, 62, 89.5, 121.6, 89.5, T, 'A web 摺線（x 軸）');
-    expectLine(folds, 62, 89.5, 62, 149.1, T, 'A web 摺線（y 軸）');
+    expectLine(folds, 62, 90.0, 62, 149.1, T, 'A web 摺線（y 軸，起點在 offset）');
 
     // 對角線：角落半段 cut、外半段 crease（單軸位移 25.2906 級）
     const diagCut = g.filter((p) => p.type === 'cut');

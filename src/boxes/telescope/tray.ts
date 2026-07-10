@@ -190,20 +190,26 @@ function computeWallGeom(
  * 語意同 F3：門檻看 rootJog 不是 thickness）。
  *
  * 階梯 jog 結構（hasDoubleRoot 且 rootJog>0）：中央只留外移後那一條 crease（geom.
- * outerStartAlong，跨整個 perp 範圍、corner-to-corner）、兩端各以一段零 perp 位移、
- * 長度=rootJog 的短段接回 nominal（geom.rootAlong，角落錨點——buildWallSideCuts／
- * buildGussetA／B 的 corner 座標不受 jog 影響，短段終點必須精確落在那裡才能對齊，F6
- * 角撐本身凍結不動）。
+ * outerStartAlong，跨整個 perp 範圍、corner-to-corner）。兩端是否補 jog 短段接回 nominal
+ * （geom.rootAlong）依 A／B 款而異，見下——不是隨意的風格差異，是與 buildGussetA／B 的
+ * 角撐 y 軸 web 摺線分工互補而來，兩者合看才是完整的「中央→角落」路徑（Slice 5 Fix2·
+ * review Finding 1 逐 entity 對照 P 校正，取代本函式舊版「兩款座標集合相同、只差
+ * 陣列連續性」的錯誤簡化——舊版兩款都對齊 nominal 角落起筆，與角撐摺線同線型共線重疊
+ * rootJog，P 原檔逐 entity 對照後證實兩款都不該這樣畫）：
  *
- * A／B 款 entity 形態差異（P:734-756 vs P:797-861，spec F2）：獨立逐 entity 反推生產檔
- * 發現下盒（A 款，厚壁角撐）的中央 crease 與兩端短段是 3 個互不相連的獨立 entity；上蓋
- * （B 款，薄壁角撐）沒有獨立短線——nominal→offset→offset→nominal 併成一筆連續
- * lineTo 鏈（本身就是那條「較長」crease，不必另造短線）。兩款 segments 陣列的座標集合
- * 相同（不影響任何數值錨或 doubleCreaseGap 抽取，皆走 allAlongValues 寬鬆抽取），差異
- * 只在陣列順序／端點連續性（segmentsToSvgD 因此輸出的 M 指令數：A=3、B=1）。這個分野
- * 用 independentJogEntity（＝呼叫端傳入的 useThickStyle）表達——生產真正的成因是 B 角撐
- * y 軸 web 摺線本身經過那個座標而不需額外線（F6 角撐範圍，本輪 不動），這裡以陣列
- * 連續性表達同一設計意圖下可測的結構差異，非逐位元反推。
+ * - A 款（厚壁角撐，independentJogEntity=true，P:LINE204/206/207）：中央 crease 之外，
+ *   兩端各補一段零 perp 位移、長度=rootJog 的獨立 jog 短段——3 個互不相連的獨立 entity。
+ *   buildGussetA 的 y 軸 web 摺線起點已同步改讀 rootJog（見該函式），與這裡的 jog 短段
+ *   在 offset 端精確相接、不重疊。
+ * - B 款（薄壁角撐，independentJogEntity=false，P:LINE242）：只輸出中央 offset crease，
+ *   不新增 jog 短段——nominal↔offset 這段區間本來就落在既有 buildGussetB 的 y 軸 web
+ *   摺線（角落→H，跨度遠大於 jog、未變動）路徑內，另畫短段會與那條摺線同線型共線重疊
+ *   rootJog（P 逐 entity 對照：LINE240/245 起點在 nominal 角落、範圍涵蓋 offset；LINE242
+ *   只有中央線，沒有獨立短線 entity，兩者也不是一筆連續折線）。
+ *
+ * 兩款 segments 陣列座標集合因此不同（A 含 nomNeg/nomPos 端點、B 不含）——這不影響
+ * doubleCreaseGap／centralFoldSpan／sideRootSpan 等既有數值錨（皆走 allAlongValues 寬鬆
+ * 抽取，2 個相異駐留座標的語意不變）。
  */
 function buildWallRoot(
   axis: Axis,
@@ -233,8 +239,10 @@ function buildWallRoot(
     b.moveTo(nomNeg.x, nomNeg.y).lineTo(offNeg.x, offNeg.y);
     b.moveTo(offPos.x, offPos.y).lineTo(nomPos.x, nomPos.y);
   } else {
-    // B 款：一筆連續 lineTo 鏈，jog 併入這條「較長」crease，不另起 moveTo。
-    b.moveTo(nomNeg.x, nomNeg.y).lineTo(offNeg.x, offNeg.y).lineTo(offPos.x, offPos.y).lineTo(nomPos.x, nomPos.y);
+    // B 款：只輸出中央 offset crease；jog 區間已由 buildGussetB 的 y 軸 web 摺線涵蓋
+    // （未變動的既有摺線本來就跨過 nominal／offset），不重畫短段——重畫會與那條摺線
+    // 同線型共線重疊（Finding 1 修正：舊版在此多畫了 nomNeg→offNeg／offPos→nomPos）。
+    b.moveTo(offNeg.x, offNeg.y).lineTo(offPos.x, offPos.y);
   }
   return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
 }
@@ -384,19 +392,35 @@ function gussetAnchors(useThickStyle: boolean, height: number, thickness: number
  * crease 到 tip）＋外緣斜切（cut：V4→tip→V3）。reach＝height−thickness 兩軸共用。
  * 生產檔另有 V3 之外的 −10° 短 cut、平台端讓位（R2.5 弧＋5mm 內縮側邊）未復刻
  * （簡化為錨點外沿軸線的直線側邊，見 開發紀錄 Fix Round 1）。
+ *
+ * y 軸 web 摺線起點＝offset（Slice 5 Fix2·review Finding 1）：不是角落 (cornerX,cornerY)
+ * 本身，是 (cornerX, cornerY+sy×rootJog)——與相鄰 y 向牆 wallRoot 的 jog 短段在 offset 端
+ * 精確相接，避免兩者同線型共線重疊 rootJog（P 逐 entity 對照：LINE214/215 起點在 offset，
+ * 不在 nominal 角落）。x 軸摺線（→v3）不受影響，仍從角落起筆——x 向牆沒有 jog。rootJog≤0
+ * 時 Math.max(...,0) 收斂回舊行為（起點＝角落，與 v3 一致）。
  */
-function buildGussetA(cornerX: number, cornerY: number, sx: Sign, sy: Sign, height: number, thickness: number, side: string): PathDescriptor[] {
+function buildGussetA(
+  cornerX: number,
+  cornerY: number,
+  sx: Sign,
+  sy: Sign,
+  height: number,
+  thickness: number,
+  rootJog: number,
+  side: string,
+): PathDescriptor[] {
   const reach = height - thickness;
   const diagHalf = height * GUSSET_A_DIAG_HALF_RATIO;
   const mid = { x: cornerX + sx * diagHalf, y: cornerY + sy * diagHalf };
   const tip = { x: cornerX + sx * diagHalf * 2, y: cornerY + sy * diagHalf * 2 };
   const v3 = { x: cornerX + sx * reach, y: cornerY };
   const v4 = { x: cornerX, y: cornerY + sy * reach };
+  const yFoldStart = { x: cornerX, y: cornerY + sy * Math.max(rootJog, 0) };
 
   const folds = new PathBuilder()
     .moveTo(cornerX, cornerY)
     .lineTo(v3.x, v3.y)
-    .moveTo(cornerX, cornerY)
+    .moveTo(yFoldStart.x, yFoldStart.y)
     .lineTo(v4.x, v4.y)
     .segments();
   const diagCut = new PathBuilder().moveTo(cornerX, cornerY).lineTo(mid.x, mid.y).segments();
@@ -557,10 +581,12 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
     // hasDoubleRoot=false，independentJogEntity 不生效，仍統一傳 useThickStyle 保持簽名一致。
     ...buildWall('x', -1, 'left', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x, useThickStyle),
     ...buildWall('x', 1, 'right', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x, useThickStyle),
-    // y 向牆（前後，後摺）：階梯 jog 根（F2，中央 offset＋兩端短段接回 nominal，間距＝
-    // rootJog）、外壁＝height（自 jog 外線起量，base／lid 皆不作平齊補償——spec F3「前後
-    // 外壁 H」兩件一致）；側邊 cut 自 anchors.y 起。jog entity 形態（獨立短線 vs 併入較長
-    // crease）跟 useThickStyle 走——與角撐 A/B 款判準一致（生產上兩者同源於厚壁/薄壁角撐）。
+    // y 向牆（前後，後摺）：階梯 jog 根（F2，中央 offset 起筆；A 款另補兩端短段接回
+    // nominal、B 款不補——區間已由角撐 y 軸 web 摺線涵蓋，Slice 5 Fix2·review
+    // Finding 1 校正，見 buildWallRoot/buildGussetA docblock）、外壁＝height（自 jog 外線
+    // 起量，base／lid 皆不作平齊補償——spec F3「前後外壁 H」兩件一致）；側邊 cut 自
+    // anchors.y 起。entity 形態判準跟 useThickStyle 走——與角撐 A/B 款判準一致（生產上
+    // 兩者同源於厚壁/薄壁角撐）。
     ...buildWall('y', -1, 'front', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y, useThickStyle),
     ...buildWall('y', 1, 'back', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y, useThickStyle),
   ];
@@ -570,7 +596,7 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
     const cornerY = sy * halfW;
     descriptors.push(
       ...(useThickStyle
-        ? buildGussetA(cornerX, cornerY, sx, sy, height, thickness, label)
+        ? buildGussetA(cornerX, cornerY, sx, sy, height, thickness, rootJog, label)
         : buildGussetB(cornerX, cornerY, sx, sy, height, thickness, label)),
     );
   }
