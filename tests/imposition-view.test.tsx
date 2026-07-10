@@ -133,6 +133,17 @@ const FILL_FORMAT_RESULT: GenerateResult = {
   bounds: { minX: 0, maxX: 4, minY: 0, maxY: 2 },
 };
 
+// 40×20mm 件（RTE）：final review SOL Medium「production-chain 一致性」測試專用 fixture——
+// 搭配 214×134 landscape／cutV+cutH／allowRotate:true／gripper0／gap3，用來把 core
+// `pickFillSplit` 與 preview `directionInstances` 兩處各自重算的 usedW/usedH 接在同一條真實
+// 渲染鏈上鎖死：0° 卡 7 模/子紙(28模)、90° 卡 6 模/子紙(24模)。數字已用獨立 computeImposition
+// 呼叫驗算（非憑空推算，過程見 task-4-report 附錄），不是由被測元件反推（spec F8 鐵則）。
+const PRODUCTION_CHAIN_PIECE_RESULT: GenerateResult = {
+  paths: [{ id: 'cut-1', type: 'cut', segments: rectSegments(0, 0, 40, 20) }],
+  texts: [],
+  bounds: { minX: 0, maxX: 40, minY: 0, maxY: 20 },
+};
+
 // allowRotate:false（T1 消費端最小遷移）：保留這個共用 fixture 底下所有既有數字錨（8 模等）
 // 逐字不變——這個測試檔的職責是 UI 接線／欄位級行為，不是補排演算法本身（那是
 // tests/imposition.test.ts 的職責，已有專屬的附錄數值錨表＋極端分支覆蓋）。
@@ -724,5 +735,92 @@ describe('ImpositionControls／ImpositionResults — 獨立掛載（review Mediu
       screen.getByText('以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: '件' })).toBeNull(); // 控制項不屬於 Results
+  });
+});
+
+// ── gate round 1 final review SOL Medium：usedW/usedH 兩處實作（core `pickFillSplit`／preview
+// `directionInstances`）各自重算，公式現在代數一致（final review 已驗證），但沒有測試把兩者
+// 接在同一條真實鏈上——上面的預覽測試多半用手寫 DirectionResult，四開 UI 測試（全紙預覽 SVG
+// 結構區塊）走 allowRotate:false（無補排分支）。將來兩處只改一處，本檔其餘測試仍可能全綠，
+// 實際 SVG 補排件卻偏移/重疊/消失。本區塊改用真 `computeImposition` 輸出餵真
+// `directionInstances`／真 `SectionGroup` 渲染鏈，不手寫 DirectionResult。──────────────────
+
+describe('ImpositionView — production-chain usedW/usedH 一致性（gate round 1 final review SOL Medium）', () => {
+  it('40×20 件／214×134 landscape 四開／allowRotate:true：真 computeImposition→真 directionInstances→真 SectionGroup 全鏈，鎖死 0° 卡 7 模/子紙(28模)＋90° 卡 6 模/子紙(24模)、補排件旋轉方向（0° 卡補件轉 90°／90° 卡補件不轉）、全部 instance 落在子紙 107×67 界內、SVG 序列化無 NaN/Infinity', () => {
+    const state: ImpositionState = {
+      ...BASE_STATE,
+      customW: 214,
+      customH: 134,
+      orientation: 'landscape',
+      cutV: true,
+      cutH: true,
+      allowRotate: true,
+      gripper: 0,
+      gap: 3,
+    };
+    const { container } = render(<ImpositionView result={PRODUCTION_CHAIN_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0');
+    const card90 = screen.getByTestId('direction-card-90');
+
+    // 卡片文字鎖總數（controller 手算＋獨立 computeImposition 呼叫驗算，見 fixture 註解）。
+    expect(card0.textContent).toContain('每四開 7 模 × 4 ＝ 28 模');
+    expect(card90.textContent).toContain('每四開 6 模 × 4 ＝ 24 模');
+
+    // ① 兩卡各 4 個 section（四開＝2×2 子紙）。
+    const sections0 = within(card0).getAllByTestId('section');
+    const sections90 = within(card90).getAllByTestId('section');
+    expect(sections0).toHaveLength(4);
+    expect(sections90).toHaveLength(4);
+
+    // ② 每 section 的 preview-instance 數一致（同版複製，見 `SectionGroup` docblock）。
+    for (const section of sections0) {
+      expect(within(section).getAllByTestId('preview-instance')).toHaveLength(7);
+    }
+    for (const section of sections90) {
+      expect(within(section).getAllByTestId('preview-instance')).toHaveLength(6);
+    }
+
+    // ③④ 解析每個 instance 的 transform：`PreviewInstance.cellX/cellY` 沒有直接暴露成 DOM
+    // 屬性，從 transform 字串的第一個 `translate(x y)` 還原（與 `buildGrid` 寫入的值逐字
+    // 相同）；`rotate(90)` 是否存在決定這個 instance 的 cellW/cellH 是否對調（見
+    // impositionPreview.ts `buildGrid` docblock）。
+    const PIECE_W = 40;
+    const PIECE_H = 20;
+    const SUBSHEET_W = 107; // sheet.w（cutV+cutH 後的子紙寬，gripper=0 時與 usableW 相同）
+    const SUBSHEET_H = 67; // sheet.h（同上，與 usableH 相同）
+    const EPS = 1e-6;
+
+    function countRotatedAndCheckBounds(section: HTMLElement): number {
+      const instances = within(section).getAllByTestId('preview-instance');
+      let rotatedCount = 0;
+      for (const inst of instances) {
+        const transform = inst.getAttribute('transform') ?? '';
+        const originMatch = transform.match(/^translate\(([-\d.]+) ([-\d.]+)\)/);
+        expect(originMatch).not.toBeNull();
+        const cellX = Number(originMatch![1]);
+        const cellY = Number(originMatch![2]);
+        const hasRotate = transform.includes('rotate(90)');
+        if (hasRotate) rotatedCount++;
+        const cellW = hasRotate ? PIECE_H : PIECE_W;
+        const cellH = hasRotate ? PIECE_W : PIECE_H;
+        expect(cellX + cellW).toBeLessThanOrEqual(SUBSHEET_W + EPS);
+        expect(cellY + cellH).toBeLessThanOrEqual(SUBSHEET_H + EPS);
+      }
+      return rotatedCount;
+    }
+
+    for (const section of sections0) {
+      // 0° 卡：6 個主格點不轉＋1 個補排件轉 90°（core `pickFillSplit` docblock：補排件永遠是
+      // 主格點方向「旋轉 90°」後的 footprint）。
+      expect(countRotatedAndCheckBounds(section)).toBe(1);
+    }
+    for (const section of sections90) {
+      // 90° 卡：4 個主格點本身已轉 90°、2 個補排件轉回 0°（跟 0° 卡互補，見同一份 docblock）。
+      expect(countRotatedAndCheckBounds(section)).toBe(4);
+    }
+
+    // ⑤ SVG 序列化不含 NaN/Infinity（深度防禦：usedW/usedH 算式若有負值/除零污染會流出這裡）。
+    expect(container.innerHTML).not.toMatch(/NaN|Infinity/);
   });
 });
