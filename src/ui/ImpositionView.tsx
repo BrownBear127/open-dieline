@@ -46,19 +46,22 @@ import type { Bounds } from '@/core/geometry';
 import type { DielinePath, DielinePiece, GenerateResult } from '@/core/types';
 import {
   computeImposition,
-  resolveWorkingSheet,
   PAPER_PRESETS,
   MIN_GAP_MM,
 } from '@/core/imposition';
-import type { DirectionResult, ImpositionFieldError, ImpositionInput, SheetMode, SheetOrientation, WorkingSheet } from '@/core/imposition';
+import type { DirectionResult, ImpositionFieldError, ImpositionInput, SheetOrientation, WorkingSheet } from '@/core/imposition';
 import { manufacturingBounds } from '@/core/bounds';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
 import { instanceTransforms, previewPaths } from './impositionPreview';
 import type { PreviewInstance } from './impositionPreview';
 
-/** 拼版模式的完整可往返 state（F6：盒型／盒參數／紙規／方向／作業模式／咬口／gap／
- *  拼版件選擇——逐欄列舉，切設計模式再切回來必須原值不改）。 */
+/** 拼版模式的完整可往返 state（F6：盒型／盒參數／紙規／方向／裁切／咬口／gap／
+ *  拼版件選擇——逐欄列舉，切設計模式再切回來必須原值不改）。
+ *  `cutV`/`cutH`/`allowRotate`（gate round 1 T1 取代舊 `mode: SheetMode` 單選）：
+ *  逐字對應 `core/imposition.ts` 的 `ImpositionInput` 同名欄位，UI 端不再需要一層
+ *  mode→cutV/cutH 的映射就能直接餵給 `computeImposition`——映射只發生在「作業模式」
+ *  下拉這個暫時保留原外觀的元件內部（見 `MODE_OPTIONS`／`modeValueFromCuts`）。 */
 export interface ImpositionState {
   /** RTE（`result.pieces` 為 undefined）恆為 `null`＝整件；多片盒型對應 `pieces[].id`。 */
   pieceId: string | null;
@@ -67,7 +70,9 @@ export interface ImpositionState {
   customW: number;
   customH: number;
   orientation: SheetOrientation;
-  mode: SheetMode;
+  cutV: boolean;
+  cutH: boolean;
+  allowRotate: boolean;
   gripper: number;
   gap: number;
 }
@@ -96,11 +101,39 @@ const CONTROL_CLASS =
   'w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors';
 const ERROR_TEXT_CLASS = 'text-[11px] text-red-600';
 
-const MODE_OPTIONS: { value: SheetMode; label: string }[] = [
+/** 「作業模式」下拉的暫時形態（T1 範圍聲明）：UI 沿用四選一外觀，`value` 字串不進 core
+ *  型別（core 只認 `cutV`/`cutH` 布林）——T4 會把這顆下拉換成 toolbar 按鈕，屆時這個
+ *  select-value 映射層直接整層退役，不會遺留半成品。 */
+type ModeOptionValue = 'full' | 'halfV' | 'halfH' | 'quarter';
+
+const MODE_OPTIONS: { value: ModeOptionValue; label: string }[] = [
   { value: 'full', label: '整紙' },
   { value: 'halfV', label: '對開 V（左右對切）' },
   { value: 'halfH', label: '對開 H（上下對切）' },
+  { value: 'quarter', label: '四開（V+H）' },
 ];
+
+/** `state.cutV`/`state.cutH` → 下拉目前應顯示的 option value（衍生值，不是獨立 state）。 */
+function modeValueFromCuts(cutV: boolean, cutH: boolean): ModeOptionValue {
+  if (cutV && cutH) return 'quarter';
+  if (cutV) return 'halfV';
+  if (cutH) return 'halfH';
+  return 'full';
+}
+
+/** 下拉選取的 option value → `{cutV,cutH}`（onChange 時一次寫回兩個欄位）。 */
+function cutsFromModeValue(value: ModeOptionValue): { cutV: boolean; cutH: boolean } {
+  switch (value) {
+    case 'halfV':
+      return { cutV: true, cutH: false };
+    case 'halfH':
+      return { cutV: false, cutH: true };
+    case 'quarter':
+      return { cutV: true, cutH: true };
+    case 'full':
+      return { cutV: false, cutH: false };
+  }
+}
 
 const ORIENTATION_OPTIONS: { value: SheetOrientation; label: string }[] = [
   { value: 'portrait', label: '直放' },
@@ -152,7 +185,8 @@ function DirectionCard({
   paths,
   workingSheet,
   fullSheet,
-  mode,
+  cutV,
+  cutH,
   gripper,
 }: {
   dirDeg: 0 | 90;
@@ -162,10 +196,11 @@ function DirectionCard({
   paths: DielinePath[];
   workingSheet: WorkingSheet | null;
   fullSheet: { w: number; h: number };
-  mode: SheetMode;
+  cutV: boolean;
+  cutH: boolean;
   gripper: number;
 }) {
-  const isHalf = mode !== 'full';
+  const isHalf = cutV || cutH;
   const showPreview = direction !== null && direction.count > 0 && workingSheet !== null;
   const isTruncated = direction !== null && direction.count > instances.length;
 
@@ -199,8 +234,11 @@ function DirectionCard({
           <rect x={0} y={0} width={fullSheet.w} height={fullSheet.h} fill="none" stroke={SHEET_FRAME_STROKE} strokeWidth={SHEET_FRAME_WIDTH} />
 
           {/* 對開切線示意（虛線，畫在原紙位置——與下面 working half 的可用區分開，
-              避免誤讀為半張還要再切，見 spec 對開語義段）。 */}
-          {mode === 'halfV' && (
+              避免誤讀為半張還要再切，見 spec 對開語義段）。cutV/cutH 可疊加（T1），故兩條
+              線各自獨立判斷、非互斥——四開時兩條同時畫出（T1 範圍聲明：UI 形態暫不變，
+              四開情境下兩條線共用同一個 data-testid 是已知的暫時簡化，T3/T4 全面重畫
+              預覽時一併處理，見 開發紀錄）。 */}
+          {cutV && (
             <line
               data-testid="half-cut-line"
               x1={workingSheet.w}
@@ -212,7 +250,7 @@ function DirectionCard({
               strokeDasharray={HALF_CUT_DASHARRAY}
             />
           )}
-          {mode === 'halfH' && (
+          {cutH && (
             <line
               data-testid="half-cut-line"
               x1={0}
@@ -296,7 +334,9 @@ function computeImpositionView(result: GenerateResult, state: ImpositionState) {
     paperW,
     paperH,
     orientation: state.orientation,
-    mode: state.mode,
+    cutV: state.cutV,
+    cutH: state.cutH,
+    allowRotate: state.allowRotate,
     gripper: state.gripper,
     gap: state.gap,
   };
@@ -320,8 +360,13 @@ function computeImpositionView(result: GenerateResult, state: ImpositionState) {
   // general error 之外的角落仍洩漏用錯誤 fallback 幾何算出的數字。
   const impositionUsable = imposition.ok && !stalePiece;
 
-  const fullSheet = resolveWorkingSheet(paperW, paperH, state.orientation, 'full', state.gripper);
+  // fullSheet（T1：取代舊版額外呼叫一次 resolveWorkingSheet(...,'full',...) 的雙呼叫寫法）——
+  // computeImposition 內部已算出 fullW/fullH（方向處理後、裁切前），直接從同一次呼叫的
+  // sheet 讀取即可，不必再獨立呼叫一次轉換鏈。!impositionUsable 時沒有 sheet 可讀，SVG
+  // 預覽整塊被 showPreview（見 DirectionCard）擋掉不會渲染，{w:0,h:0} 只是型別要求的
+  // 惰性佔位值，不影響任何畫面。
   const workingSheet = impositionUsable ? imposition.sheet : null;
+  const fullSheet = workingSheet ? { w: workingSheet.fullW, h: workingSheet.fullH } : { w: 0, h: 0 };
   const previewPathList = stalePiece ? [] : previewPaths(result, piece ?? null);
 
   const deg0Instances = impositionUsable
@@ -471,8 +516,11 @@ export function ImpositionControls({ result, state, onChange }: ImpositionContro
         </label>
         <select
           id="imposition-mode"
-          value={state.mode}
-          onChange={(e) => update('mode', e.target.value as SheetMode)}
+          value={modeValueFromCuts(state.cutV, state.cutH)}
+          onChange={(e) => {
+            const { cutV, cutH } = cutsFromModeValue(e.target.value as ModeOptionValue);
+            onChange({ ...state, cutV, cutH });
+          }}
           className={CONTROL_CLASS}
         >
           {MODE_OPTIONS.map((m) => (
@@ -482,6 +530,13 @@ export function ImpositionControls({ result, state, onChange }: ImpositionContro
           ))}
         </select>
       </div>
+
+      {/* 「可轉 90°」開關（T1 範圍聲明：先以 checkbox 掛在下拉旁，樣式從簡；T4 換成
+          toolbar 按鈕）。包住 input 的 <label> 提供隱式 accessible name，不另開 htmlFor/id。 */}
+      <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+        <input type="checkbox" checked={state.allowRotate} onChange={(e) => update('allowRotate', e.target.checked)} />
+        可轉 90°（L 形補排）
+      </label>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="imposition-gripper" className={LABEL_CLASS}>
@@ -554,7 +609,8 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
           paths={previewPathList}
           workingSheet={workingSheet}
           fullSheet={fullSheet}
-          mode={state.mode}
+          cutV={state.cutV}
+          cutH={state.cutH}
           gripper={state.gripper}
         />
         <DirectionCard
@@ -565,7 +621,8 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
           paths={previewPathList}
           workingSheet={workingSheet}
           fullSheet={fullSheet}
-          mode={state.mode}
+          cutV={state.cutV}
+          cutH={state.cutH}
           gripper={state.gripper}
         />
       </div>
