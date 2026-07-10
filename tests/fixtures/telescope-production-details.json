@@ -21,6 +21,12 @@
       "passed": 69,
       "total": 69,
       "allPassed": true
+    },
+    "verification": {
+      "gate": "T0 independent re-derivation (Opus 4.8, 2026-07-11): PASS — 100/100 category checks CONFIRMED, 84/84 coordinate gids, 0 discrepancy",
+      "cornerSymmetry": "四角＝180° 旋轉（pinwheel），非軸鏡射——相鄰角反手性（平台 relief 外垂直 78.46 vs 58.46mm）；實例化必須用旋轉，鏡射會在 topRight/bottomLeft 做出錯誤手性",
+      "mirrorGidsCaveat": "mirror_gids 為近似交叉參照（僅 topLeft 全鏈追跡；topRight 漏 LINE22、bottomLeft/bottomRight 清單碎片化、gusset 對角 LINE52/54/103 未列）——座標權威不受影響，僅 topLeft 帶座標、其餘角以 180° 旋轉導出",
+      "aGussetChain": "平台端內縮與 A 款角撐周邊＝單一 16 段連通鏈（10° cut 為樞紐）——aGussetPeriphery_reliefChain 為形狀權威，參數化標量僅供降級判定（spec F6 v1.3）"
     }
   },
   "nominalVsMeasured": {
