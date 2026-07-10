@@ -308,7 +308,11 @@ function judgeLineType(slot: SlotFixture, paths: DielinePath[]): Verdict {
   if (slot.lineType === 'crease（單）' || slot.lineType === 'crease×2') {
     const ps = findTagged(paths, landmark, side, 'crease');
     if (ps.length !== 1) return { ok: false, reason: `${landmark}(${side}) 應恰有 1 條 crease path，實際 ${ps.length}` };
-    const distinct = new Set(ps[0]!.segments.map((s) => alongOf(s, axis))).size;
+    // Slice 5 F2：wallRoot 階梯 jog 段（rootJog>0）含零 perp 位移的短接段，該段在 along
+    // 軸上「不是定值」（一端 nominal、一端 offset）——alongOf 會擲錯，改用寬鬆的
+    // allAlongValues（不假設每段是定值線，只收集所有端點座標）取相異值計數，語意不變
+    // （crease（單）＝1 相異值、crease×2＝2 相異值，段數本身不是這裡要驗的東西）。
+    const distinct = new Set(allAlongValues(ps[0]!.segments, axis)).size;
     const want = slot.lineType === 'crease（單）' ? 1 : 2;
     if (distinct !== want) return { ok: false, reason: `${landmark}(${side}) 駐留座標應有 ${want} 個相異值（${slot.lineType}），實際 ${distinct}` };
     return { ok: true };
@@ -329,11 +333,14 @@ function judgeLineType(slot: SlotFixture, paths: DielinePath[]): Verdict {
 function checkYProfileSequence(paths: DielinePath[], side: 'back' | 'front', platformWidth: number): Verdict {
   const rootPath = findTagged(paths, 'wallRoot', side, 'crease');
   if (rootPath.length !== 1) return { ok: false, reason: `wallRoot(${side}) 應恰有 1 條 path，實際 ${rootPath.length}` };
-  if (rootPath[0]!.segments.length !== 2) {
-    return { ok: false, reason: `wallRoot(${side}) y 向應為雙 crease（2 段），實際 ${rootPath[0]!.segments.length}` };
+  // Slice 5 F2：階梯 jog 取代舊「雙 crease 根」（固定 2 段）——段數可能是 3（中央 offset
+  // crease＋兩端 jog 短段）；語意上真正要保證的是「2 個相異駐留座標」（nominal/offset），
+  // 不是段數本身，故改用寬鬆的 allAlongValues（不假設每段在該軸上是定值——jog 短段本身
+  // 就不是，直接對它呼叫 alongOf 會擲錯）直接抽相異值。
+  const rootAlongs = [...new Set(allAlongValues(rootPath[0]!.segments, 'y'))].sort((a, b) => a - b);
+  if (rootAlongs.length !== 2) {
+    return { ok: false, reason: `wallRoot(${side}) y 向應有 2 個相異駐留座標（nominal/offset 階梯 jog），實際 ${rootAlongs.length}` };
   }
-  const rootAlongs = [...new Set(rootPath[0]!.segments.map((s) => alongOf(s, 'y')))].sort((a, b) => a - b);
-  if (rootAlongs.length !== 2) return { ok: false, reason: `wallRoot(${side}) 雙 crease 應有 2 相異座標，實際 ${rootAlongs.length}` };
   const innerRoot = rootAlongs[0]!;
 
   const topPath = findTagged(paths, 'wallTop', side, 'crease');
@@ -595,6 +602,58 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
 
       // 對照組：真實幾何 vs 真實 fixture 宣告的全數 pass 已由「逐槽分層比對」迴圈涵蓋，不重複
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 F2：wallRoot 階梯 jog——production-P 驗收錨（centralFoldSpan/sideRootSpan）＋
+// 全管線層級的結構斷言。fixture 本身的 rootJog=0.4（延續 T1 與舊 thickness 耦合值，
+// 見檔頭 note），與 spec F2 的驗收錨 180.0/217.0（需 rootJog=0.5）不同一組參數，故這裡
+// 用 resolveParams 直接疊 production-P 的 baseLength/lidMarginY/rootJog，不動 fixture
+// 本身（Global Constraint：telescope-reference.json 既有數值欄不動）。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope: F2 央/側 fold span 錨（production-P 值，spec F2 驗收）', () => {
+  /** production-P 的 baseLength/lidMarginY/rootJog（spec F2 驗收錨用這組值，非 fixture 預設）。 */
+  const productionOverrides = { baseLength: 179, lidMarginY: 18.5, rootJog: 0.5 };
+
+  it('下盒：central fold span=180.0、side-root span=179.0（±0.1，P measured 179.998/179.003）', () => {
+    const result = telescope.generate(resolveParams(telescope, productionOverrides));
+    const piece = result.pieces!.find((p) => p.id === 'base')!;
+    const paths = result.paths.filter((p) => piece.pathIds.includes(p.id));
+    const front = creaseAlongValues(paths, 'wallRoot', 'front', 'y', 'crease');
+    const back = creaseAlongValues(paths, 'wallRoot', 'back', 'y', 'crease');
+    expect(minAbsGap(front, back), 'side-root span＝baseLength（兩側翼 nominal 對 nominal）').toBeCloseTo(179, 1);
+    expect(maxAbsGap(front, back), 'central fold span＝baseLength+2×rootJog（中央 offset 對 offset）').toBeCloseTo(180, 1);
+  });
+
+  it('上蓋：central fold span=217.0、side-root span=216.0（±0.1，P measured 217.001/215.999）', () => {
+    const result = telescope.generate(resolveParams(telescope, productionOverrides));
+    const piece = result.pieces!.find((p) => p.id === 'lid')!;
+    const paths = result.paths.filter((p) => piece.pathIds.includes(p.id));
+    const front = creaseAlongValues(paths, 'wallRoot', 'front', 'y', 'crease');
+    const back = creaseAlongValues(paths, 'wallRoot', 'back', 'y', 'crease');
+    expect(minAbsGap(front, back), 'side-root span＝baseLength+2×lidMarginY').toBeCloseTo(216, 1);
+    expect(maxAbsGap(front, back), 'central fold span＝216+2×rootJog').toBeCloseTo(217, 1);
+  });
+
+  it('結構斷言（全管線）：base/lid 的 wallRoot(back) 皆非兩條 full-length 平行 crease——只 1 段有 perp 延伸、2 段零 perp 位移的 jog 短段', () => {
+    const result = telescope.generate(resolveParams(telescope, productionOverrides));
+    for (const pieceId of ['base', 'lid'] as const) {
+      const piece = result.pieces!.find((p) => p.id === pieceId)!;
+      const paths = result.paths.filter((p) => piece.pathIds.includes(p.id));
+      const root = findTagged(paths, 'wallRoot', 'back', 'crease');
+      expect(root, `${pieceId} wallRoot(back) 應恰有 1 條 path`).toHaveLength(1);
+
+      const perpExtentSegs = root[0]!.segments.filter((s) => s.kind === 'line' && Math.abs(s.x2 - s.x1) > 1e-6);
+      expect(perpExtentSegs, `${pieceId}: 應只有 1 段有 perp 延伸（中央 offset crease），不是 2 段 full-length 平行線`).toHaveLength(1);
+
+      const jogSegs = root[0]!.segments.filter((s) => {
+        if (s.kind !== 'line') return false;
+        return Math.abs(s.x2 - s.x1) < 1e-9 && Math.abs(s.y2 - s.y1) > 1e-9;
+      });
+      expect(jogSegs, `${pieceId}: 應有 2 段零 perp 位移的 jog 短段`).toHaveLength(2);
+    }
   });
 });
 
