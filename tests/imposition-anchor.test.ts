@@ -20,13 +20,16 @@ function assertOk(result: ImpositionResult): asserts result is Extract<Impositio
   }
 }
 
-// 紙規／方向／作業模式／咬口／gap——兩條路徑（製造 bounds vs declared bounds）共用同一組，
-// 只有 pieceW/pieceH 的來源不同，才能乾淨地證明差異單純來自 bounds 選擇。
+// 紙規／方向／裁切／咬口／gap——兩條路徑（製造 bounds vs declared bounds）共用同一組，
+// 只有 pieceW/pieceH 的來源不同，才能乾淨地證明差異單純來自 bounds 選擇。allowRotate:false
+// 保留補排功能加入前的整紙數字（12/8/6，本測試職責是 bounds 來源比較，不是補排邏輯）。
 const SHEET_FIELDS = {
   paperW: 787,
   paperH: 1092,
   orientation: 'portrait' as const,
-  mode: 'full' as const,
+  cutV: false,
+  cutH: false,
+  allowRotate: false,
   gripper: 20,
   gap: 3,
 };
