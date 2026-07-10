@@ -910,6 +910,11 @@ const BOUNDARY_EXEMPT_TAGS: Record<string, readonly string[]> = {
   // 2026-07-09 T7 gate 重定義：liner-flange-fits→liner-flap-fits；豁免範圍改為新幾何
   // 的翼片 cut tag（'linerFlap'）——平台式重定義後底面 crease 不含 cut，'linerPad' 不需要豁免。
   'liner-flap-fits': ['linerFlap'],
+  // Slice 5 F4／F6-A（notch-reduced／notch-omitted／platform-corner-omitted）：豁免範圍
+  // 對應各自降級影響的幾何 tag（tray.ts buildUNotches／buildAPlatformCornerRelief）。
+  'notch-reduced': ['uNotch'],
+  'notch-omitted': ['uNotch'],
+  'platform-corner-omitted': ['platformCorner'],
 };
 
 type Overrides = Partial<Record<string, number | boolean | string>>;
@@ -963,7 +968,8 @@ function assertTelescopeSafe(label: string, overrides: Overrides): void {
 describe('telescope: param-sweep（Step 6，天地盒版；重用 Slice 1 掃描骨架）', () => {
   it('不變式分類完備：每條不變式都被歸入「恆真」或「邊界豁免表」（新增不變式時必須更新分類）', () => {
     // 沒有這條 guard，新不變式會默默走進 else 分支被當成邊界類（警告不豁免任何範圍），
-    // 上方註解的「9 條＝6 恆真＋3 邊界」也會無聲過期——結構性釘住分類完備性。
+    // 上方註解的「12 條＝6 恆真＋6 邊界」（Slice 5 F4/F6-A 新增 notch-reduced／
+    // notch-omitted／platform-corner-omitted 三條）也會無聲過期——結構性釘住分類完備性。
     const classified = new Set([...ALWAYS_OK_INVARIANTS, ...Object.keys(BOUNDARY_EXEMPT_TAGS)]);
     expect(telescope.invariants.map((i) => i.id).sort()).toEqual([...classified].sort());
   });

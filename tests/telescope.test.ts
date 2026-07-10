@@ -1122,6 +1122,58 @@ describe('telescope: gusset-b-fits（薄壁角撐讓位槽最小壁高，minStyl
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Slice 5 F4／F6-A 可容納降級 warning（notch-reduced／notch-omitted／platform-corner-
+// omitted，spec §縮放與降級表）——三組參數組合逐一推導，推導過程見各 it() 註解
+// （不從公式反推期望值，是先手算、再用測試釘住）。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope: notch-reduced／notch-omitted／platform-corner-omitted（U-notch／平台角可容納降級）', () => {
+  it('production-P 預設參數：全部可容納，三條新 invariant 皆通過（∅ 警告，spec S1）', () => {
+    const params = resolveParams(telescope, { baseLength: 179, baseWidth: 124, basePlatformWidth: 5, lidPlatformWidth: 0 });
+    const result = telescope.generate(params);
+    for (const id of ['notch-reduced', 'notch-omitted', 'platform-corner-omitted']) {
+      const inv = telescope.invariants.find((i) => i.id === id)!;
+      expect(inv.check(params, result), id).toMatchObject({ ok: true });
+    }
+  });
+
+  it('baseLength=60（側壁長壁 span=60）：2×(29.3385/179)×60−30=−10.3<5 → 兩 notch 放不下但 60≥40 → notch-reduced', () => {
+    const params = resolveParams(telescope, { baseLength: 60, baseWidth: 40 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'notch-reduced')!;
+    expect(inv.check(params, result)).toMatchObject({ ok: false });
+    const omitted = telescope.invariants.find((i) => i.id === 'notch-omitted')!;
+    expect(omitted.check(params, result), '短壁 baseWidth=40 恰為門檻，仍可容納單一 notch').toMatchObject({ ok: true });
+  });
+
+  it('baseLength=40, baseWidth=30：長壁 40（僅剛好夠單一置中,notch-reduced）＋短壁 30<40（notch-omitted）同時成立', () => {
+    const params = resolveParams(telescope, { baseLength: 40, baseWidth: 30 });
+    const result = telescope.generate(params);
+    const reduced = telescope.invariants.find((i) => i.id === 'notch-reduced')!;
+    const omitted = telescope.invariants.find((i) => i.id === 'notch-omitted')!;
+    expect(reduced.check(params, result), '長壁 40：雙 notch 放不下但單一 40≥40 可容納').toMatchObject({ ok: false });
+    expect(omitted.check(params, result), '短壁 30<40：單一 notch 也放不下，全省').toMatchObject({ ok: false });
+  });
+
+  it('basePlatformWidth=2（<2.5）：平台角圓角降級為直角（platform-corner-omitted），2.5 剛好不觸發', () => {
+    const below = resolveParams(telescope, { basePlatformWidth: 2 });
+    const belowResult = telescope.generate(below);
+    const inv = telescope.invariants.find((i) => i.id === 'platform-corner-omitted')!;
+    expect(inv.check(below, belowResult)).toMatchObject({ ok: false });
+
+    const atThreshold = resolveParams(telescope, { basePlatformWidth: 2.5 });
+    expect(inv.check(atThreshold, telescope.generate(atThreshold)), '恰等於門檻（非嚴格小於）應通過').toMatchObject({ ok: true });
+  });
+
+  it('lidPlatformWidth>0（款式互換情境）時同樣受兩組門檻約束，不是只查 base', () => {
+    const params = resolveParams(telescope, { basePlatformWidth: 0, lidPlatformWidth: 2, lidMarginX: 5, lidMarginY: 5 });
+    const result = telescope.generate(params);
+    const cornerInv = telescope.invariants.find((i) => i.id === 'platform-corner-omitted')!;
+    expect(cornerInv.check(params, result), 'lidPlatformWidth=2<2.5 應觸發').toMatchObject({ ok: false });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // FX4（whole-branch review 查證）：telescope 不變式 tags 是否對應真實幾何
 //
 // 查證結論＝是 bug（見 src/boxes/telescope/index.ts 不變式區塊前的長註解）：Canvas.tsx
@@ -1243,6 +1295,27 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
         expect(vocab.has(tag), `tag「${tag}」應命中至少一條真實 path（否則高亮 no-op）`).toBe(true);
       }
     }
+  });
+
+  it('notch-reduced／notch-omitted／platform-corner-omitted（Slice 5 F4/F6-A 新增）：警告 tags 全部命中真實 path tag（uNotch／platformCorner，見 realPathTagVocabulary 的 withLiner 變體，basePlatformWidth=5 預設值）', () => {
+    const vocab = realPathTagVocabulary();
+    expect(vocab.has('uNotch'), 'sanity：A 款預設參數應存在 uNotch tag').toBe(true);
+    expect(vocab.has('platformCorner'), 'sanity：A 款預設參數應存在 platformCorner tag').toBe(true);
+
+    const reducedParams = resolveParams(telescope, { baseLength: 60, baseWidth: 40 });
+    const reducedOutcome = telescope.invariants.find((i) => i.id === 'notch-reduced')!.check(reducedParams, telescope.generate(reducedParams));
+    expect(reducedOutcome.ok).toBe(false);
+    if (!reducedOutcome.ok) for (const tag of reducedOutcome.tags!) expect(vocab.has(tag), tag).toBe(true);
+
+    const omittedParams = resolveParams(telescope, { baseLength: 40, baseWidth: 30 });
+    const omittedOutcome = telescope.invariants.find((i) => i.id === 'notch-omitted')!.check(omittedParams, telescope.generate(omittedParams));
+    expect(omittedOutcome.ok).toBe(false);
+    if (!omittedOutcome.ok) for (const tag of omittedOutcome.tags!) expect(vocab.has(tag), tag).toBe(true);
+
+    const cornerParams = resolveParams(telescope, { basePlatformWidth: 2 });
+    const cornerOutcome = telescope.invariants.find((i) => i.id === 'platform-corner-omitted')!.check(cornerParams, telescope.generate(cornerParams));
+    expect(cornerOutcome.ok).toBe(false);
+    if (!cornerOutcome.ok) for (const tag of cornerOutcome.tags!) expect(vocab.has(tag), tag).toBe(true);
   });
 });
 

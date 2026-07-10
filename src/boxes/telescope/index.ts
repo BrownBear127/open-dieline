@@ -300,6 +300,61 @@ export function minStyleBHeight(thickness: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// U-notch／平台角圓角可容納降級（Slice 5 F4／F6-A，spec §縮放與降級規律）
+// ─────────────────────────────────────────────────────────────────────────
+
+// 複製自 tray.ts 的 A 款細節私有常數（tray.ts 未 export；若該檔調整這些值，這裡需要
+// 同步更新——同上方 B 款角撐/插底舌常數的先例）。
+const NOTCH_OPENING_MM = 30;
+const NOTCH_CENTER_RATIO_TS = 29.3385 / 179;
+const NOTCH_SAFETY_MARGIN_MM = 5;
+const PLATFORM_CORNER_MIN_WIDTH_MM = 2.5;
+
+/**
+ * 單一壁的 notch 降級狀態（spec §縮放與降級表逐字對應 tray.ts 的 longWallNotchPlan／
+ * shortWallNotchPlan，這裡獨立重算供 invariant 用，不 import tray.ts 私有函式）：
+ * 長壁（2 notch，isLongWall=true）先驗兩個能否都放下，放不下先退化為單一置中
+ * （notch-reduced），連單一都放不下才全省（notch-omitted）；短壁（1 notch 置中）
+ * 放不下直接全省。回傳 undefined＝可容納、無降級。
+ */
+function notchDegradation(wallSpan: number, isLongWall: boolean): 'notch-reduced' | 'notch-omitted' | undefined {
+  const minSpanForOne = NOTCH_OPENING_MM + 2 * NOTCH_SAFETY_MARGIN_MM;
+  if (isLongWall) {
+    const center = NOTCH_CENTER_RATIO_TS * wallSpan;
+    const halfOpen = NOTCH_OPENING_MM / 2;
+    const twoFits = 2 * center - NOTCH_OPENING_MM >= NOTCH_SAFETY_MARGIN_MM && center + halfOpen <= wallSpan / 2;
+    if (twoFits) return undefined;
+    return wallSpan >= minSpanForOne ? 'notch-reduced' : 'notch-omitted';
+  }
+  return wallSpan >= minSpanForOne ? undefined : 'notch-omitted';
+}
+
+/**
+ * 兩件（base／lid）裡 platformWidth>0（A 款）的那些，各自長壁／短壁 span 是否命中
+ * 指定降級狀態——notch-reduced／notch-omitted 兩條 invariant 共用同一次掃描。
+ * 長壁 span＝該片後摺壁面板邊長（base＝baseLength、lid＝baseLength+2×lidMarginY）；
+ * 短壁 span＝先摺壁面板邊長（base＝baseWidth、lid＝baseWidth+2×lidMarginX）——見
+ * generate() 的 lidPanelX/lidPanelY 推導、tray.ts 的長壁/短壁對應（longWall=x 向牆
+ * ＝panelW 方向＝baseLength 軸、shortWall=y 向牆＝panelL 方向＝baseWidth 軸）。
+ */
+function anyNotchDegradation(params: ResolvedParams, want: 'notch-reduced' | 'notch-omitted'): boolean {
+  const baseLength = params.baseLength as number;
+  const baseWidth = params.baseWidth as number;
+  const lidMarginX = params.lidMarginX as number;
+  const lidMarginY = params.lidMarginY as number;
+  const pieces: Array<[number, number, number]> = [
+    [params.basePlatformWidth as number, baseLength, baseWidth],
+    [params.lidPlatformWidth as number, baseLength + 2 * lidMarginY, baseWidth + 2 * lidMarginX],
+  ];
+  for (const [platformWidth, longSpan, shortSpan] of pieces) {
+    if (platformWidth <= 0) continue;
+    if (notchDegradation(longSpan, true) === want) return true;
+    if (notchDegradation(shortSpan, false) === want) return true;
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // 插底舌梯形最小垂直半跨——解析推導（T5 param-sweep 挖出的退化區，fix wave F1）
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -801,6 +856,43 @@ const invariants: BoxInvariant[] = [
         }
       }
       return { ok: true };
+    },
+  },
+  {
+    id: 'notch-reduced',
+    description: {
+      zh: 'Slice 5 F4／spec §縮放與降級表：A 款（platformWidth>0）側壁雙 U-notch 若中心距/開口不足以並存兩個（2×比例中心距−30<5，或有一個超出壁內），先退化為單一置中 notch。只警告不擋，讓使用者知道細節已降級（tray.ts longWallNotchPlan 的同一門檻，這裡獨立重算供 UI 警告用）。',
+    },
+    check(params) {
+      if (!anyNotchDegradation(params, 'notch-reduced')) return { ok: true };
+      return { ok: false, message: { zh: '側壁雙 U-notch 放不下兩個，已退化為單一置中 notch（notch-reduced）' }, tags: ['tongueFold', 'uNotch'] };
+    },
+  },
+  {
+    id: 'notch-omitted',
+    description: {
+      zh: 'Slice 5 F4／spec §縮放與降級表：A 款（platformWidth>0）U-notch（側壁單一置中或上下壁）若壁長不足 30+2×5=40mm，該 notch 全省（結構主體仍合法，只是不再有這個功能性讓位槽）。只警告不擋。',
+    },
+    check(params) {
+      if (!anyNotchDegradation(params, 'notch-omitted')) return { ok: true };
+      return { ok: false, message: { zh: 'U-notch 壁長不足 40mm，已全部省略（notch-omitted）' }, tags: ['tongueFold', 'uNotch'] };
+    },
+  },
+  {
+    id: 'platform-corner-omitted',
+    description: {
+      zh: 'Slice 5 F6-A／spec §縮放與降級表：A 款平台端 R2.5 圓角需 platformWidth≥2.5mm 才有意義，否則降級為直角轉接（platform-corner-omitted）。只警告不擋。',
+    },
+    check(params) {
+      const basePlatformWidth = params.basePlatformWidth as number;
+      const lidPlatformWidth = params.lidPlatformWidth as number;
+      const degraded = (basePlatformWidth > 0 && basePlatformWidth < PLATFORM_CORNER_MIN_WIDTH_MM) || (lidPlatformWidth > 0 && lidPlatformWidth < PLATFORM_CORNER_MIN_WIDTH_MM);
+      if (!degraded) return { ok: true };
+      return {
+        ok: false,
+        message: { zh: `平台端寬度低於 ${PLATFORM_CORNER_MIN_WIDTH_MM}mm，角落圓角降級為直角（platform-corner-omitted）` },
+        tags: ['platformCorner'],
+      };
     },
   },
   {
