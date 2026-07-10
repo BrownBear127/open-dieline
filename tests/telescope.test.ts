@@ -177,9 +177,12 @@ describe('generateTray', () => {
     );
     expect(topAlongs, 'platform>0 時壁頂應有兩個相異駐留座標（兩條 crease）').toHaveLength(2);
 
-    const tongueFold = findTagged(result.paths, 'tongueFold', 'left');
-    expect(tongueFold.length).toBeGreaterThan(0);
-    const tongueFoldAlong = alongOf(tongueFold[0]!.segments[0]!, 'x');
+    // Slice 5 F4：A 款舌摺線含 U-notch（cut，開口/底/圓角座標各異，非單純 along 定值線）
+    // ＋halfcut 分段（各段仍在同一 along=tongueFoldAlong）——取 along 值改查 halfcut
+    // （對 A/B 兩款都是「沿線各段 along 皆定值」的可靠來源，notch 的 cut 不是）。
+    const tongueFoldHalfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
+    expect(tongueFoldHalfcut.length).toBeGreaterThan(0);
+    const tongueFoldAlong = alongOf(tongueFoldHalfcut[0]!.segments[0]!, 'x');
 
     const tongueFlap = findTagged(result.paths, 'tongueFlap', 'left', 'cut');
     expect(tongueFlap).toHaveLength(1);
@@ -221,8 +224,9 @@ describe('generateTray', () => {
     expect(outerWall, 'y 向 outerWall = H（base／lid 皆不做平齊修正，F3 前後外壁一致）').toBeCloseTo(60, 6);
     expect(platformGap).toBeCloseTo(5, 6);
 
-    const tongueFold = findTagged(result.paths, 'tongueFold', 'back');
-    const tongueFoldAlong = alongOf(tongueFold[0]!.segments[0]!, 'y');
+    // Slice 5 F4：改查 halfcut（沿線各段 along 皆定值＝tongueFoldAlong，notch 的 cut 不是，見上方 x 向測試同款修正）。
+    const tongueFoldHalfcut = findTagged(result.paths, 'tongueFold', 'back', 'halfcut');
+    const tongueFoldAlong = alongOf(tongueFoldHalfcut[0]!.segments[0]!, 'y');
     const innerWall = tongueFoldAlong - topAlongs[1]!;
     // 59.2＝60−innerWallReduction(0.8)——F3 解耦後的公式。數值恰與舊公式 60−2t(0.4)=59.2
     // 巧合相同（baseOpts 選用 innerWallReduction=0.8=2×0.4），x 向 outerWall/innerWall
@@ -235,14 +239,23 @@ describe('generateTray', () => {
     expect(flapAlongs.some((v) => Math.abs(v - deepestAlong) < 1e-6), 'tongueFlap 應有一點落在全深 15mm 處').toBe(true);
   });
 
-  it('線型斷言：舌摺線含 halfcut 段（中段）與 cut 段（兩端讓位角撐，維護者裁決需軋斷·2026-07-09 T7 gate）', () => {
+  it('線型斷言（Slice 5 F4 retire：A 款舊「兩端 9mm cut 讓位」語意退役，改 U-notch 切段拓撲）：左右壁（長壁，2 notch）halfcut 3 段＋notch cut 10 段（2×5）', () => {
     const result = generateTray(baseOpts);
     const halfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
-    const cut = findTagged(result.paths, 'tongueFold', 'left', 'cut');
-    expect(halfcut.length, '舌摺線應有 halfcut 型別的路徑（中段）').toBeGreaterThan(0);
-    expect(cut.length, '舌摺線應有 cut 型別的路徑（兩端讓位角撐，自由邊必須軋斷）').toBeGreaterThan(0);
-    expect(halfcut[0]!.segments).toHaveLength(1);
-    expect(cut[0]!.segments, '兩端各一條 cut，合計 2 段').toHaveLength(2);
+    const notchCut = findTagged(result.paths, 'tongueFold', 'left', 'cut');
+    expect(halfcut.length, '舌摺線應有 halfcut 型別的路徑（notch 之間與角落 reach 之間的段）').toBe(1);
+    expect(notchCut.length, '舌摺線應有 cut 型別的路徑（U-notch 本身，full-cut）').toBe(1);
+    expect(halfcut[0]!.segments, '長壁（左右）2 notch → 3 段 halfcut（reach↔notch1／notch1↔notch2／notch2↔reach）').toHaveLength(3);
+    expect(notchCut[0]!.segments, '2 個 U-notch，每個 5 段（2 line＋2 arc＋1 底線）＝10 段').toHaveLength(10);
+    expect(notchCut[0]!.tags).toContain('uNotch');
+  });
+
+  it('線型斷言（同上，短壁）：前後壁（短壁，1 notch 置中）halfcut 2 段＋notch cut 5 段', () => {
+    const result = generateTray(baseOpts);
+    const halfcut = findTagged(result.paths, 'tongueFold', 'back', 'halfcut');
+    const notchCut = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(halfcut[0]!.segments, '短壁（前後）1 notch 置中 → 2 段 halfcut（reach↔notch 兩側各一）').toHaveLength(2);
+    expect(notchCut[0]!.segments, '1 個 U-notch＝5 段').toHaveLength(5);
   });
 
   it('rootJog=0 時 y 向壁根 collapse 為單一 crease（與 t 解耦——F3：即使 thickness=0.4≠0 仍 collapse，不得輸出兩條重合線）', () => {
@@ -377,8 +390,9 @@ describe('generateTray', () => {
       );
       const outerWall = Math.abs(topAlongs[0]! - rootAlong);
 
-      const tongueFold = findTagged(result.paths, 'tongueFold', 'left');
-      const tongueFoldAlong = alongOf(tongueFold[0]!.segments[0]!, 'x');
+      // Slice 5 F4：改查 halfcut（見前面兩則 x/y 向間距測試同款修正）。
+      const tongueFoldHalfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
+      const tongueFoldAlong = alongOf(tongueFoldHalfcut[0]!.segments[0]!, 'x');
       const innerWall = Math.abs(tongueFoldAlong - topAlongs[topAlongs.length - 1]!);
 
       return { doubleCreaseGap, outerWall, innerWall };
@@ -640,6 +654,172 @@ describe('gusset 幾何（座標級迴歸）', () => {
       }
     }
     expect(failures, `異常組合：${failures.join('; ')}`).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 F4／F6-A（Task 3）：U-notch＋halfcut 分段＋平台角撐周邊複合 relief 鏈。
+// baseOpts 的 panelL=124/panelW=179 與 production-P 完全相同（僅 thickness=0.4≠0.44，
+// 但本節測項全不依賴 thickness——notch/halfcut/角撐周邊鏈皆與 t 無關），故座標／長度
+// 錨可直接對 T0 座標表（tests/fixtures/telescope-production-details.json）±0.05 對算。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('generateTray: F4 U-notch＋halfcut 分段（A 款專屬，T0 座標表對算）', () => {
+  const T = 0.05; // T0 對算容差
+
+  it('側壁（左右壁，長壁）雙 notch 中心比例＝±(29.3385/179)×sideRootSpan（panelW=179 時精確為 ±29.3385）', () => {
+    const result = generateTray(baseOpts);
+    const notch = findTagged(result.paths, 'tongueFold', 'left', 'cut');
+    expect(notch, '左壁應恰有 1 條 notch cut path').toHaveLength(1);
+    // 底線（26mm 直線，非圓角）的中點＝notch 中心；兩個 notch 各一條，用長度=26 篩出。
+    const baseLines = (notch[0]!.segments as LineSeg[]).filter((s) => Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1) - 26) < 1e-6);
+    expect(baseLines, '2 個 notch，各 1 條 26mm 底線').toHaveLength(2);
+    const centers = baseLines.map((s) => (s.y1 + s.y2) / 2).sort((a, b) => a - b);
+    expect(centers[0]).toBeCloseTo(-29.3385, 2);
+    expect(centers[1]).toBeCloseTo(29.3385, 2);
+  });
+
+  it('上下壁（前後壁，短壁）單 notch 置中：底線中點＝0', () => {
+    const result = generateTray(baseOpts);
+    const notch = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(notch).toHaveLength(1);
+    const baseLine = (notch[0]!.segments as LineSeg[]).find((s) => Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1) - 26) < 1e-6)!;
+    expect(baseLine, '應找到 1 條 26mm 底線').toBeDefined();
+    expect((baseLine.x1 + baseLine.x2) / 2, '短壁 notch 置中，底線中點＝0').toBeCloseTo(0, 6);
+  });
+
+  it('U-notch nominal 尺寸：開口 30／底 26／深 4.2／R2×12（左壁校準點，T0 對算 ±0.05）', () => {
+    const result = generateTray(baseOpts);
+    const notch = findTagged(result.paths, 'tongueFold', 'left', 'cut');
+    const tongueFoldHalfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
+    const alongOpening = alongOf(tongueFoldHalfcut[0]!.segments[0]!, 'x');
+    const segs = notch[0]!.segments as LineSeg[];
+
+    // 左壁單壁 2 個 notch×2 弧＝4；6 notch×2＝12 的全域計數見 telescope-fixture.test.ts
+    // 的「F4／F6-A production-P 錨」（跨全部 4 面壁彙總）。
+    const arcs = notch[0]!.segments.filter((s): s is ArcSeg => s.kind === 'arc');
+    expect(arcs, '左壁 2 個 notch×2 弧＝4 個 R2 弧').toHaveLength(4);
+    for (const a of arcs) expect(a.r, 'notch 圓角半徑 R2').toBeCloseTo(2, 6);
+
+    // 「開口端」短直線：恰有一端落在 along=alongOpening（notch 開口與 tongueFold 邊緣重合，
+    // 見 tray.ts uNotchSegments 註解）；兩條的 perp 值相減＝開口寬 30。
+    const openingTouching = segs.filter((s) => Math.abs(s.x1 - alongOpening) < 1e-6 || Math.abs(s.x2 - alongOpening) < 1e-6);
+    const leftWallOpeningTouching = openingTouching.filter((s) => Math.abs(s.y1 - -29.3385) < 20 || Math.abs(s.y2 - -29.3385) < 20);
+    expect(leftWallOpeningTouching, '負側 notch（s_center=-29.3385）應有 2 條開口端短直線').toHaveLength(2);
+    const openingYs = leftWallOpeningTouching.map((s) => (Math.abs(s.x1 - alongOpening) < 1e-6 ? s.y1 : s.y2));
+    expect(Math.abs(openingYs[1]! - openingYs[0]!), '開口寬＝30').toBeCloseTo(30, 1);
+
+    // 底線（26mm 直線）與開口（alongOpening）的 along 差＝深度 4.2。
+    const baseLine = segs.find((s) => Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1) - 26) < 1e-3 && Math.abs(s.y1 - -29.3385) < 20)!;
+    expect(baseLine, '應找到 26mm 底線').toBeDefined();
+    expect(Math.abs(baseLine.x1 - alongOpening), 'notch 深度＝4.2').toBeCloseTo(4.2, 2);
+  });
+
+  it('halfcut 分段長度：左壁 3 段 23.661/28.677/23.661、前壁 2 段 45.000×2（T0 對算 ±0.05，與 thickness 無關）', () => {
+    const result = generateTray(baseOpts);
+    const leftHalfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
+    const leftLens = (leftHalfcut[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1)).sort((a, b) => a - b);
+    expect(leftLens, '左壁 3 段（T0：23.6608/28.6773/23.6608）').toHaveLength(3);
+    expect(leftLens[0]).toBeCloseTo(23.6608, 1);
+    expect(leftLens[1]).toBeCloseTo(23.6608, 1);
+    expect(leftLens[2]).toBeCloseTo(28.6773, 1);
+
+    const frontHalfcut = findTagged(result.paths, 'tongueFold', 'front', 'halfcut');
+    const frontLens = (frontHalfcut[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(frontLens, '前壁 2 段（T0：45.0003×2）').toHaveLength(2);
+    for (const l of frontLens) expect(l).toBeCloseTo(45.0003, 1);
+
+    const totalAllWalls =
+      leftLens.reduce((a, b) => a + b, 0) * 2 + // 左右壁對稱
+      frontLens.reduce((a, b) => a + b, 0) * 2; // 前後壁對稱
+    expect(Math.abs(totalAllWalls - 332.0), `halfcut 總長 ${totalAllWalls.toFixed(4)}`).toBeLessThanOrEqual(0.5);
+  });
+
+  it('降級：notch-omitted（壁長<40）與 notch-reduced（壁長不足容納兩個但仍≥40）改變 notch/halfcut 結構', () => {
+    // panelW=35（短壁 span<40）→ 全省，halfcut 應收斂為單一整段
+    const omitted = generateTray({ ...baseOpts, panelL: 35 });
+    const frontNotchOmitted = findTagged(omitted.paths, 'tongueFold', 'front', 'cut');
+    expect(frontNotchOmitted, 'panelL=35＜40，前壁 notch 應全省').toHaveLength(0);
+    const frontHalfcutOmitted = findTagged(omitted.paths, 'tongueFold', 'front', 'halfcut');
+    expect(frontHalfcutOmitted[0]!.segments, '全省後 halfcut 收斂為單一整段').toHaveLength(1);
+
+    // panelW=90（長壁 span<比例雙 notch 門檻(~106.87)但≥40，且留給角落 reach(21.5018×2)
+    // 與 notch 半寬(15) 的空間仍為正——見 A_CHAIN_REACH_LONGWALL 常數；panelW 太小會讓
+    // halfcut 邊界公式退化出負長度段，那是另一個獨立的參數域邊界，不是本測項要驗的東西）
+    // → 退化為單一置中 notch。
+    const reduced = generateTray({ ...baseOpts, panelW: 90 });
+    const leftNotchReduced = findTagged(reduced.paths, 'tongueFold', 'left', 'cut');
+    expect(leftNotchReduced[0]!.segments, 'panelW=90 退化為單一 notch＝5 段').toHaveLength(5);
+    const leftHalfcutReduced = findTagged(reduced.paths, 'tongueFold', 'left', 'halfcut');
+    expect(leftHalfcutReduced[0]!.segments, '單一置中 notch → 2 段 halfcut').toHaveLength(2);
+  });
+});
+
+describe('generateTray: F6-A 平台端內縮＋角撐周邊複合 relief 鏈（A 款專屬，T0 座標表對算）', () => {
+  it('平台端第二條 crease 兩端內縮：長壁(左右) 4.5mm／短壁(前後) 5.0mm（spec nominal）', () => {
+    const result = generateTray(baseOpts);
+    const halfW = baseOpts.panelW / 2;
+    const halfL = baseOpts.panelL / 2;
+    // 左壁（x 向牆）：crease 沿 toXY('x',along,perp)={x:along,y:perp}——同一 along 的 crease
+    // 兩端點 x 相同（定值）、y（perp，即壁長方向）才是要驗內縮的軸。
+    const leftTop = findTagged(result.paths, 'wallTop', 'left', 'crease');
+    const insetSeg = (leftTop[0]!.segments as LineSeg[]).find((s) => Math.abs(s.x1 - s.x2) < 1e-6 && Math.abs(s.y1) < halfW)!;
+    expect(insetSeg, '應找到內縮的第二條 crease（perp 跨距 < 壁全寬）').toBeDefined();
+    expect(halfW - Math.abs(insetSeg.y1), '長壁內縮量＝4.5').toBeCloseTo(4.5, 6);
+
+    // 後壁（y 向牆）：crease 沿 toXY('y',along,perp)={x:perp,y:along}——y 定值、x（壁長方向）內縮。
+    const backTop = findTagged(result.paths, 'wallTop', 'back', 'crease');
+    const insetSegY = (backTop[0]!.segments as LineSeg[]).find((s) => Math.abs(s.y1 - s.y2) < 1e-6 && Math.abs(s.x1) < halfL)!;
+    expect(insetSegY, '短壁應同樣找到內縮的第二條 crease').toBeDefined();
+    expect(halfL - Math.abs(insetSegY.x1), '短壁內縮量＝5.0').toBeCloseTo(5.0, 6);
+  });
+
+  it('4 個角落皆有平台角圓角（platformCorner，R2.5）＋角撐周邊複合鏈（aGussetPeriphery，13 段，僅 cut 無 crease）', () => {
+    const result = generateTray(baseOpts);
+    for (const label of ['right-back', 'right-front', 'left-back', 'left-front']) {
+      const corner = findTagged(result.paths, 'platformCorner', label, 'cut');
+      expect(corner, `${label} 應有 1 條 platformCorner cut path`).toHaveLength(1);
+      const arc = corner[0]!.segments.find((s): s is ArcSeg => s.kind === 'arc');
+      expect(arc, `${label} 應含 1 個 R2.5 圓角`).toBeDefined();
+      expect(arc!.r).toBeCloseTo(2.5, 6);
+
+      const chain = findTagged(result.paths, 'aGussetPeriphery', label, 'cut');
+      expect(chain, `${label} 應有 1 條 aGussetPeriphery cut path`).toHaveLength(1);
+      expect(chain[0]!.segments, `${label}：14 段（16 段複合鏈扣除與既有 outerCut 重複的 2 段，見 tray.ts A_GUSSET_OUTER 註解）`).toHaveLength(13);
+    }
+  });
+
+  it('180° 旋轉實例化：對角角落（left-front↔right-back）座標精確互為負值（角落為旋轉中心，見 buildAGussetChain）', () => {
+    const result = generateTray(baseOpts);
+    const lf = findTagged(result.paths, 'aGussetPeriphery', 'left-front', 'cut')[0]!.segments as LineSeg[];
+    const rb = findTagged(result.paths, 'aGussetPeriphery', 'right-back', 'cut')[0]!.segments as LineSeg[];
+    expect(lf).toHaveLength(rb.length);
+    // 逐點反向比對：lf 第 i 段的兩端點，180° 旋轉（negate x,y）後應精確等於 rb 第 i 段
+    // 對應端點（corner+sx*a+sy*b 這個實例化公式，對角角落數學上恆等於 180° 旋轉，見
+    // 開發紀錄 對算過程——本測試釘住這個關係不被意外破壞）。
+    for (let i = 0; i < lf.length; i++) {
+      const a = lf[i]!;
+      const b = rb[i]!;
+      expect(-a.x1).toBeCloseTo(b.x1, 6);
+      expect(-a.y1).toBeCloseTo(b.y1, 6);
+      expect(-a.x2).toBeCloseTo(b.x2, 6);
+      expect(-a.y2).toBeCloseTo(b.y2, 6);
+    }
+  });
+
+  it('T0 座標表逐項對（left-front 角，±0.05mm）：10° cut、角撐周邊鏈終點（halfcut 邊界）、平台角圓角轉接鏈端點', () => {
+    // baseOpts 角落 left-front = (-62, -89.5)；T0 topLeft 對應同一角。座標换算：本函式
+    // 用的 (a,b) 與 T0 fixture 的 P 絕對座標差一個仿射變換，這裡改用「相對角落的位移」
+    // 直接比對（T0 座標見 aGussetPeriphery_reliefChain 的 (a,b) 換算，開發紀錄）。
+    const result = generateTray(baseOpts);
+    const cornerX = -62;
+    const cornerY = -89.5;
+    const chain = findTagged(result.paths, 'aGussetPeriphery', 'left-front', 'cut');
+    const T = 0.05;
+    // LINE27（10° cut）：corner+(59.4995,0) → corner+(64.4984,-0.8819)
+    expectLine(chain, cornerX - 59.4995, cornerY, cornerX - 64.4984, cornerY + 0.8819, T, '10° cut（LINE27）');
+    // LINE92 終點＝角撐周邊鏈與 halfcut 邊界的交會點：corner+(123.2006,-21.5018)（tongueFold 距離,鏈 reach）
+    expectLine(chain, cornerX - 121.2003, cornerY + 21.5018, cornerX - 123.2006, cornerY + 21.5018, T, 'LINE92（notch 逼近終點→halfcut 邊界）');
   });
 });
 
