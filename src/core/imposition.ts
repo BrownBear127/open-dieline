@@ -35,6 +35,11 @@ export const PAPER_PRESETS: readonly PaperPreset[] = [
  * 依據：件寬 30、gap 3.1、可用區 228.6 時 7 件的 footprint 理論上恰為 228.6，但
  * `7*30+6*3.1` 與可用區 228.6 兩邊在 IEEE754 double 各自帶浮點噪音、方向不保證一致，
  * 裸比較（`<=`, 無 epsilon）會誤判「超額」而少算一模。
+ *
+ * 已知語意界（gate round 1 SOL review·Record only）：絕對 epsilon 在 MIN_DIMENSION_MM
+ * （0.01mm）尺度的件下不再是「噪音級」——如件寬 0.01、可用差額 0.0099995 時會多算一件。
+ * 該尺度的刀模物理上不存在（安全界是防護欄不是使用範圍），且本工具是估算示範（免責
+ * 聲明明示不可直接生產），故不為此改用 ULP 容差（會動 exact-fit 全部錨定）。
  */
 export const FIT_EPSILON_MM = 1e-6;
 
@@ -364,8 +369,11 @@ function computeDirection(
 }
 
 /** `StripFill` 三欄是否全為 finite；`null` 本身是合法值（`fillSplit=null` 時的兩 fill），
- *  視為「通過」不是異常。 */
-function isFiniteStripFill(fill: StripFill | null): boolean {
+ *  視為「通過」不是異常。（gate round 1 T1 review Fix 3：export 供獨立測試——原本是私有
+ *  helper，只能透過 `isFiniteDirectionResult`／`computeImposition` 間接測，正常輸入路徑
+ *  必然餵 finite 值，刪掉這個呼叫測試也照樣綠、沒有鑑別力；export 後可直接餵 NaN/Infinity
+ *  斷言拒絕，見 tests/imposition.test.ts。純 export，行為逐字不變。） */
+export function isFiniteStripFill(fill: StripFill | null): boolean {
   if (fill === null) return true;
   return Number.isFinite(fill.cols) && Number.isFinite(fill.rows) && Number.isFinite(fill.count);
 }
