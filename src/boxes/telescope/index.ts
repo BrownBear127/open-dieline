@@ -355,6 +355,35 @@ function anyNotchDegradation(params: ResolvedParams, want: 'notch-reduced' | 'no
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// A 款角撐周邊複合 relief 鏈可容納性（Fix 2·2026-07-11 SOL review H2，取代先前的
+// 無條件縮放安全網——tray.ts 的 buildAGussetChain 已改為固定 nominal＋放不下就整鏈省略）
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * 複合 relief 鏈是否被 tray.ts 省略——**直接檢查生成結果**（`aGussetPeriphery` tag 是否
+ * 存在），不獨立重算可容納公式。這裡跟 notchDegradation／anyNotchDegradation 的「獨立
+ * 重算」慣例不同——是刻意的：tray.ts 的可容納判定除了單純的 b 軸（notch/壁界）門檻，
+ * 還疊了一層 a 軸自撞自檢（aGussetChainSelfIntersects，見 tray.ts buildAGussetChain
+ * 之後的 aGussetChainFits 註解），公式牽涉 hasSelfIntersection＋兩個模板的完整幾何，
+ * 獨立重算會複製一大段 tray.ts 邏輯、兩處還可能漂移出不一致判定——改為直接讀生成結果，
+ * 保證這條 invariant 與 tray.ts 的實際輸出**恆一致**（不會有「幾何已省略但沒警告」或
+ * 「幾何仍在但誤警告」的兩處公式對不齊）。
+ */
+function anyGussetChainOmitted(params: ResolvedParams, result: GenerateResult): boolean {
+  const pieces: Array<['base' | 'lid', number]> = [
+    ['base', params.basePlatformWidth as number],
+    ['lid', params.lidPlatformWidth as number],
+  ];
+  for (const [pieceId, platformWidth] of pieces) {
+    if (platformWidth <= 0) continue; // useThickStyle=false，鏈本來就不適用（B 款無此細節）
+    const piece = result.pieces!.find((p) => p.id === pieceId)!;
+    const hasChain = result.paths.some((p) => piece.pathIds.includes(p.id) && p.tags?.includes('aGussetPeriphery'));
+    if (!hasChain) return true;
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // 插底舌梯形最小垂直半跨——解析推導（T5 param-sweep 挖出的退化區，fix wave F1）
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -892,6 +921,20 @@ const invariants: BoxInvariant[] = [
         ok: false,
         message: { zh: `平台端寬度低於 ${PLATFORM_CORNER_MIN_WIDTH_MM}mm，角落圓角降級為直角（platform-corner-omitted）` },
         tags: ['platformCorner'],
+      };
+    },
+  },
+  {
+    id: 'gusset-relief-omitted',
+    description: {
+      zh: 'Fix 2·2026-07-11 SOL review H2／spec §縮放與降級規律「放不下就省略＋警告」：A 款角撐周邊複合 relief 鏈（aGussetPeriphery）尺寸固定 nominal 不隨壁高縮放（Fix 3 取代先前的無條件縮放安全網），壁長過短（與 U-notch 或壁界衝突）或壁高極端偏離校準值（鏈自身因錨點校正而扭曲自撞）時整鏈省略，只警告不擋。與 notch-reduced/notch-omitted 各自獨立判斷（鏈可能省略但 notch 仍可容納，反之亦然）。',
+    },
+    check(params, result) {
+      if (!anyGussetChainOmitted(params, result)) return { ok: true };
+      return {
+        ok: false,
+        message: { zh: '長壁過短，A 款角撐周邊複合 relief 鏈與 U-notch 或壁界衝突，已整鏈省略（gusset-relief-omitted）' },
+        tags: ['aGussetPeriphery'],
       };
     },
   },

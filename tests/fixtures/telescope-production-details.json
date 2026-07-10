@@ -26,7 +26,8 @@
       "gate": "T0 independent re-derivation (Opus 4.8, 2026-07-11): PASS — 100/100 category checks CONFIRMED, 84/84 coordinate gids, 0 discrepancy",
       "cornerSymmetry": "四角＝180° 旋轉（pinwheel），非軸鏡射——相鄰角反手性（平台 relief 外垂直 78.46 vs 58.46mm）；實例化必須用旋轉，鏡射會在 topRight/bottomLeft 做出錯誤手性",
       "mirrorGidsCaveat": "mirror_gids 為近似交叉參照（僅 topLeft 全鏈追跡；topRight 漏 LINE22、bottomLeft/bottomRight 清單碎片化、gusset 對角 LINE52/54/103 未列）——座標權威不受影響，僅 topLeft 帶座標、其餘角以 180° 旋轉導出",
-      "aGussetChain": "平台端內縮與 A 款角撐周邊＝單一 16 段連通鏈（10° cut 為樞紐）——aGussetPeriphery_reliefChain 為形狀權威，參數化標量僅供降級判定（spec F6 v1.3）"
+      "aGussetChain": "平台端內縮與 A 款角撐周邊＝單一 16 段連通鏈（10° cut 為樞紐）——aGussetPeriphery_reliefChain 為形狀權威，參數化標量僅供降級判定（spec F6 v1.3）",
+      "topRightMeasurement": "Fix 1（2026-07-11）：topRight 角 relief chain 獨立補量（見 base.aGussetPeriphery_reliefChain.topRightCorner_* 三欄＋topRightCorner_note）——用於 T3 的兩手性模板（topLeft／topRight 各自180° 旋轉配對：left-front+right-back 用 topLeft 模板、right-front+left-back 用 topRight 模板），取代先前四角統一套用 topLeft 模板（在相鄰角落產生錯誤鏡射手性）的做法。"
     }
   },
   "nominalVsMeasured": {
@@ -1231,7 +1232,209 @@
           "LINE13",
           "LINE209"
         ]
-      }
+      },
+      "topRightCorner_outer_cut": [
+        {
+          "gid": "LINE12",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            795.3834,
+            199.136
+          ],
+          "p2_mm": [
+            800.3822,
+            200.0179
+          ],
+          "length_mm": 5.0761,
+          "angle_deg": 10.0057
+        }
+      ],
+      "topRightCorner_platformRelief_chain": [
+        {
+          "gid": "LINE64",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            800.3822,
+            126.1392
+          ],
+          "p2_mm": [
+            800.3822,
+            203.6374
+          ],
+          "length_mm": 77.4982,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE60",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            827.7331,
+            146.1382
+          ],
+          "p2_mm": [
+            857.0842,
+            146.1382
+          ],
+          "length_mm": 29.3511,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "LINE61",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            838.0024,
+            146.1382
+          ],
+          "p2_mm": [
+            848.2718,
+            141.1393
+          ],
+          "length_mm": 11.4214,
+          "angle_deg": -25.9556
+        },
+        {
+          "gid": "LINE62",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            848.2718,
+            141.1393
+          ],
+          "p2_mm": [
+            848.2718,
+            126.1392
+          ],
+          "length_mm": 15.0001,
+          "angle_deg": -90.0
+        },
+        {
+          "gid": "LINE63",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            848.2718,
+            126.1392
+          ],
+          "p2_mm": [
+            800.3822,
+            126.1392
+          ],
+          "length_mm": 47.8896,
+          "angle_deg": 180.0
+        }
+      ],
+      "topRightCorner_innerWallApproach_chain": [
+        {
+          "gid": "LINE59",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            857.0842,
+            204.597
+          ],
+          "p2_mm": [
+            857.0842,
+            146.1382
+          ],
+          "length_mm": 58.4588,
+          "angle_deg": -90.0
+        },
+        {
+          "gid": "LINE24",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            857.0842,
+            204.597
+          ],
+          "p2_mm": [
+            874.0846,
+            204.597
+          ],
+          "length_mm": 17.0004,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "LINE18",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            839.5829,
+            204.597
+          ],
+          "p2_mm": [
+            857.0842,
+            204.597
+          ],
+          "length_mm": 17.5013,
+          "angle_deg": 0.0
+        },
+        {
+          "gid": "LINE14",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            839.5829,
+            201.6372
+          ],
+          "p2_mm": [
+            839.5829,
+            203.6374
+          ],
+          "length_mm": 2.0002,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE16",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            839.5829,
+            203.6374
+          ],
+          "p2_mm": [
+            839.5829,
+            204.597
+          ],
+          "length_mm": 0.9596,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE20",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            857.0842,
+            204.597
+          ],
+          "p2_mm": [
+            857.0842,
+            220.6378
+          ],
+          "length_mm": 16.0408,
+          "angle_deg": 90.0
+        },
+        {
+          "gid": "LINE22",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            857.0842,
+            220.6378
+          ],
+          "p2_mm": [
+            859.0844,
+            220.6378
+          ],
+          "length_mm": 2.0002,
+          "angle_deg": 0.0
+        }
+      ],
+      "topRightCorner_note": "Fix 1（2026-07-11 補量·SOL review H1）：topRight 角獨立量測（非 topLeft 鏡射／旋轉推導）——raw gid 對應 topLeft 對應角色：LINE12↔LINE27(outer)；LINE64/60/61/62/63↔LINE108/109/110/111/112(platformRelief，依序)；LINE59/24/18/14/16/20/22↔LINE113/94/88/84/86/90/92(innerWallApproach，依序)。對照 topLeft：fullChain＋innerWallApproach 兩組（LINE12/59/24/18/14/16/20/22，連同已知的10° cut 與其餘 outer 段）在 (a,b) 座標下與 topLeft 幾乎精確相符（多數 <0.001mm），唯 platformRelief子鏈的『平台端 zigzag』（LINE64/60/61/62/63）在相鄰角落有真實結構差異，非量測誤差——最明顯：LINE64（LINE108 角色）b 範圍 [-4.5014,72.9968]（長 77.4982mm）比 topLeft LINE108 的 [-4.5014,52.9978]（長 57.4992mm）多出整整 20mm；對稱地 LINE59（LINE113 角色）b 範圍 [-5.461,52.9978]（長 58.4588mm，四捨五入 58.46）比 topLeft LINE113 的 [-5.461,72.9968]（長 78.4578mm，四捨五入 78.46）少 20mm——這正是 spec/fixture _meta.verification 提到的『78.46 vs 58.46』手性不對稱來源，經獨立連通性比對（相鄰端點 <0.01mm 匹配，含兩組結構相同的 ~10.27mm 內部斷點）確認拓撲自洽，非隨機量測噪音。萃取腳本：raw_elements.json 逐 gid 讀取（權威 08_emit_fixture.py 的同一資料源，未重跑該腳本——本次只新增欄位，不動既有 topLeft 數據），對算方法與 08_emit_fixture.py 的 gid_chain() 一致。"
     }
   },
   "lid": {

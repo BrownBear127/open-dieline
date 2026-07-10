@@ -785,7 +785,7 @@ describe('generateTray: F6-A 平台端內縮＋角撐周邊複合 relief 鏈（A
 
       const chain = findTagged(result.paths, 'aGussetPeriphery', label, 'cut');
       expect(chain, `${label} 應有 1 條 aGussetPeriphery cut path`).toHaveLength(1);
-      expect(chain[0]!.segments, `${label}：14 段（16 段複合鏈扣除與既有 outerCut 重複的 2 段，見 tray.ts A_GUSSET_OUTER 註解）`).toHaveLength(13);
+      expect(chain[0]!.segments, `${label}：13 段（Fix 5·2026-07-11 口徑更正——新 relief chain 13 段＋既有 gusset 對應 2 cut+1 crease＝合計覆蓋 P 的 16 primitive，見 tray.ts A_GUSSET_OUTER_TL 註解）`).toHaveLength(13);
     }
   });
 
@@ -1077,6 +1077,11 @@ describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 
     const paramsOff = resolveParams(telescope, { linerEnabled: false, baseHeight: 10 });
     const resultOff = telescope.generate(paramsOff);
     for (const inv of telescope.invariants) {
+      // Fix 2·2026-07-11：baseHeight=10（本測試借來觸發 liner-flap-fits 條件 1 的極端值）
+      // 搭配預設 basePlatformWidth=5 恰好也讓 A 款角撐周邊複合 relief 鏈放不下（壁高過矮，
+      // 鏈自身因錨點校正扭曲自撞，見 tray.ts aGussetChainFits）——這是與本測試意圖（驗證
+      // linerEnabled 閘門）無關但正確的獨立警告，不是假警告，排除在這條泛用斷言之外。
+      if (inv.id === 'gusset-relief-omitted') continue;
       expect(inv.check(paramsOff, resultOff), `linerEnabled=false 時 ${inv.id} 不得警告`).toMatchObject({ ok: true });
     }
     const paramsOn = resolveParams(telescope, { linerEnabled: true, baseHeight: 10 });
