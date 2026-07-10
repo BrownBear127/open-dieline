@@ -94,6 +94,16 @@ export interface TrayOpts {
   height: number;
   platformWidth: number;
   thickness: number;
+  /** 壁根雙摺線間距（Slice 5 F3，與 thickness 解耦）；hasDoubleRoot=false 的軸不吃這個值。 */
+  rootJog: number;
+  /** 內壁＝外壁－此值（Slice 5 F3，與 thickness 解耦，四面牆共用同一值）。 */
+  innerWallReduction: number;
+  /**
+   * x 向牆（左右，先摺）外壁的頂緣平齊修正量（Slice 5 F3，與 thickness 解耦）。
+   * 按件分流由呼叫端決定：base 傳真實參數值、lid 恆傳 0（B-06 特例移除，見
+   * index.ts buildLidPiece）——generateTray 本身不知道「這是哪一件」，只忠實套用傳入值。
+   */
+  wallTopCompensation: number;
   idPrefix: string;
   offsetX: number;
   offsetY: number;
@@ -154,14 +164,18 @@ function computeWallGeom(
   alongHalfSpan: number,
   outerLen: number,
   hasDoubleRoot: boolean,
-  thickness: number,
+  rootJog: number,
+  innerWallReduction: number,
   platformWidth: number,
 ): WallGeom {
-  const innerLen = outerLen - 2 * thickness;
+  // 內壁＝外壁－innerWallReduction（單次扣減，Slice 5 F3 解耦：原本讀 2×thickness，
+  // audit A-01——t 不再直接串這裡，見 index.ts params 宣告）。
+  const innerLen = outerLen - innerWallReduction;
   const rootAlong = sign * alongHalfSpan;
-  // 雙 crease 間距＝thickness；t=0 時 doubleGap=0 → outerStartAlong 與 rootAlong 重合，
-  // buildWallRoot 只畫一條線（collapse 語意見該函式）。
-  const doubleGap = hasDoubleRoot ? thickness : 0;
+  // 雙 crease 間距＝rootJog（F3 解耦：原本讀 thickness）；rootJog=0 時 doubleGap=0 →
+  // outerStartAlong 與 rootAlong 重合，buildWallRoot 只畫一條線（collapse 語意見該函式，
+  // 不再綁 thickness=0——見 rootJog 參數說明）。
+  const doubleGap = hasDoubleRoot ? rootJog : 0;
   const outerStartAlong = rootAlong + sign * doubleGap;
   const topStartAlong = outerStartAlong + sign * outerLen;
   const topEndAlong = topStartAlong + sign * platformWidth;
@@ -169,12 +183,16 @@ function computeWallGeom(
   return { rootAlong, outerStartAlong, topStartAlong, topEndAlong, tongueFoldAlong, innerLen };
 }
 
-/** 壁根摺線：x 向牆單 crease；y 向牆雙 crease（t=0 collapse 為單線，不得輸出兩條重合線）。 */
-function buildWallRoot(axis: Axis, geom: WallGeom, perpHalf: number, hasDoubleRoot: boolean, thickness: number, side: string): PathDescriptor {
+/**
+ * 壁根摺線：x 向牆單 crease；y 向牆雙 crease（rootJog=0 時 collapse 為單線，不得輸出兩條
+ * 重合線）。Slice 5 F3 解耦：collapse 門檻改看 rootJog，不再是 thickness（thickness=0 但
+ * rootJog≠0 時雙線仍照畫）。
+ */
+function buildWallRoot(axis: Axis, geom: WallGeom, perpHalf: number, hasDoubleRoot: boolean, rootJog: number, side: string): PathDescriptor {
   const p1 = toXY(axis, geom.rootAlong, -perpHalf);
   const p2 = toXY(axis, geom.rootAlong, perpHalf);
   const b = new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
-  if (hasDoubleRoot && thickness > 0) {
+  if (hasDoubleRoot && rootJog > 0) {
     const q1 = toXY(axis, geom.outerStartAlong, -perpHalf);
     const q2 = toXY(axis, geom.outerStartAlong, perpHalf);
     b.moveTo(q1.x, q1.y).lineTo(q2.x, q2.y);
@@ -285,13 +303,14 @@ function buildWall(
   perpHalfSpan: number,
   outerLen: number,
   hasDoubleRoot: boolean,
-  thickness: number,
+  rootJog: number,
+  innerWallReduction: number,
   platformWidth: number,
   sideCutStart: number,
 ): PathDescriptor[] {
-  const geom = computeWallGeom(sign, alongHalfSpan, outerLen, hasDoubleRoot, thickness, platformWidth);
+  const geom = computeWallGeom(sign, alongHalfSpan, outerLen, hasDoubleRoot, rootJog, innerWallReduction, platformWidth);
   return [
-    buildWallRoot(axis, geom, perpHalfSpan, hasDoubleRoot, thickness, side),
+    buildWallRoot(axis, geom, perpHalfSpan, hasDoubleRoot, rootJog, side),
     buildWallSideCuts(axis, sign, geom, perpHalfSpan, sideCutStart, side),
     buildWallTop(axis, geom, perpHalfSpan, platformWidth, side),
     ...buildTongueFold(axis, geom, perpHalfSpan, side),
@@ -483,19 +502,24 @@ const CORNERS: Array<{ sx: Sign; sy: Sign; label: string }> = [
  * dimension 標註不在本函式範圍（texts 恆為空陣列）——由 T4 的 BoxModule 組裝統一加。
  */
 export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: DielineText[]; bounds: Bounds } {
-  const { panelL, panelW, height, platformWidth, thickness } = opts;
+  const { panelL, panelW, height, platformWidth, thickness, rootJog, innerWallReduction, wallTopCompensation } = opts;
   const halfL = panelL / 2;
   const halfW = panelW / 2;
   const useThickStyle = platformWidth > 0;
+  // 角撐對角線位置（reach）仍直接吃 thickness——Slice 5 F3 只解耦壁根 jog／內外壁差
+  // 這兩處（audit A-01），角撐細節屬 F6，本次不動。
   const anchors = gussetAnchors(useThickStyle, height, thickness);
 
   const descriptors: PathDescriptor[] = [
-    // x 向牆（左右，先摺）：單 crease 根、外壁＝height−t（頂緣平齊）；側邊 cut 自 anchors.x 起
-    ...buildWall('x', -1, 'left', halfL, halfW, height - thickness, false, thickness, platformWidth, anchors.x),
-    ...buildWall('x', 1, 'right', halfL, halfW, height - thickness, false, thickness, platformWidth, anchors.x),
-    // y 向牆（前後，後摺）：雙 crease 根、外壁＝height（自雙 crease 外線起量）；側邊 cut 自 anchors.y 起
-    ...buildWall('y', -1, 'front', halfW, halfL, height, true, thickness, platformWidth, anchors.y),
-    ...buildWall('y', 1, 'back', halfW, halfL, height, true, thickness, platformWidth, anchors.y),
+    // x 向牆（左右，先摺）：單 crease 根、外壁＝height−wallTopCompensation（頂緣平齊修正，
+    // F3 解耦改讀 wallTopCompensation；呼叫端分流：base 傳真實參數值、lid 恆傳 0——
+    // B-06 特例移除，見 index.ts buildLidPiece）；側邊 cut 自 anchors.x 起
+    ...buildWall('x', -1, 'left', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x),
+    ...buildWall('x', 1, 'right', halfL, halfW, height - wallTopCompensation, false, rootJog, innerWallReduction, platformWidth, anchors.x),
+    // y 向牆（前後，後摺）：雙 crease 根（間距＝rootJog）、外壁＝height（自雙 crease 外線
+    // 起量，base／lid 皆不作平齊補償——spec F3「前後外壁 H」兩件一致）；側邊 cut 自 anchors.y 起
+    ...buildWall('y', -1, 'front', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y),
+    ...buildWall('y', 1, 'back', halfW, halfL, height, true, rootJog, innerWallReduction, platformWidth, anchors.y),
   ];
 
   for (const { sx, sy, label } of CORNERS) {

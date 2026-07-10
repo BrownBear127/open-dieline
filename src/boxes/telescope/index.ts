@@ -95,18 +95,32 @@ const params: BoxParamDef[] = [
     highlightTags: ['baseHeight'],
   },
   {
-    key: 'lidMargin',
-    label: { zh: '上蓋放大量' },
+    key: 'lidMarginX',
+    label: { zh: '上蓋放大量（短向）' },
     unit: 'mm',
     default: 13.5,
-    min: 1,
-    max: 40,
-    step: 0.1,
+    min: 5,
+    max: 60,
+    step: 0.5,
     group: { zh: '套合' },
     description: {
-      zh: '上蓋面板相對下盒面板的等邊放大量——長寬同時各加 2×此值，決定上蓋能套住下盒多深。（2026-07-09 T7 gate 重定義：內襯不再錨定上蓋，此參數與內襯幾何無關——見 linerFlapDepth。）',
+      zh: '上蓋面板短向（對應 baseWidth／x 向先摺壁）相對下盒的等邊放大量——決定上蓋短向能套住下盒多深。Slice 5 F1：原單一 lidMargin 拆兩軸，取消 y 向測試豁免後兩軸皆為可獨立覆蓋的一般參數（無 derivedDefault）。（2026-07-09 T7 gate 重定義：內襯不再錨定上蓋，此參數與內襯幾何無關——見 linerFlapDepth。）',
     },
-    highlightTags: ['lidMargin'],
+    highlightTags: ['lidMarginX'],
+  },
+  {
+    key: 'lidMarginY',
+    label: { zh: '上蓋放大量（長向）' },
+    unit: 'mm',
+    default: 18.5,
+    min: 5,
+    max: 60,
+    step: 0.5,
+    group: { zh: '套合' },
+    description: {
+      zh: '上蓋面板長向（對應 baseLength／y 向後摺壁）相對下盒的等邊放大量。與 lidMarginX 各自獨立（Slice 5 F1：生產刀模長短向放大量本不相等 13.5≠18.5，拆分後才能逐線復刻；取消 y 向測試豁免）。',
+    },
+    highlightTags: ['lidMarginY'],
   },
   {
     key: 'lidHeight',
@@ -155,12 +169,54 @@ const params: BoxParamDef[] = [
     default: 0.3,
     min: 0,
     max: 0.8,
-    step: 0.1,
+    step: 0.01,
     group: { zh: '材質' },
     description: {
-      zh: '紙張厚度（caliper）。驅動內外壁差、雙摺線間距、內襯套合間隙等全套補償；設 0 可還原無補償的幾何（後摺壁雙 crease collapse 為單線）。',
+      zh: '紙張厚度（caliper）。驅動內襯套合間隙（linerFitGap 換算）與角撐對角線位置（reach＝壁高－紙厚）。Slice 5 F3 解耦（audit A-01）：不再直接驅動壁根雙摺線間距與內外壁差，改由 rootJog／innerWallReduction／wallTopCompensation 三個獨立參數負責——設 0 不會讓這三處補償跟著歸零，見各自的參數說明。',
+    },
+    highlightTags: ['gusset'],
+  },
+  {
+    key: 'rootJog',
+    label: { zh: '壁根位移量' },
+    unit: 'mm',
+    default: 0.5,
+    min: 0,
+    max: 3,
+    step: 0.1,
+    group: { zh: '補償' },
+    description: {
+      zh: '後摺壁（y 向）壁根雙摺線之間的間距——與紙厚解耦的獨立參數（Slice 5 F3，audit A-01：原本讀紙厚）。設 0 時雙摺線 collapse 為單一 crease（不論紙厚是否為 0）。Slice 5 T2 起這個位移量會進一步變成壁根階梯 stagger 的 jog 幅度，本階段（T1）幾何形狀仍是現行雙摺線，只有數值來源改讀這個參數。',
     },
     highlightTags: ['wallRoot'],
+  },
+  {
+    key: 'innerWallReduction',
+    label: { zh: '內壁縮減量' },
+    unit: 'mm',
+    default: 0.8,
+    min: 0,
+    max: 5,
+    step: 0.1,
+    group: { zh: '補償' },
+    description: {
+      zh: '牆的內壁（面向盒內、舌摺線起點）相對外壁的縮減量——內壁＝外壁－此值，與紙厚解耦的獨立參數（Slice 5 F3，audit A-01：原本讀 2×紙厚）。base／lid、x 向／y 向四面牆共用同一個值。',
+    },
+    highlightTags: ['tongueFold'],
+  },
+  {
+    key: 'wallTopCompensation',
+    label: { zh: '壁頂平齊補償' },
+    unit: 'mm',
+    default: 0.5,
+    min: 0,
+    max: 5,
+    step: 0.1,
+    group: { zh: '補償' },
+    description: {
+      zh: '下盒左右外壁（先摺壁）的頂緣平齊修正量——外壁＝下盒壁高－此值，與紙厚解耦的獨立參數（Slice 5 F3，audit A-01：原本讀紙厚）。只影響下盒：上蓋左右壁的平齊特例已移除（B-06），四面外壁恆＝壁高，不吃這個補償。',
+    },
+    highlightTags: ['wallTop'],
   },
   {
     key: 'linerEnabled',
@@ -384,10 +440,25 @@ function buildBasePiece(
   baseHeight: number,
   basePlatformWidth: number,
   thickness: number,
+  rootJog: number,
+  innerWallReduction: number,
+  wallTopCompensation: number,
   offsetX: number,
   offsetY: number,
 ): TrayResult {
-  const tray = generateTray({ panelL: baseWidth, panelW: baseLength, height: baseHeight, platformWidth: basePlatformWidth, thickness, idPrefix: 'base', offsetX, offsetY });
+  const tray = generateTray({
+    panelL: baseWidth,
+    panelW: baseLength,
+    height: baseHeight,
+    platformWidth: basePlatformWidth,
+    thickness,
+    rootJog,
+    innerWallReduction,
+    wallTopCompensation,
+    idPrefix: 'base',
+    offsetX,
+    offsetY,
+  });
   return addTrayDimensions(tray, baseWidth, baseLength, baseHeight, thickness, 'base', offsetX, offsetY, 'baseWidth', 'baseLength', 'baseHeight');
 }
 
@@ -397,11 +468,28 @@ function buildLidPiece(
   lidHeight: number,
   lidPlatformWidth: number,
   thickness: number,
+  rootJog: number,
+  innerWallReduction: number,
   offsetX: number,
   offsetY: number,
 ): TrayResult {
-  const tray = generateTray({ panelL: lidPanelX, panelW: lidPanelY, height: lidHeight, platformWidth: lidPlatformWidth, thickness, idPrefix: 'lid', offsetX, offsetY });
-  return addTrayDimensions(tray, lidPanelX, lidPanelY, lidHeight, thickness, 'lid', offsetX, offsetY, 'lidMargin', 'lidMargin', 'lidHeight');
+  const tray = generateTray({
+    panelL: lidPanelX,
+    panelW: lidPanelY,
+    height: lidHeight,
+    platformWidth: lidPlatformWidth,
+    thickness,
+    rootJog,
+    innerWallReduction,
+    // B-06：上蓋左右壁的頂緣平齊特例移除，四面外壁恆＝壁高，不吃 wallTopCompensation
+    // （下盒才吃，見 buildBasePiece）——寫死 0，不對外露出成 buildLidPiece 的參數
+    // （上蓋幾何本來就與這個補償無關，不是「使用者可能想調的值」）。
+    wallTopCompensation: 0,
+    idPrefix: 'lid',
+    offsetX,
+    offsetY,
+  });
+  return addTrayDimensions(tray, lidPanelX, lidPanelY, lidHeight, thickness, 'lid', offsetX, offsetY, 'lidMarginX', 'lidMarginY', 'lidHeight');
 }
 
 function toPiece(id: string, label: string, r: TrayResult): DielinePiece {
@@ -412,23 +500,28 @@ function generate(p: ResolvedParams): GenerateResult {
   const baseLength = p.baseLength as number;
   const baseWidth = p.baseWidth as number;
   const baseHeight = p.baseHeight as number;
-  const lidMargin = p.lidMargin as number;
+  const lidMarginX = p.lidMarginX as number;
+  const lidMarginY = p.lidMarginY as number;
   const lidHeight = p.lidHeight as number;
   const basePlatformWidth = p.basePlatformWidth as number;
   const lidPlatformWidth = p.lidPlatformWidth as number;
   const thickness = p.thickness as number;
+  const rootJog = p.rootJog as number;
+  const innerWallReduction = p.innerWallReduction as number;
+  const wallTopCompensation = p.wallTopCompensation as number;
   const linerEnabled = p.linerEnabled as boolean;
   const linerFitGap = p.linerFitGap as number;
   const linerFlapDepth = p.linerFlapDepth as number;
 
   // D12：baseWidth 對 x 向（先摺壁）、baseLength 對 y 向（後摺壁）——見 task-4-brief 上游 handoff。
-  const lidPanelX = baseWidth + 2 * lidMargin;
-  const lidPanelY = baseLength + 2 * lidMargin;
+  // F1：lidMargin 拆兩軸，x 向吃 lidMarginX、y 向吃 lidMarginY（各自獨立，不可交叉套用）。
+  const lidPanelX = baseWidth + 2 * lidMarginX;
+  const lidPanelY = baseLength + 2 * lidMarginY;
 
   // 版面：lid 左（原點對齊 0,0）、base 右（lid 寬＋PIECE_GAP 起）、liner 橫放下方。
-  const lidFinal = placeAt((ox, oy) => buildLidPiece(lidPanelX, lidPanelY, lidHeight, lidPlatformWidth, thickness, ox, oy), 0, 0);
+  const lidFinal = placeAt((ox, oy) => buildLidPiece(lidPanelX, lidPanelY, lidHeight, lidPlatformWidth, thickness, rootJog, innerWallReduction, ox, oy), 0, 0);
   const baseFinal = placeAt(
-    (ox, oy) => buildBasePiece(baseWidth, baseLength, baseHeight, basePlatformWidth, thickness, ox, oy),
+    (ox, oy) => buildBasePiece(baseWidth, baseLength, baseHeight, basePlatformWidth, thickness, rootJog, innerWallReduction, wallTopCompensation, ox, oy),
     lidFinal.bounds.maxX + PIECE_GAP,
     0,
   );
@@ -477,7 +570,8 @@ function generate(p: ResolvedParams): GenerateResult {
 // gusset-b-fits／tongue-flap-fits 四條）；pieces-identity 本來就用 baseLength/baseWidth/
 // lidMargin（這三個字串同時也是 index.ts 自己 makeDimension() 蓋的 dimension path 的
 // tag，見 buildBasePiece/buildLidPiece 呼叫 addTrayDimensions 傳入的 tagL/tagW/tagH），
-// 已經對得上真實 path，不用改。
+// 已經對得上真實 path，不用改（Slice 5 F1 追記：lidMargin 拆 lidMarginX/lidMarginY 兩軸後，
+// 這條原則不變——兩個新 key 同樣對得上 addTrayDimensions 的 tagL/tagW，見 buildLidPiece）。
 //
 // 2026-07-09 T7 gate 追記：liner-flange-fits 已因內襯重定義（平台式，見 liner.ts 檔頭）
 // 整條作廢，改名 liner-flap-fits（語意與 tag 隨新幾何換新，上面 FX4 敘述的原則不變）。
@@ -543,7 +637,7 @@ const invariants: BoxInvariant[] = [
   {
     id: 'pieces-identity',
     description: {
-      zh: 'base 片主面板實測必須等於 baseLength×baseWidth、lid 片主面板實測必須等於（baseLength/baseWidth）＋2×lidMargin（從生成幾何反推，防止 lid/base 整包對調）。',
+      zh: 'base 片主面板實測必須等於 baseLength×baseWidth；lid 片主面板實測必須等於 baseWidth＋2×lidMarginX（x 向）與 baseLength＋2×lidMarginY（y 向）——Slice 5 F1 拆兩軸後 X/Y 各自獨立驗證（從生成幾何反推，防止 lid/base 整包對調，也防兩軸放大量算錯軸）。',
     },
     check(params, result) {
       const tol = 0.05; // mm，量測反推容差（跟 T3 的 t-無關槽位對帳同一量級）
@@ -553,19 +647,20 @@ const invariants: BoxInvariant[] = [
       const lidMeasured = measuredPanel(result.paths.filter((path) => lid.pathIds.includes(path.id)));
       const baseWidth = params.baseWidth as number;
       const baseLength = params.baseLength as number;
-      const lidMargin = params.lidMargin as number;
-      const checks: Array<[string, number, number]> = [
-        ['base.x（=baseWidth）', baseMeasured.x, baseWidth],
-        ['base.y（=baseLength）', baseMeasured.y, baseLength],
-        ['lid.x（=baseWidth+2×lidMargin）', lidMeasured.x, baseWidth + 2 * lidMargin],
-        ['lid.y（=baseLength+2×lidMargin）', lidMeasured.y, baseLength + 2 * lidMargin],
+      const lidMarginX = params.lidMarginX as number;
+      const lidMarginY = params.lidMarginY as number;
+      const checks: Array<[string, number, number, string[]]> = [
+        ['base.x（=baseWidth）', baseMeasured.x, baseWidth, ['baseWidth']],
+        ['base.y（=baseLength）', baseMeasured.y, baseLength, ['baseLength']],
+        ['lid.x（=baseWidth+2×lidMarginX）', lidMeasured.x, baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX']],
+        ['lid.y（=baseLength+2×lidMarginY）', lidMeasured.y, baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY']],
       ];
-      for (const [label, actual, expected] of checks) {
+      for (const [label, actual, expected, tags] of checks) {
         if (Math.abs(actual - expected) > tol) {
           return {
             ok: false,
             message: { zh: `${label} 主面板實測 ${actual.toFixed(2)}mm 應為 ${expected.toFixed(2)}mm（pieces 身分可能對調或算錯）` },
-            tags: ['baseLength', 'baseWidth', 'lidMargin'],
+            tags,
           };
         }
       }
@@ -575,23 +670,37 @@ const invariants: BoxInvariant[] = [
   {
     id: 'rim-flush',
     description: {
-      zh: '每片先摺壁（x 向）外壁高必須等於後摺壁（y 向）外壁高減一個紙厚（頂緣平齊修正），base／lid 兩片皆驗（從生成幾何反推，非只驗參數）。',
+      zh: 'Slice 5 F3 分流（H4）：下盒（base）先摺壁（x 向）外壁高必須等於後摺壁（y 向）外壁高減 wallTopCompensation；上蓋（lid）B-06 左右壁特例移除，先摺壁外壁高必須直接等於後摺壁外壁高（四面等高，不作任何補償）。base／lid 兩條規則各自獨立驗（從生成幾何反推，非只驗參數）。',
     },
     check(params, result) {
-      const t = params.thickness as number;
-      for (const pieceId of ['base', 'lid'] as const) {
-        const piece = result.pieces!.find((candidate) => candidate.id === pieceId)!;
-        const walls = measuredOuterWalls(result.paths.filter((path) => piece.pathIds.includes(path.id)));
-        if (Math.abs(walls.x - (walls.y - t)) > EPS) {
-          return {
-            ok: false,
-            message: { zh: `${pieceId} 片先摺壁外壁高 ${walls.x.toFixed(3)}mm 應等於後摺壁 ${walls.y.toFixed(3)}mm − 紙厚 ${t}mm` },
-            // FX4：'thickness' 不是任何 path 的 tag（tray.ts 的壁根 crease 用 'wallRoot'，
-            // 也是 thickness 參數自己宣告的 highlightTags），改對。
-            tags: ['wallRoot'],
-          };
-        }
+      const wallTopCompensation = params.wallTopCompensation as number;
+
+      const basePiece = result.pieces!.find((piece) => piece.id === 'base')!;
+      const baseWalls = measuredOuterWalls(result.paths.filter((path) => basePiece.pathIds.includes(path.id)));
+      if (Math.abs(baseWalls.x - (baseWalls.y - wallTopCompensation)) > EPS) {
+        return {
+          ok: false,
+          message: {
+            zh: `base 片先摺壁外壁高 ${baseWalls.x.toFixed(3)}mm 應等於後摺壁 ${baseWalls.y.toFixed(3)}mm − 壁頂平齊補償 ${wallTopCompensation}mm`,
+          },
+          // FX4：'wallTopCompensation' 不是任何 path 的 tag（tray.ts 的壁根 crease 用
+          // 'wallRoot'，也是這個參數自己宣告的 highlightTags），改對。
+          tags: ['wallRoot'],
+        };
       }
+
+      const lidPiece = result.pieces!.find((piece) => piece.id === 'lid')!;
+      const lidWalls = measuredOuterWalls(result.paths.filter((path) => lidPiece.pathIds.includes(path.id)));
+      if (Math.abs(lidWalls.x - lidWalls.y) > EPS) {
+        return {
+          ok: false,
+          message: {
+            zh: `lid 片先摺壁外壁高 ${lidWalls.x.toFixed(3)}mm 應等於後摺壁 ${lidWalls.y.toFixed(3)}mm（B-06：左右壁特例移除，四面外壁應等高）`,
+          },
+          tags: ['wallRoot'],
+        };
+      }
+
       return { ok: true };
     },
   },
@@ -624,24 +733,28 @@ const invariants: BoxInvariant[] = [
   {
     id: 'tongue-flap-fits',
     description: {
-      zh: '插底舌兩端各留 TONGUE_END_RECESS 的角撐讓位、45° 過渡再各吃掉半個全深——牆的垂直半跨（＝面板另一軸邊長的一半）小於兩者之和（MIN_TONGUE_PERP_HALF=16.5mm）時，梯形全深段的兩端點順序反轉、插底舌 cut 自我交叉。門檻對應面板邊長 33mm。上蓋面板恆比下盒大 2×lidMargin（lidMargin 下限 1），實務上由下盒兩邊長把關，上蓋兩列為防禦性保留（防未來參數域調整）。只警告不擋（同 gusset-b-fits 慣例），讓使用者知道幾何已退化。',
+      zh: '插底舌兩端各留 TONGUE_END_RECESS 的角撐讓位、45° 過渡再各吃掉半個全深——牆的垂直半跨（＝面板另一軸邊長的一半）小於兩者之和（MIN_TONGUE_PERP_HALF=16.5mm）時，梯形全深段的兩端點順序反轉、插底舌 cut 自我交叉。門檻對應面板邊長 33mm。上蓋面板恆比下盒大（Slice 5 F1 拆兩軸後：x 向 +2×lidMarginX、y 向 +2×lidMarginY，兩者下限皆 5），實務上由下盒兩邊長把關，上蓋兩列為防禦性保留（防未來參數域調整）。只警告不擋（同 gusset-b-fits 慣例），讓使用者知道幾何已退化。',
     },
     check(params) {
       const baseLength = params.baseLength as number;
       const baseWidth = params.baseWidth as number;
-      const lidMargin = params.lidMargin as number;
+      const lidMarginX = params.lidMarginX as number;
+      const lidMarginY = params.lidMarginY as number;
       const minEdge = 2 * MIN_TONGUE_PERP_HALF;
       // 每片×每軸：x 向牆（左右壁）的舌片沿面板 y 邊分佈（perpHalf＝panelW/2）、
       // y 向牆（前後壁）沿面板 x 邊（perpHalf＝panelL/2）——見 tray.ts generateTray 的
-      // buildWall 呼叫（perpHalfSpan 參數）。
-      // FX4：baseLength/baseWidth/lidMargin 三個字串本身有效（同時是 index.ts 自己蓋的
-      // dimension path tag，見上方檔頭註解），但真正退化的幾何是插底舌本身，補上
+      // buildWall 呼叫（perpHalfSpan 參數）。lid 的 panelL＝baseWidth+2×lidMarginX（x 向，
+      // 決定前後壁 perpHalf）、panelW＝baseLength+2×lidMarginY（y 向，決定左右壁
+      // perpHalf）——Slice 5 F1 拆兩軸後這裡要對到各自正確的那個 margin，不可交叉套用
+      // （見 generate() 的 lidPanelX/lidPanelY 推導，同一組軸對應關係）。
+      // FX4：baseLength/baseWidth/lidMarginX/lidMarginY 這些字串本身有效（同時是 index.ts
+      // 自己蓋的 dimension path tag，見上方檔頭註解），但真正退化的幾何是插底舌本身，補上
       // 'tongueFlap'（tray.ts buildTongueFlap 的 tag）讓高亮同時點出實際自撞的那段輪廓。
       const checks: Array<[string, number, string[]]> = [
         ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength', 'tongueFlap']],
         ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth', 'tongueFlap']],
-        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMargin', baseLength + 2 * lidMargin, ['baseLength', 'lidMargin', 'tongueFlap']],
-        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMargin', baseWidth + 2 * lidMargin, ['baseWidth', 'lidMargin', 'tongueFlap']],
+        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap']],
+        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap']],
       ];
       for (const [label, edge, tags] of checks) {
         if (edge / 2 < MIN_TONGUE_PERP_HALF) {
