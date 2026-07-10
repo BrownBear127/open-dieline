@@ -642,6 +642,40 @@ describe('telescope: rim-flush（base 先摺壁外壁高＝後摺壁外壁高−
   });
 });
 
+describe('telescope: 標註起點對齊後摺壁外線（Fix1 review：yEdge 改讀 rootJog，不再讀 thickness）', () => {
+  it('base/lid 壁高標註（type=dimension、tag=baseHeight/lidHeight）起點 y 座標，精確等於該片後摺壁（wallRoot back）雙 crease 外線的 y 座標', () => {
+    // 預設參數 thickness=0.3 ≠ rootJog=0.5——足以區分「yEdge 讀 thickness（舊公式，偏差
+    // 0.2mm）」與「yEdge 讀 rootJog（修正後，精確對齊）」，不需要額外覆寫參數。
+    const params = resolveParams(telescope);
+    const result = telescope.generate(params);
+    const cases: Array<[string, string]> = [
+      ['base', 'baseHeight'],
+      ['lid', 'lidHeight'],
+    ];
+    for (const [pieceId, heightTag] of cases) {
+      const piece = result.pieces!.find((p) => p.id === pieceId)!;
+      const piecePaths = result.paths.filter((p) => piece.pathIds.includes(p.id));
+
+      const rootBack = findTagged(piecePaths, 'wallRoot', 'back', 'crease');
+      expect(rootBack, `${pieceId} wallRoot(back) 應恰有 1 條 path`).toHaveLength(1);
+      const rootYs = allAlongValues(rootBack[0]!.segments, 'y');
+      // back 側 sign=+1，離面板中心較遠（外線）的駐留值較大——見 tray.ts computeWallGeom
+      // 的 outerStartAlong = rootAlong + sign×doubleGap 推導。
+      const outerLineY = Math.max(...rootYs);
+
+      const dim = piecePaths.filter((p) => p.type === 'dimension' && p.tags?.includes(heightTag));
+      expect(dim, `${pieceId} 應恰有 1 條 tag=${heightTag} 的 dimension path`).toHaveLength(1);
+      const dimYs = allAlongValues(dim[0]!.segments, 'y');
+      const dimStartY = Math.min(...dimYs); // dimensionLine 兩端點 y＝{yEdge, yEdge+height}，較小者＝起點
+
+      expect(
+        dimStartY,
+        `${pieceId} 壁高標註起點應精確對齊後摺壁外線（yEdge=panelW/2+rootJog；修正前讀 thickness 在預設參數下會偏 0.2mm）`,
+      ).toBeCloseTo(outerLineY, 6);
+    }
+  });
+});
+
 describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 liner-flange-fits，3 條參數域邊界）', () => {
   it('預設參數（flapDepth=15 < baseHeight=60，底面 176.8×121.8>0，flapDepth<底面邊長一半）通過', () => {
     const params = resolveParams(telescope);

@@ -4,12 +4,14 @@
  * 這是整個 Slice 2 的保真證明：把「新模組 vs 生產刀模量測」的對帳固化成
  * fixture＋分層比對，而非散落在各處的手算斷言。比對規則見 spec §4.2（附錄
  * `.superpowers/sdd/量測附錄` 逐槽抄錄）：
- *   1. t 無關槽位（source=measured、tIndependent=true）：x 向 |生成−預期| ≤0.05
- *   2. t 相關槽位：公式自洽（生成值代公式驗）＋ x 向 |生成−量測| ≤0.15；
+ *   1. t 無關槽位（source=measured、tIndependent=true）：|生成−預期| ≤0.05（x/y 向皆適用）
+ *   2. t 相關槽位：公式自洽（生成值代公式驗）＋ |生成−量測| ≤0.15（x/y 向皆適用）；
  *      corrected 槽（lid.x.outerWall/innerWall）只驗公式修正值 ≤0.05、不對量測——
  *      這兩槽是新模組刻意做生產品漏做的平齊補償，差值＝t 是設計意圖不是 bug。
- *   3. y 向：只驗序列完整性＋公式關係，不驗與生產品的絕對差（D12 單一等邊 margin
- *      定案的已知後果）。
+ *   3. y 向另有獨立的序列完整性驗證（見下方「y 向序列完整性」describe block）：外壁→
+ *      〔平台〕→內壁→halfcut→舌片的序位與線型皆須正確——這層與規則 1/2 的數值比對正交，
+ *      不互相取代（Slice 5 Fix2／review：原規則 3「y 向不驗絕對差」的 blanket
+ *      exemption 已刪除，y 向現在同走規則 1/2，見 judgeNumericSlot）。
  *   4. 內襯 golden（2026-07-09 T7 gate 反饋重定義：平台式腳架墊片，取代舊圍框版）：
  *      底面 176.4×121.4、攤平 206.4×151.4、腳架翼深 15（45° 斜切、免膠無 tab；
  *      §4.2 導出鏈公式自產，錨定下盒內淨）。
@@ -168,11 +170,22 @@ const EXTRACTORS: Record<string, Extractor> = {
   'lid.y.panel': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'front', 'y', 'crease'), creaseAlongValues(l, 'wallRoot', 'back', 'y', 'crease')),
 };
 
-// Slice 5 F3：base.x.outerWall/innerWall 與 base/lid.y.doubleCreaseGap 改讀 wallTopCompensation／
-// innerWallReduction／rootJog（與 thickness 解耦，原本讀 thickness/2×thickness）。
+// Slice 5 F3：base.x.outerWall/innerWall、base.y.innerWall、base/lid.y.doubleCreaseGap、
+// lid.y.innerWall 改讀 wallTopCompensation／innerWallReduction／rootJog（與 thickness
+// 解耦，原本讀 thickness/2×thickness）。
 // lid.x.outerWall/innerWall：B-06 左右壁特例移除，四面外壁不再吃 wallTopCompensation
 // （上蓋恆傳 0，見 index.ts buildLidPiece）——公式因此單純化為 lidHeight／lidHeight−innerWallReduction，
 // 不再是「corrected」（刻意偏離量測值），公式值現在直接等於量測值（見 fixture slots 對應更新）。
+//
+// Fix3（review，同批連動）：上述 7 槽（base.x.outerWall/innerWall、base.y.doubleCreaseGap/
+// innerWall、lid.x.innerWall、lid.y.doubleCreaseGap/innerWall）公式改寫後不再含 thickness
+// 任何一項，fixture 的 tIndependent 隨之由 false 改 true（欄位語意＝「公式是否含
+// thickness」，非 x/y 軸限定；lid.x.outerWall 先前已由 T1 判為 true，這裡補齊其餘 6 槽）。
+// 這 7 槽的 expected／measured 數值欄本身不動——只有分類旗標改變，比對基準從量測公差
+// 0.15mm 收緊為設計 nominal 公差 0.05mm（見 judgeNumericSlot）。base.y.outerWall／
+// lid.y.outerWall／lid.y.panel 公式雖然也不含 thickness，但那是 F1/既有設計本來就與 t
+// 無關（非 F3 解耦造成的公式改寫），維持 tIndependent=false 不動——本次僅動「F3 決定的」
+// 那 7 槽，不擴大到所有不含 thickness 的槽位。
 const FORMULAS: Record<string, Formula> = {
   'base.x.panel': (p) => p.baseWidth,
   'base.x.outerWall': (p) => p.baseHeight - p.wallTopCompensation,
@@ -220,10 +233,10 @@ function judgeNumericSlot(slot: SlotFixture, generated: number, formulaValue: nu
     return { ok: false, reason: `公式不自洽：生成 ${generated} vs 公式值 ${formulaValue}（差 ${formulaDiff.toFixed(4)} > ${FORMULA_EPS}）` };
   }
 
-  const axis = slot.name.includes('.x.') ? 'x' : 'y';
-  if (axis === 'y') {
-    return { ok: true }; // y 向：公式已驗過，不驗與生產品的絕對差（spec §4.2 規則 3）
-  }
+  // Slice 5 Fix2（review）：y 向「公式自洽即通過」的 blanket exemption 已刪除——
+  // y 向數值比對從此與 x 向同走下面 corrected/tIndependent/measured 三分支，不再提早
+  // return { ok: true }。y 向另有獨立的序列完整性驗證（見「y 向序列完整性」describe
+  // block），與這裡的數值比對正交、不重複也不互相取代。
 
   if (slot.source === 'corrected') {
     const diff = Math.abs(generated - slot.expected!);
@@ -241,7 +254,8 @@ function judgeNumericSlot(slot: SlotFixture, generated: number, formulaValue: nu
     return { ok: true };
   }
 
-  // t 相關、x 向、非 corrected：公式已驗（上方），再驗 x 向與量測絕對差 ≤0.15
+  // t 相關、非 corrected（x/y 向皆適用，Slice 5 Fix2 起 y 向不再豁免）：公式已驗（上方），
+  // 再驗與量測絕對差 ≤0.15
   const diff = Math.abs(generated - slot.measured!);
   if (diff > MEASURED_TOL) {
     return { ok: false, reason: `t 相關槽 |生成−量測|=${diff.toFixed(4)} > ${MEASURED_TOL}` };
@@ -545,10 +559,20 @@ describe('telescope: 生產刀模具名槽位分層對帳（Slice 2 Task 5）', 
       expect(v2.reason, '必須由 corrected 分支攔下').toContain('corrected');
     });
 
-    it('y 向槽：公式不自洽應被抓到（即使沒有量測比對這層）', () => {
+    it('y 向槽：公式不自洽應被抓到（公式層是第一道 gate，先於 corrected/tIndependent/measured 分支）', () => {
+      // 標題括號原文「即使沒有量測比對這層」是 Fix2 前的舊敘述（y 向曾整層豁免量測比對）；
+      // Fix2 刪除 y 向 blanket exemption 後 y 向也會走量測比對分支，這裡改用中性敘述——
+      // 本測試的重點只在「公式不自洽必在第一道 gate 被攔下」，與 y 向是否還豁免無關。
       const slot: SlotFixture = { name: 'base.y.outerWall', expected: 60, measured: 60, lineType: '—', source: 'measured', tIndependent: false };
       expect(judgeNumericSlot(slot, 61, 60).ok, 'y 向生成值偏移應被公式層抓到').toBe(false);
-      expect(judgeNumericSlot(slot, 60, 60).ok, '對照組：y 向公式自洽應 pass').toBe(true);
+      expect(judgeNumericSlot(slot, 60, 60).ok, '對照組：y 向公式自洽且與量測相符應 pass').toBe(true);
+    });
+
+    it('y 向槽：公式自洽但與量測差超過 0.15 應被抓到（Slice 5 Fix2 核心迴歸：y 向不得比 x 向寬鬆，防豁免變相回歸）', () => {
+      const slot: SlotFixture = { name: 'lid.y.panel', expected: 216, measured: 216 - 0.2, lineType: '—', source: 'measured', tIndependent: false };
+      const v = judgeNumericSlot(slot, 216, 216);
+      expect(v.ok, '量測差 0.2 > 0.15 應 fail——y 向若仍暗中享有 blanket exemption，這裡會錯誤地 pass').toBe(false);
+      expect(v.reason, '必須由量測分支攔下（非公式閘，因為公式自洽 216=216）').toContain('量測');
     });
 
     it('結構檢查：故意拿掉 halfcut/cut 其中一種型別應被抓到', () => {

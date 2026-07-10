@@ -90,7 +90,7 @@ const params: BoxParamDef[] = [
     step: 0.5,
     group: { zh: '尺寸' },
     description: {
-      zh: '下盒後摺壁的名義全高；先摺壁自動再減一個紙厚做「頂緣平齊」修正，讓四片牆摺起後頂緣切齊。內襯墊片的腳架深度（linerFlapDepth）不得超過此值，否則內襯會頂出盒口（見 liner-flap-fits 警告）。',
+      zh: '下盒後摺壁的名義全高；先摺壁（左右壁）另再減一個壁頂平齊補償量（wallTopCompensation）做「頂緣平齊」修正，讓四片牆摺起後頂緣切齊（Slice 5 F3 解耦：此修正原讀紙厚，現改讀獨立參數）。內襯墊片的腳架深度（linerFlapDepth）不得超過此值，否則內襯會頂出盒口（見 liner-flap-fits 警告）。',
     },
     highlightTags: ['baseHeight'],
   },
@@ -131,7 +131,7 @@ const params: BoxParamDef[] = [
     max: 200,
     step: 0.5,
     group: { zh: '尺寸' },
-    description: { zh: '上蓋後摺壁的名義全高；先摺壁同樣做頂緣平齊修正（−1 個紙厚）。' },
+    description: { zh: '上蓋後摺壁的名義全高；B-06（Slice 5 F3）：上蓋左右壁的頂緣平齊特例已移除，四面外壁恆等高（不吃 wallTopCompensation，不再有「−1 個紙厚」修正）。' },
     highlightTags: ['lidHeight'],
   },
   {
@@ -407,15 +407,18 @@ function makeDimension(
 /**
  * 幫一個 tray 結果加上 3 條尺寸標註（面板 L×W＋壁高，spec 明列）：L 沿 bounds.maxY 下方、
  * W 沿 bounds.maxX 右方、height 用 2×DIM_OFFSET 再外推一層避免跟 W 的標註線視覺重疊。
- * height 量測起點用 panelW/2+thickness（後摺壁外壁量測起點是雙 crease 的外線，見 tray.ts
- * 「y 向 outerWall＝H，自雙 crease 外線起量」），純視覺標註微差（≤0.8mm）不影響任何不變式。
+ * height 量測起點用 panelW/2+rootJog（後摺壁外壁量測起點是雙 crease 的外線，見 tray.ts
+ * 「y 向 outerWall＝H，自雙 crease 外線起量」，雙 crease 間距＝rootJog）。Slice 5 Fix1
+ * review：F3 解耦後雙 crease 間距已不是 thickness，這裡若仍讀 thickness 會讓標註起點偏離
+ * 實際外線（預設 t=0.3/rootJog=0.5 會偏 0.2mm）——改讀 rootJog 才會精確對齊，不再是「純視覺
+ * 微差」。
  */
 function addTrayDimensions(
   tray: TrayResult,
   panelL: number,
   panelW: number,
   height: number,
-  thickness: number,
+  rootJog: number,
   idPrefix: string,
   offsetX: number,
   offsetY: number,
@@ -423,7 +426,7 @@ function addTrayDimensions(
   tagW: string,
   tagH: string,
 ): TrayResult {
-  const yEdge = offsetY + panelW / 2 + thickness;
+  const yEdge = offsetY + panelW / 2 + rootJog;
   const dims = [
     makeDimension(idPrefix, 0, offsetX - panelL / 2, tray.bounds.maxY, offsetX + panelL / 2, tray.bounds.maxY, `${panelL}mm`, DIM_OFFSET, 'h', tagL, 'middle'),
     makeDimension(idPrefix, 1, tray.bounds.maxX, offsetY - panelW / 2, tray.bounds.maxX, offsetY + panelW / 2, `${panelW}mm`, DIM_OFFSET, 'v', tagW, 'start'),
@@ -459,7 +462,7 @@ function buildBasePiece(
     offsetX,
     offsetY,
   });
-  return addTrayDimensions(tray, baseWidth, baseLength, baseHeight, thickness, 'base', offsetX, offsetY, 'baseWidth', 'baseLength', 'baseHeight');
+  return addTrayDimensions(tray, baseWidth, baseLength, baseHeight, rootJog, 'base', offsetX, offsetY, 'baseWidth', 'baseLength', 'baseHeight');
 }
 
 function buildLidPiece(
@@ -489,7 +492,7 @@ function buildLidPiece(
     offsetX,
     offsetY,
   });
-  return addTrayDimensions(tray, lidPanelX, lidPanelY, lidHeight, thickness, 'lid', offsetX, offsetY, 'lidMarginX', 'lidMarginY', 'lidHeight');
+  return addTrayDimensions(tray, lidPanelX, lidPanelY, lidHeight, rootJog, 'lid', offsetX, offsetY, 'lidMarginX', 'lidMarginY', 'lidHeight');
 }
 
 function toPiece(id: string, label: string, r: TrayResult): DielinePiece {
@@ -814,7 +817,7 @@ export const telescope: BoxModule = {
     id: 'telescope',
     name: { zh: '天地盒 (Telescope Box)' },
     intro: {
-      zh: '上蓋與下盒共用同一套免膠雙壁 tray 拓撲、上蓋等邊放大套住下盒；內襯墊片放進下盒貼底，四翼向下摺成腳架把物品墊高（2026-07-09 T7 gate 反饋重定義：平台式，取代舊圍框版）。',
+      zh: '上蓋與下盒共用同一套免膠雙壁 tray 拓撲、上蓋依長短向分別放大套住下盒（Slice 5 F1：lidMarginX／lidMarginY 兩軸獨立，不再是單一等邊放大量）；內襯墊片放進下盒貼底，四翼向下摺成腳架把物品墊高（2026-07-09 T7 gate 反饋重定義：平台式，取代舊圍框版）。',
     },
     topology: 'nested',
   },
