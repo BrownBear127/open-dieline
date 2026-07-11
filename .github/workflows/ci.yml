@@ -1,0 +1,34 @@
+# 四閘門 + bundle smoke——與本地開發用的同一套 gate（CONTRIBUTING「送 PR 前四道閘門」）。
+# bundle smoke 驗 build 產物完整性：index.html 存在且其引用的每個 asset 檔案都真的在 dist/。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:cycles
+      - run: npm run build
+      - name: Bundle smoke
+        run: |
+          test -f dist/index.html || { echo "missing dist/index.html"; exit 1; }
+          assets=$(grep -o 'assets/[^"]*' dist/index.html)
+          test -n "$assets" || { echo "dist/index.html references no assets"; exit 1; }
+          missing=0
+          while IFS= read -r a; do
+            test -f "dist/$a" || { echo "missing bundle asset: dist/$a"; missing=1; }
+          done <<< "$assets"
+          test "$missing" -eq 0
+          echo "bundle smoke OK: $(echo "$assets" | wc -l | tr -d ' ') assets verified"

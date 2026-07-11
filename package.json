@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
-    "check:cycles": "npx madge --warning --circular --extensions ts,tsx --ts-config tsconfig.json src/main.tsx",
+    "check:cycles": "npx -y madge@8.0.0 --warning --circular --extensions ts,tsx --ts-config tsconfig.json src/main.tsx",
     "test:watch": "vitest",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json --noEmit"
   },
