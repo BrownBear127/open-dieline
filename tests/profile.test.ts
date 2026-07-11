@@ -5,15 +5,45 @@ import {
   computeProfileEnvelope,
   computeProfileStrides,
   computeMinStride,
+  mergeIntoSlotLimit,
   ProfileStrides,
 } from '@/core/profile';
 import type { Segment } from '@/core/geometry';
 import { segmentsBounds } from '@/core/geometry';
+import { manufacturingBounds } from '@/core/bounds';
 import type { DielinePath, DielinePiece, GenerateResult } from '@/core/types';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
 import { resolveParams } from '@/core/registry';
 import { fitCount } from '@/core/imposition';
+import productionPRaw from './fixtures/telescope-production-P.json';
+
+// production-P 完整參數組（F4 review fix：讀既有 fixture，不手打複製字面量——原檔見
+// tests/telescope-fixture.test.ts 的 ProductionPParams，本檔只需要 `.params`，不需要
+// golden/featureCounts/details/tolerance 那些欄位，故只在本檔重宣告最小必要的型別）。
+// 兩個消費 describe block 各自從這份 fixture 派生自己的 productionP 區域變數（不共用單一
+// 模組級變數）——沿用 tests/telescope-fixture.test.ts 的既有慣例：避免跨 describe block
+// 隱性耦合，即使數值相同。
+interface ProductionPParams {
+  baseLength: number;
+  baseWidth: number;
+  baseHeight: number;
+  lidMarginX: number;
+  lidMarginY: number;
+  lidHeight: number;
+  basePlatformWidth: number;
+  lidPlatformWidth: number;
+  thickness: number;
+  rootJog: number;
+  innerWallReduction: number;
+  wallTopCompensation: number;
+  linerEnabled: boolean;
+  [key: string]: number | boolean;
+}
+
+function productionPParams(): ProductionPParams {
+  return (productionPRaw as { params: ProductionPParams }).params;
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // manufacturingPaths — 共用過濾（plan T1；spec F2b「bounds／profile／preview 三消費者同源」）
@@ -63,34 +93,24 @@ describe('manufacturingPaths', () => {
     expect(filtered.map((p) => p.id)).toEqual(['p-cut']); // p-dimension 型別不合格，被擋下
   });
 
-  it('RTE／telescope 真實資料：與既有 manufacturingBounds 的排除式過濾算出相同 bounds（v1 無 bleed/annotation，兩套規則現值相等，spec F2b「同源化為防未來分歧」）', () => {
+  it('RTE／telescope 真實資料：manufacturingPaths 過濾後的 bounds 與既有 manufacturingBounds（排除式過濾）直接交叉比對，不只各自比對硬編碼常數（F4 review fix：原測試名稱聲稱交叉比對，實際兩邊都只比對複製的字面常數，從未呼叫 manufacturingBounds 本身，沒有鑑別力）', () => {
     const rteResult = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
     const rteSegs = manufacturingPaths(rteResult).flatMap((p) => p.segments);
-    const rteBounds = segmentsBounds(rteSegs);
-    expect(rteBounds.maxX - rteBounds.minX).toBeCloseTo(233.2, 2);
-    expect(rteBounds.maxY - rteBounds.minY).toBeCloseTo(251.0, 2);
+    const rteBoundsFromFilter = segmentsBounds(rteSegs);
+    expect(rteBoundsFromFilter.maxX - rteBoundsFromFilter.minX).toBeCloseTo(233.2, 2);
+    expect(rteBoundsFromFilter.maxY - rteBoundsFromFilter.minY).toBeCloseTo(251.0, 2);
+    // 真正呼叫 manufacturingBounds（core/bounds.ts 既有的排除式過濾），逐欄位比對——
+    // 兩套獨立實作（正面表列 vs 排除表列）在 v1（無 bleed/annotation）上算出同一個 bounds
+    // 物件才是 spec F2b「同源化為防未來分歧」實際要驗的事，不是分別比對常數。
+    expect(rteBoundsFromFilter).toEqual(manufacturingBounds(rteResult));
 
-    const productionP = {
-      baseLength: 179,
-      baseWidth: 124,
-      baseHeight: 60,
-      lidMarginX: 13.5,
-      lidMarginY: 18.5,
-      lidHeight: 45,
-      basePlatformWidth: 5,
-      lidPlatformWidth: 0,
-      thickness: 0.44,
-      rootJog: 0.5,
-      innerWallReduction: 0.8,
-      wallTopCompensation: 0.5,
-      linerEnabled: false,
-    };
-    const teleResult = telescope.generate(resolveParams(telescope, productionP));
+    const teleResult = telescope.generate(resolveParams(telescope, productionPParams()));
     const basePiece = teleResult.pieces!.find((p) => p.id === 'base')!;
     const baseSegs = manufacturingPaths(teleResult, basePiece).flatMap((p) => p.segments);
-    const baseBounds = segmentsBounds(baseSegs);
-    expect(baseBounds.maxX - baseBounds.minX).toBeCloseTo(400.403, 1);
-    expect(baseBounds.maxY - baseBounds.minY).toBeCloseTo(458.403, 1);
+    const baseBoundsFromFilter = segmentsBounds(baseSegs);
+    expect(baseBoundsFromFilter.maxX - baseBoundsFromFilter.minX).toBeCloseTo(400.403, 1);
+    expect(baseBoundsFromFilter.maxY - baseBoundsFromFilter.minY).toBeCloseTo(458.403, 1);
+    expect(baseBoundsFromFilter).toEqual(manufacturingBounds(teleResult, basePiece));
   });
 });
 
@@ -259,21 +279,10 @@ describe('computeProfileStrides — RTE 預設件（27"×39"直放·咬口20·ga
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('computeProfileStrides — telescope production-P（十字形件退化為矩形 stride，零收益）', () => {
-  const productionP = {
-    baseLength: 179,
-    baseWidth: 124,
-    baseHeight: 60,
-    lidMarginX: 13.5,
-    lidMarginY: 18.5,
-    lidHeight: 45,
-    basePlatformWidth: 5,
-    lidPlatformWidth: 0,
-    thickness: 0.44,
-    rootJog: 0.5,
-    innerWallReduction: 0.8,
-    wallTopCompensation: 0.5,
-    linerEnabled: false,
-  };
+  // F4 review fix：讀既有 fixture（tests/fixtures/telescope-production-P.json），不手打
+  // 複製第二份字面量（原本這裡與 manufacturingPaths describe block 各自維護一份逐字相同
+  // 的物件字面量）。
+  const productionP = productionPParams();
   const result = telescope.generate(resolveParams(telescope, productionP));
   const gap = 3;
 
@@ -336,6 +345,100 @@ describe('computeProfileStrides — 空幾何退化（F2 review fix）', () => {
     // computeMinStride 文件字串的手算證明）。
     expect(strides.strideY).toBeCloseTo(194.825, 2);
     expect(strides.strideX).toBe(236.2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// mergeIntoSlotLimit — 巢狀合併直接單元測試（F3 review fix：合併計算抽出來獨立測，不再
+// 只靠「有無 spike」端到端間接推論——這個函式簽章只吃已算好的細槽 min/max 陣列，不吃原始
+// 幾何，結構性排除了「非巢狀重切」的替代實作路徑（重切需要原始 segments，這裡拿不到），
+// 比端到端比較更有鑑別力）
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('mergeIntoSlotLimit — 巢狀合併（F3 review fix）', () => {
+  // fineCount 刻意選 8192（恰為 4096 的 2 倍，`groupSize=ceil(fineCount/MAX_SLOTS_PER_AXIS)`
+  // =ceil(8192/4096)=ceil(2.0)=2，整除、無條進位歧義）→ coarseCount=4096、slotWidth=1，
+  // 讓下面每個測試都能用簡單的「兩個細槽構成一個粗槽」心算驗證，不需要湊出真實幾何的
+  // >4096 槽。
+  const fineCount = 8192;
+
+  function emptyFineArrays(): { fineMin: number[]; fineMax: number[] } {
+    return {
+      fineMin: new Array<number>(fineCount).fill(Infinity),
+      fineMax: new Array<number>(fineCount).fill(-Infinity),
+    };
+  }
+
+  it('groupSize／coarseCount：8192 個細槽合併成 4096 個粗槽（groupSize=2），slotWidth=0.5×2=1', () => {
+    const { fineMin, fineMax } = emptyFineArrays();
+    const merged = mergeIntoSlotLimit(fineMin, fineMax, 0.5);
+    expect(merged.slotWidth).toBe(1);
+    expect(merged.slotMin.length).toBe(4096);
+    expect(merged.slotMax.length).toBe(4096);
+  });
+
+  it('跨兩細槽：粗槽的 min/max 是兩個構成細槽的聯集（不是任一單一細槽的值）——直接比對合併前後的同一組陣列，不是「有無 spike」的間接推論', () => {
+    const { fineMin, fineMax } = emptyFineArrays();
+    // 粗槽 g=100 由細槽 200/201 構成（groupSize=2，floor(200/2)=floor(201/2)=100）：
+    // 細槽 200 給 [10,20]，細槽 201 給 [5,15]——min/max 分別來自不同的細槽，不是同一槽。
+    fineMin[200] = 10;
+    fineMax[200] = 20;
+    fineMin[201] = 5;
+    fineMax[201] = 15;
+
+    const merged = mergeIntoSlotLimit(fineMin, fineMax, 0.5);
+    expect(merged.slotMin[100]).toBe(5); // min(10,5)——不是細槽 200 單獨的 10
+    expect(merged.slotMax[100]).toBe(20); // max(20,15)——不是細槽 201 單獨的 15
+  });
+
+  it('空槽：粗槽兩個構成細槽之一完全無材料（維持初始 Infinity/-Infinity），合併後粗槽值＝另一個非空細槽的值，不被空槽的哨兵值污染', () => {
+    const { fineMin, fineMax } = emptyFineArrays();
+    // 粗槽 g=200 由細槽 400/401 構成：細槽 400 有材料 [30,40]，細槽 401 維持初始值（空槽）。
+    fineMin[400] = 30;
+    fineMax[400] = 40;
+
+    const merged = mergeIntoSlotLimit(fineMin, fineMax, 0.5);
+    expect(merged.slotMin[200]).toBe(30); // 不是 Infinity
+    expect(merged.slotMax[200]).toBe(40); // 不是 -Infinity
+  });
+
+  it('minStride 候選值：合併後的粗槽陣列（不是細槽）餵進 computeMinStride，算出的 stride 反映合併後的鄰接關係——手算驗證 far[i]-near[j]+gap 用的是粗槽索引與粗槽寬度', () => {
+    const { fineMin, fineMax } = emptyFineArrays();
+    fineMin[0] = 0;
+    fineMax[0] = 10; // 細槽 0 → 粗槽 g=0
+    fineMin[2] = 0;
+    fineMax[2] = 25; // 細槽 2 → 粗槽 g=1（bottom 較大）
+
+    const merged = mergeIntoSlotLimit(fineMin, fineMax, 0.5);
+    const gap = 3;
+    const stride = computeMinStride(merged.slotMax, merged.slotMin, gap, merged.slotWidth);
+    // 粗槽 g=1 的 bottom=25，與 g=0／g=1 本身的 top=0 相鄰（dxMin=0）：25-0+sqrt(9)=28，
+    // 是全域最大候選值（手算見 task-1-report.md review fix 段）。
+    expect(stride).toBeCloseTo(28, 6);
+  });
+
+  it('全域單調不減：任一粗槽的 min/max 皆為其構成細槽集合的聯集（逐組驗證，不只挑一兩組樣本）——證明合併是「聚合既有細槽值」而非另一種重新分槽的演算法', () => {
+    const { fineMin, fineMax } = emptyFineArrays();
+    // 決定性但有變化的合成資料：每隔 3 個細槽給一個遞增的材料值，製造「部分細槽有料、
+    // 部分空」的混合分布，比純粹全填滿更貼近真實幾何的稀疏性質。
+    for (let i = 0; i < fineCount; i += 3) {
+      fineMin[i] = -i * 0.01;
+      fineMax[i] = i * 0.02;
+    }
+
+    const merged = mergeIntoSlotLimit(fineMin, fineMax, 0.5);
+    const groupSize = merged.slotWidth / 0.5; // 從輸出反推 groupSize，不是重新實作合併公式
+
+    for (let g = 0; g < merged.slotMin.length; g++) {
+      let expectedMin = Infinity;
+      let expectedMax = -Infinity;
+      for (let i = g * groupSize; i < Math.min(fineCount, (g + 1) * groupSize); i++) {
+        if (fineMin[i]! < expectedMin) expectedMin = fineMin[i]!;
+        if (fineMax[i]! > expectedMax) expectedMax = fineMax[i]!;
+      }
+      expect(merged.slotMin[g]).toBe(expectedMin);
+      expect(merged.slotMax[g]).toBe(expectedMax);
+    }
   });
 });
 

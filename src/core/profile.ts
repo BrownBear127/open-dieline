@@ -300,8 +300,15 @@ function contributeSegment(slotMin: number[], slotMax: number[], axis: Axis, ext
  * K > 4096 時把細槽（0.5mm）整數合併成粗槽——合併只取更寬鬆的 min/max（單調保守），
  * 不得直接以新的槽寬重切非巢狀邊界（spec F1）：粗槽 g 恰為細槽
  * `[g*groupSize, (g+1)*groupSize)` 的聯集，min/max 天然滿足「粗槽 ⊇ 任一構成細槽」。
+ *
+ * export 供測試直接鑑別（F3 review fix）：這個函式只吃已經算好的細槽 `fineMin`/`fineMax`
+ * 陣列，不吃原始幾何（`Segment[]`）——簽章本身就結構性排除了「非巢狀重切」的替代實作
+ * （重切需要原始 segments 才能在新槽寬下重新掃描，這裡拿不到）。直接對這個函式做單元測試
+ * （`tests/profile.test.ts` 的 `mergeIntoSlotLimit` 專項 describe block）比只在
+ * `computeProfileEnvelope` 端到端比較「加一個 spike 前後」更有鑑別力：後者兩種實作
+ * （正確的巢狀聚合 vs. 錯誤的非巢狀重切）在特定案例上可能剛好算出同樣的結果。
  */
-function mergeIntoSlotLimit(
+export function mergeIntoSlotLimit(
   fineMin: number[],
   fineMax: number[],
   fineSlotSize: number,
