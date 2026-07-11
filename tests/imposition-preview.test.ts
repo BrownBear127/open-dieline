@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { directionInstances, sectionOffsets, previewPaths } from '@/ui/impositionPreview';
 import type { PreviewInstance } from '@/ui/impositionPreview';
-import { MAX_PREVIEW_INSTANCES } from '@/core/imposition';
-import type { DirectionResult, WorkingSheet } from '@/core/imposition';
-import type { Bounds } from '@/core/geometry';
+import { MAX_PREVIEW_INSTANCES, computeImposition } from '@/core/imposition';
+import type { DirectionResult, ImpositionInput, ImpositionResult, WorkingSheet } from '@/core/imposition';
+import { computeProfileStrides } from '@/core/profile';
+import { segmentsBounds } from '@/core/geometry';
+import type { Bounds, Segment } from '@/core/geometry';
 import type { DielinePath, DielinePiece, GenerateResult, LineType } from '@/core/types';
 
 // ── instanceTransforms 變換代數驗證用的最小 helper（僅測試內部使用，不進生產碼）───────────
@@ -59,12 +61,12 @@ function transformedBounds(transform: string, mb: Bounds): { minX: number; maxX:
 
 /** 建構「無補排」的 `DirectionResult`——只用來讓 `directionInstances` 只走主格點
  *  `buildGrid` 路徑，count/totalCount/utilization 這裡不驗證，數字只需型別合法。
- *  spacingAxis/strideX/strideY/usedW/usedH（T2 新增五欄）同理不影響本檔任何斷言——
- *  `directionInstances` 只讀 cols/rows/fillSplit/bottomFill/rightFill，usedW/usedH 自己
- *  重算（見 impositionPreview.ts `directionInstances` docblock「DirectionResult 不帶這兩個
- *  欄位」段）；且這個 factory 本身無 piece 尺寸／gap 參數（兩個呼叫端各自傳入不同 mb/gap），
- *  無法推導真實數值，比照既有欄位精神給型別合法的中性值。 */
-function noFillDirection(cols: number, rows: number): DirectionResult {
+ *  **`strideX`/`strideY` 由呼叫端傳入、不是中性值**（T3：main grid 呼叫直接消費這兩個
+ *  欄位，見 impositionPreview.ts `directionInstances`——呼叫端必須傳與該案例 mb/dir/gap
+ *  匹配的矩形 stride，兩個呼叫處各自附推導註解）。usedW/usedH 仍是中性值——本檔兩個呼叫處
+ *  皆 `fillSplit:null`，條帶起點路徑不會被觸發（見 `directionInstances` 的短路條件），無法
+ *  推導真實數值也不影響任何斷言。 */
+function noFillDirection(cols: number, rows: number, strideX: number, strideY: number): DirectionResult {
   const gridCount = cols * rows;
   return {
     cols,
@@ -77,8 +79,8 @@ function noFillDirection(cols: number, rows: number): DirectionResult {
     totalCount: gridCount,
     utilization: 0,
     spacingAxis: null,
-    strideX: 0,
-    strideY: 0,
+    strideX,
+    strideY,
     usedW: 0,
     usedH: 0,
   };
@@ -89,7 +91,8 @@ describe('directionInstances（fillSplit=null）— buildGrid 主格點代數驗
     const mb: Bounds = { minX: 5, maxX: 35, minY: -7, maxY: 13 }; // w=30, h=20，非零 min
     const gripper = 10;
     const gap = 4;
-    const instances = directionInstances(0, noFillDirection(2, 2), mb, gripper, gap, 500);
+    // 0°：strideX=cellW(30)+gap(4)=34，strideY=cellH(20)+gap(4)=24——矩形退化（無收縮）。
+    const instances = directionInstances(0, noFillDirection(2, 2, 34, 24), mb, gripper, gap, 500);
     expect(instances).toHaveLength(4);
 
     // c=1,r=1（非原點的一格，避免湊巧全零通過）：flatten 順序＝r*cols+c＝1*2+1＝3
@@ -113,7 +116,8 @@ describe('directionInstances（fillSplit=null）— buildGrid 主格點代數驗
     const usableW = cols * 20 + (cols - 1) * gap; // 3*20+2*4=68
     const usableH = rows * 30 + (rows - 1) * gap; // 2*30+1*4=64
 
-    const instances = directionInstances(90, noFillDirection(cols, rows), mb, gripper, gap, 500);
+    // 90°：strideX=cellW(20＝mb h)+gap(4)=24，strideY=cellH(30＝mb w)+gap(4)=34。
+    const instances = directionInstances(90, noFillDirection(cols, rows, 24, 34), mb, gripper, gap, 500);
     expect(instances).toHaveLength(cols * rows);
 
     for (const inst of instances) {
@@ -432,6 +436,177 @@ describe('directionInstances — budget 邊界（review High 2：正規化並硬
     const result = directionInstances(0, direction, hugeMb, 0, 3, 1e9);
     expect(result).toHaveLength(MAX_PREVIEW_INSTANCES); // 1 主格點 + 499 補排
     expect(Date.now() - start).toBeLessThan(1000);
+  });
+});
+
+// ── directionInstances — profile-spacing stride 消費（task-3，spec F4/F5/驗收 7） ────────
+//
+// 上面所有既有案例的 DirectionResult 都是「矩形退化」（spacingAxis:null，strideX/strideY＝
+// cellW+gap/cellH+gap）——buildGrid 消費 strideX/strideY 或消費 cellW+gap 在這些案例下數字
+// 完全相同，無法鑑別「真的讀了 direction.strideX/strideY」還是「繼續本地算 cellW+gap」。
+// 以下三組案例刻意讓 strideX 或 strideY 真的小於矩形值（profile-aware 收縮的定義），才有
+// 鑑別力：rows 收縮／cols 收縮（手造 fixture，隔離驗證主格點單一路徑）＋正數補排（引 core
+// 對人造 Z-notch 幾何算出的真實 DirectionResult，一次覆蓋主格點／補排矩形／條帶起點三個
+// 呼叫位分工）。
+
+describe('directionInstances — rows/cols 收縮（主格點讀 direction.strideX/strideY，矩形重疊；幾何佔位不受影響）', () => {
+  it('rows 收縮：cellY 序列＝originY + r×strideY（相鄰列矩形重疊）；cellX 序列用未收縮軸 strideX（＝矩形，不重疊）；cellW/cellH 幾何佔位不受收縮影響', () => {
+    const mb: Bounds = { minX: 0, maxX: 20, minY: 0, maxY: 30 }; // w=20, h=30
+    const gripper = 10;
+    const gap = 3;
+    const direction: DirectionResult = {
+      cols: 2,
+      rows: 3,
+      gridCount: 6,
+      fillSplit: null,
+      bottomFill: null,
+      rightFill: null,
+      count: 6,
+      totalCount: 6,
+      utilization: 0,
+      spacingAxis: 'rows',
+      strideX: 23, // cellW(20)+gap(3)——cols 軸未收縮，＝矩形
+      strideY: 25, // <cellH+gap(33)，甚至 <cellH(30) 本身——真實收縮，相鄰列矩形重疊 5mm
+      usedW: 43, // fillSplit=null 不消費，型別合法值（n=2：20+1×23=43）
+      usedH: 80, // n=3：30+2×25=80
+    };
+    const instances = directionInstances(0, direction, mb, gripper, gap, 500);
+    expect(instances).toHaveLength(6);
+
+    // row-major，safeCols=2：c=0 那一欄是 i=0,2,4（r=0,1,2）。
+    for (let r = 0; r < 3; r++) {
+      const inst = instances[r * 2]!;
+      expect(inst.cellY).toBe(gripper + r * 25);
+      expect(inst.cellW).toBe(20); // 幾何佔位＝mb 原始寬高，不受收縮影響
+      expect(inst.cellH).toBe(30);
+    }
+    expect(instances[1]!.cellX - instances[0]!.cellX).toBe(23); // 未收縮軸＝矩形 step
+
+    // 收縮的視覺意義（spec F5「靠齊」）：相鄰列矩形互疊——cellY 差(25) < cellH(30)。
+    expect(instances[2]!.cellY - instances[0]!.cellY).toBeLessThan(instances[0]!.cellH);
+  });
+
+  it('cols 收縮：cellX 序列＝originX + c×strideX（相鄰欄矩形重疊）；cellY 序列用未收縮軸 strideY（＝矩形）；cellW/cellH 不受影響（對稱案例）', () => {
+    const mb: Bounds = { minX: 0, maxX: 20, minY: 0, maxY: 30 }; // w=20, h=30
+    const gripper = 5;
+    const gap = 4;
+    const direction: DirectionResult = {
+      cols: 3,
+      rows: 2,
+      gridCount: 6,
+      fillSplit: null,
+      bottomFill: null,
+      rightFill: null,
+      count: 6,
+      totalCount: 6,
+      utilization: 0,
+      spacingAxis: 'cols',
+      strideX: 15, // <cellW+gap(24)，甚至 <cellW(20) 本身——真實收縮
+      strideY: 34, // cellH(30)+gap(4)——rows 軸未收縮，＝矩形
+      usedW: 50, // n=3：20+2×15=50
+      usedH: 64, // n=2：30+1×34=64
+    };
+    const instances = directionInstances(0, direction, mb, gripper, gap, 500);
+    expect(instances).toHaveLength(6);
+
+    // row-major，safeCols=3：r=0 那一列是 i=0,1,2（c=0,1,2）。
+    for (let c = 0; c < 3; c++) {
+      const inst = instances[c]!;
+      expect(inst.cellX).toBe(gripper + c * 15);
+      expect(inst.cellW).toBe(20);
+      expect(inst.cellH).toBe(30);
+    }
+    expect(instances[3]!.cellY - instances[0]!.cellY).toBe(34); // r=1(i=3,c=0) 對 r=0(i=0,c=0)
+
+    expect(instances[1]!.cellX - instances[0]!.cellX).toBeLessThan(instances[0]!.cellW); // 相鄰欄矩形互疊
+  });
+});
+
+// ── directionInstances — 正數補排＋收縮並存（task-3） ─────────────────────────────────
+//
+// 與 tests/imposition.test.ts「computeImposition — 正數補排案例」同一份人造 Z-notch 幾何與
+// 紙規（該檔已驗證的錨值：見該檔 Z_NOTCH_SEGMENTS docblock 完整推導）——這裡不手打
+// stride/usedW/usedH 數字，直接呼叫 `computeProfileStrides`＋`computeImposition` 讓 core
+// 算出真實 `DirectionResult`，一次驗證三個呼叫位分工同時成立：主格點讀 strideX/strideY、
+// 補排條帶維持旋轉後矩形、條帶起點讀 usedW/usedH（不本地重算）。兩個測試檔各自獨立定義
+// 這份幾何（未 export，無法 import），用「前提檢查」測試鎖住兩檔數字不會各自漂移。
+
+/** ok:true 窄化＋失敗時印出 errors，同 tests/imposition.test.ts 的 assertOk（本檔獨立一份，
+ *  兩檔互不 import）。 */
+function assertOk(result: ImpositionResult): asserts result is Extract<ImpositionResult, { ok: true }> {
+  if (!result.ok) {
+    throw new Error(`預期 ok:true，但收到 errors：${JSON.stringify(result.errors)}`);
+  }
+}
+
+const Z_NOTCH_SEGMENTS: Segment[] = [
+  { kind: 'line', x1: 0, y1: 140, x2: 40, y2: 140 },
+  { kind: 'line', x1: 40, y1: 140, x2: 40, y2: 200 },
+  { kind: 'line', x1: 40, y1: 200, x2: 50, y2: 200 },
+  { kind: 'line', x1: 50, y1: 200, x2: 50, y2: 60 },
+  { kind: 'line', x1: 50, y1: 60, x2: 10, y2: 60 },
+  { kind: 'line', x1: 10, y1: 60, x2: 10, y2: 0 },
+  { kind: 'line', x1: 10, y1: 0, x2: 0, y2: 0 },
+  { kind: 'line', x1: 0, y1: 0, x2: 0, y2: 140 },
+];
+const Z_NOTCH_GAP = 3;
+const POSITIVE_FILL_INPUT: ImpositionInput = {
+  pieceW: 50,
+  pieceH: 200,
+  paperW: 450,
+  paperH: 446,
+  orientation: 'landscape',
+  cutV: false,
+  cutH: false,
+  allowRotate: true,
+  gripper: 0,
+  gap: Z_NOTCH_GAP,
+};
+
+describe('directionInstances — 正數補排＋收縮並存（主格點 stride／補排矩形／條帶起點 usedW-usedH 三件事同時成立）', () => {
+  const shrunk = computeProfileStrides(Z_NOTCH_SEGMENTS, Z_NOTCH_GAP);
+  const mb = segmentsBounds(Z_NOTCH_SEGMENTS); // {minX:0,maxX:50,minY:0,maxY:200}——與 shrunk 同源同一份幾何
+  const result = computeImposition({ ...POSITIVE_FILL_INPUT, shrunk });
+  assertOk(result);
+  const direction = result.deg0; // 行縮擇優：見下方「前提檢查」測試列出的完整錨值
+
+  it('前提檢查：本檔獨立算出的 direction 與 tests/imposition.test.ts 已驗證的錨值相同（防兩檔幾何/紙規未來各自漂移）', () => {
+    expect(direction).toMatchObject({
+      cols: 8,
+      rows: 2,
+      fillSplit: 'bottom-full',
+      bottomFill: { cols: 2, rows: 1, count: 2 },
+      rightFill: { cols: 0, rows: 6, count: 0 },
+      count: 18,
+      strideX: 53,
+      strideY: 143,
+      usedW: 421,
+      usedH: 343,
+    });
+  });
+
+  it('主格點：cellY 序列用收縮後 strideY(143)，不是矩形 pieceH+gap(203)；cellX 序列＝未收縮 strideX(53)', () => {
+    const instances = directionInstances(0, direction, mb, 0, Z_NOTCH_GAP, 500);
+    // row-major，safeCols=8（cols）：r=0 是 i=0..7，r=1 是 i=8..15，兩者 c=0 分別是 i=0/i=8。
+    expect(instances[8]!.cellY - instances[0]!.cellY).toBe(143);
+    expect(instances[1]!.cellX - instances[0]!.cellX).toBe(53);
+  });
+
+  it('底條帶補排件：位移用「旋轉後矩形」fillCellW+gap/fillCellH+gap（fillDir=90 下＝mb 原始 h+gap／w+gap），不是主格點的 strideX/strideY(53/143)；footprint 亦是旋轉後尺寸', () => {
+    const instances = directionInstances(0, direction, mb, 0, Z_NOTCH_GAP, 500);
+    expect(instances).toHaveLength(18); // 16 主格點 + 2 底條帶 + 0 右條帶——與 core count 一致
+    const bottom0 = instances[16]!;
+    const bottom1 = instances[17]!;
+    expect(bottom1.cellX - bottom0.cellX).toBe(203); // fillCellW(=mb h=200)+gap(3)——非 strideX(53)/strideY(143)
+    expect(bottom0.cellW).toBe(200); // 補排件旋轉後佔位＝mb 原始高
+    expect(bottom0.cellH).toBe(50); // ＝mb 原始寬
+  });
+
+  it('條帶起點讀 direction.usedH（343）+gap，不是本地重算：本地重算公式（rows×cellH+(rows-1)×gap＝2×200+1×3＝403）會把起點推到 406，比正確值 346 多 60mm——讀錯會直接吃掉收縮省下的空間', () => {
+    const instances = directionInstances(0, direction, mb, 0, Z_NOTCH_GAP, 500);
+    const bottom0 = instances[16]!;
+    expect(bottom0.cellY).toBe(346); // gripper(0) + usedH(343) + gap(3)
+    expect(bottom0.cellY).not.toBe(406); // 本地重算的錯誤值——明確排除，防退回舊實作仍意外通過
   });
 });
 
