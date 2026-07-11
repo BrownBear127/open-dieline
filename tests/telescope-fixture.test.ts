@@ -248,8 +248,12 @@ const EXTRACTORS: Record<string, Extractor> = {
   'base.y.tuckFlap': (b) => maxAbsGap(creaseAlongValues(b, 'tongueFold', 'back', 'y', 'halfcut'), creaseAlongValues(b, 'tongueFlap', 'back', 'y', 'cut')),
   'lid.x.panel': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(l, 'wallRoot', 'right', 'x', 'crease')),
   'lid.x.outerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'left', 'x', 'crease'), creaseAlongValues(l, 'wallTop', 'left', 'x', 'crease')),
-  'lid.x.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(l, 'tongueFold', 'left', 'x', 'cut')),
-  'lid.x.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'left', 'x', 'cut'), creaseAlongValues(l, 'tongueFlap', 'left', 'x', 'cut')),
+  // Slice 5 F5：B 款舌根拓撲整組復刻後，端段從 cut 改 crease（tongueFold+crease，0/1/2 段
+  // 依三分支）、halfcut 中段的 along 值仍恆定（同 A 款既有修正手法，見 base.x.innerWall
+  // 同款理由）——改查 tongueFold+halfcut，對 A/B 兩款、B 款三分支皆穩定可靠（halfcut
+  // 永遠存在，即使分支 3「全 halfcut 無端段」）。
+  'lid.x.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'left', 'x', 'crease'), creaseAlongValues(l, 'tongueFold', 'left', 'x', 'halfcut')),
+  'lid.x.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'left', 'x', 'halfcut'), creaseAlongValues(l, 'tongueFlap', 'left', 'x', 'cut')),
   // Slice 5 Fix2（Finding 1）：doubleCreaseGap／panel 改走 yRootNominalOffset（不是直接
   // creaseAlongValues／creaseSpan）——B 款 wallRoot(y) 只留 offset，nominal 併入
   // gussetFold，見該 helper 註解。
@@ -258,8 +262,10 @@ const EXTRACTORS: Record<string, Extractor> = {
     return vals.length < 2 ? 0 : Math.max(...vals) - Math.min(...vals);
   },
   'lid.y.outerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallRoot', 'back', 'y', 'crease'), creaseAlongValues(l, 'wallTop', 'back', 'y', 'crease')),
-  'lid.y.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'back', 'y', 'crease'), creaseAlongValues(l, 'tongueFold', 'back', 'y', 'cut')),
-  'lid.y.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'back', 'y', 'cut'), creaseAlongValues(l, 'tongueFlap', 'back', 'y', 'cut')),
+  // Slice 5 F5：同 lid.x.innerWall 理由——改查 tongueFold+halfcut（前後壁 hasDoubleRoot=true，
+  // 端段亦從 cut 改 crease；V relief 是 tongueFold+cut 但只在壁兩端，非沿線定值不可靠）。
+  'lid.y.innerWall': (_b, l) => minAbsGap(creaseAlongValues(l, 'wallTop', 'back', 'y', 'crease'), creaseAlongValues(l, 'tongueFold', 'back', 'y', 'halfcut')),
+  'lid.y.tuckFlap': (_b, l) => maxAbsGap(creaseAlongValues(l, 'tongueFold', 'back', 'y', 'halfcut'), creaseAlongValues(l, 'tongueFlap', 'back', 'y', 'cut')),
   'lid.y.panel': (_b, l) => minAbsGap(yRootNominalOffset(l, 'front'), yRootNominalOffset(l, 'back')),
 };
 
@@ -357,23 +363,29 @@ function judgeNumericSlot(slot: SlotFixture, generated: number, formulaValue: nu
 }
 
 /**
- * tuckFoldLine 結構檢查：舌摺線應同時有 halfcut（中段）與 cut（兩端讓位角撐或 notch）。
+ * tuckFoldLine 結構檢查：舌摺線應恆有 halfcut（中段），A/B 兩款各自的端段結構不同。
  *
  * Slice 5 F4（A 款專屬適配，語意不變——見 spec F4「invariant 更新」）：A 款（platformWidth
  * >0，如 base）舌根拓撲從「兩端 9mm cut＋單一中段 halfcut」改為「U-notch 切段＋多段
  * halfcut」——cut 段數＝5×notch 數（每個 notch 5 段：2 line＋2 arc＋1 底線）、halfcut
- * 段數＝2 或 3（依壁款）。B 款（lid，platformWidth=0）舌根拓撲本次未動，維持舊結構
- * （cut 恰 2 段、halfcut 恰 1 段）。用 cut path 是否帶 'uNotch' tag 判斷走哪組期望值——
- * 這是 tray.ts buildUNotches 的既有 tag 慣例，不是本測試發明的新概念。
+ * 段數＝2 或 3（依壁款）。用 cut path 是否帶 'uNotch' tag 判斷走哪組期望值——這是
+ * tray.ts buildUNotches 的既有 tag 慣例，不是本測試發明的新概念。
+ *
+ * Slice 5 F5（B 款整組復刻，取代舊「兩端 9mm cut＋單一中段 halfcut」簡化語意）：端段
+ * 從 cut 改 crease（0/1/2 段，依三分支：分支 1/2 有兩端＝2 段、分支 3 全省＝0 段——見
+ * tray.ts buildBTongueTopology）；cut 型別只剩 V relief（僅 hasDoubleRoot 壁、E′≥7.5
+ * 才生成，4 段＝2 個 V×2 線，無圓角）——0 或 4 段，不再是「恆有 2 段」。halfcut 恆存在
+ * （即使分支 3 全省端段，halfcut 仍覆蓋整段）。
  */
 function checkTuckFoldLineStructure(paths: DielinePath[], side: string): Verdict {
   const cut = findTagged(paths, 'tongueFold', side, 'cut');
+  const crease = findTagged(paths, 'tongueFold', side, 'crease');
   const halfcut = findTagged(paths, 'tongueFold', side, 'halfcut');
-  if (cut.length === 0) return { ok: false, reason: `tongueFold(${side}) 缺 cut（兩端讓位角撐或 U-notch，需軋斷）` };
   if (halfcut.length === 0) return { ok: false, reason: `tongueFold(${side}) 缺 halfcut（中段）` };
 
-  const isAStyle = cut[0]!.tags?.includes('uNotch') ?? false;
+  const isAStyle = cut[0]?.tags?.includes('uNotch') ?? false;
   if (isAStyle) {
+    if (cut.length === 0) return { ok: false, reason: `tongueFold(${side}) A 款缺 cut（U-notch，需軋斷）` };
     if (cut[0]!.segments.length % 5 !== 0 || cut[0]!.segments.length === 0) {
       return { ok: false, reason: `tongueFold(${side}) A 款 cut 段數應是 5 的倍數（每個 U-notch 5 段），實際 ${cut[0]!.segments.length}` };
     }
@@ -383,8 +395,15 @@ function checkTuckFoldLineStructure(paths: DielinePath[], side: string): Verdict
     return { ok: true };
   }
 
-  if (cut[0]!.segments.length !== 2) {
-    return { ok: false, reason: `tongueFold(${side}) cut 應恰有 2 段（兩端），實際 ${cut[0]!.segments.length}` };
+  // B 款：端段 crease 0 或 1 條 path（0/1/2 段皆合法，依三分支）；V relief cut 0 或 1 條
+  // path（恰 4 段）；halfcut 恰 1 條 path、1 段（覆蓋整段，不論端段是否存在）。
+  if (crease.length > 1) return { ok: false, reason: `tongueFold(${side}) B 款端段 crease 應恰 0 或 1 條 path，實際 ${crease.length}` };
+  if (crease.length === 1 && crease[0]!.segments.length !== 1 && crease[0]!.segments.length !== 2) {
+    return { ok: false, reason: `tongueFold(${side}) B 款端段 crease 段數應為 1 或 2，實際 ${crease[0]!.segments.length}` };
+  }
+  if (cut.length > 1) return { ok: false, reason: `tongueFold(${side}) B 款 V relief cut 應恰 0 或 1 條 path，實際 ${cut.length}` };
+  if (cut.length === 1 && cut[0]!.segments.length !== 4) {
+    return { ok: false, reason: `tongueFold(${side}) B 款 V relief cut 段數應為 4（2 個 V×2 線），實際 ${cut[0]!.segments.length}` };
   }
   if (halfcut[0]!.segments.length !== 1) {
     return { ok: false, reason: `tongueFold(${side}) halfcut 應恰有 1 段（中段），實際 ${halfcut[0]!.segments.length}` };
@@ -495,16 +514,19 @@ function checkYProfileSequence(paths: DielinePath[], side: 'back' | 'front', pla
 
 /**
  * 合成一組「健康形狀」的 y 向剖面資料（fix wave F4 負類測試用；back 側、platform=5 型）：
- * 雙 crease 根（gap 0.4）→ 壁頂兩線（60.4/65.4）→ 舌摺線（cut 兩端＋halfcut 中段，
+ * 雙 crease 根（gap 0.4）→ 壁頂兩線（60.4/65.4）→ 舌摺線（crease 兩端＋halfcut 中段，
  * 224.6）→ 插底舌斜線（最深 239.6）。數值只需序位正確，不對應任何真實參數組。
- * 舌摺線兩端線型 2026-07-09 T7 gate 反饋由 crease 改 cut（維護者裁決·軋斷需求）。
+ * 舌摺線兩端線型：A 款讓位角撐（cut，2026-07-09 T7 gate 反饋·軋斷需求）與 B 款端段
+ * （crease，Slice 5 F5 整組復刻）不同——這裡走 checkTuckFoldLineStructure 的 B 款分支
+ * （'fc' 無 'uNotch' tag），改用 crease 對齊該分支的新結構（端段 crease、V relief 才是
+ * cut，本合成剖面不含 V relief）。
  */
 function syntheticYProfile(): DielinePath[] {
   const yLine = (y: number): Segment => ({ kind: 'line', x1: 0, y1: y, x2: 10, y2: y });
   return [
     { id: 'r', type: 'crease', tags: ['wallRoot', 'back'], segments: [yLine(100), yLine(100.4)] },
     { id: 't', type: 'crease', tags: ['wallTop', 'back'], segments: [yLine(160.4), yLine(165.4)] },
-    { id: 'fc', type: 'cut', tags: ['tongueFold', 'back'], segments: [yLine(224.6), yLine(224.6)] },
+    { id: 'fc', type: 'crease', tags: ['tongueFold', 'back'], segments: [yLine(224.6), yLine(224.6)] },
     { id: 'fh', type: 'halfcut', tags: ['tongueFold', 'back'], segments: [yLine(224.6)] },
     { id: 'fl', type: 'cut', tags: ['tongueFlap', 'back'], segments: [{ kind: 'line', x1: 0, y1: 224.6, x2: 5, y2: 239.6 }] },
   ];
@@ -876,6 +898,98 @@ describe('telescope: F4／F6-A production-P 錨（Slice 5 Task 3 驗收）', () 
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Slice 5 Task 4：F5／F6-B production-P 錨——B 款舌根拓撲整組＋V relief＋角撐周邊，全部用
+// production-P 完整參數組（同上一 describe block 的 productionP 常數，各自獨立重算一份，
+// 不共用變數——避免跨 describe block 隱性耦合）。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope: F5／F6-B production-P 錨（Slice 5 Task 4 驗收）', () => {
+  const productionP = {
+    baseLength: 179,
+    baseWidth: 124,
+    baseHeight: 60,
+    lidMarginX: 13.5,
+    lidMarginY: 18.5,
+    lidHeight: 45,
+    basePlatformWidth: 5,
+    lidPlatformWidth: 0,
+    thickness: 0.44,
+    rootJog: 0.5,
+    innerWallReduction: 0.8,
+    wallTopCompensation: 0.5,
+    linerEnabled: false,
+  };
+  const result = telescope.generate(resolveParams(telescope, productionP));
+  const lidPiece = result.pieces!.find((p) => p.id === 'lid')!;
+  const lidPaths = result.paths.filter((p) => lidPiece.pathIds.includes(p.id));
+  const lidGeomOnly = lidPaths.filter((p) => p.type !== 'dimension');
+
+  function lidHalfcutTotal(): number {
+    const halfcutPaths = lidPaths.filter((p) => p.type === 'halfcut' && p.tags?.includes('tongueFold'));
+    let total = 0;
+    for (const p of halfcutPaths) {
+      for (const s of p.segments) {
+        if (s.kind === 'line') total += Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      }
+    }
+    return total;
+  }
+
+  it('上蓋 halfcut 總長 366.4±0.5（P measured 366.402，F5 驗收錨）', () => {
+    const total = lidHalfcutTotal();
+    expect(Math.abs(total - 366.4), `halfcut 總長 ${total.toFixed(4)}mm`).toBeLessThanOrEqual(0.5);
+  });
+
+  it('mutation 自證：把 halfcutPaths 過濾條件改壞（模擬漏抓段）必須讓上一則錨值偏離超出容差——證明斷言真的在量東西', () => {
+    // 不改 production 碼（會影響平行測試），改在這裡重放同一計算但故意漏篩 tongueFold tag
+    // （會多算 wallSide／tongueFlap 等其他 halfcut——這裡沒有其他 halfcut 型別，改用「只算
+    // 一半 path」模擬漏抓，證明「總長對」不是因為斷言範圍太寬鬆而巧合通過）。
+    const halfcutPaths = lidPaths.filter((p) => p.type === 'halfcut' && p.tags?.includes('tongueFold'));
+    expect(halfcutPaths.length, 'production-P 上蓋應有 4 條 halfcut path（左右前後各一）').toBe(4);
+    let brokenTotal = 0;
+    for (const p of halfcutPaths.slice(0, halfcutPaths.length - 1)) {
+      // 暫壞：只取前 n-1 條（模擬漏掉一條壁的 halfcut）
+      for (const s of p.segments) if (s.kind === 'line') brokenTotal += Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+    }
+    expect(Math.abs(brokenTotal - 366.4), '暫壞版本（漏一條壁）應明顯偏離 366.4（證明錨有牙齒，非巧合通過）').toBeGreaterThan(0.5);
+  });
+
+  it('V relief×4：nominal 5×2.5、每個 2 條 cut 直線、無圓角（feature-normalized 全域計數）', () => {
+    const vReliefPaths = lidGeomOnly.filter((p) => p.tags?.includes('vRelief'));
+    expect(vReliefPaths, '前後壁各一條 vRelief path（每條含兩端共 2 個 V）').toHaveLength(2);
+    const allSegs = vReliefPaths.flatMap((p) => p.segments);
+    expect(allSegs, '2 條 path×4 段＝8 段（4 個 V×2 線）').toHaveLength(8);
+    expect(allSegs.every((s) => s.kind === 'line'), 'V relief 全為直線，無圓角').toBe(true);
+    for (const s of allSegs as LineSeg[]) {
+      const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      expect(len, 'V 臂長＝√(inset²+(height/2)²)＝√(2.5²+2.5²)（nominal 5×2.5）').toBeCloseTo(Math.hypot(2.5, 2.5), 1);
+    }
+  });
+
+  it('B 款角撐周邊 R2×4：4 個角落各恰 1 個 R2 圓角（feature-normalized 全域計數，R1.5/R5 核心不重複列入）', () => {
+    const periPaths = lidGeomOnly.filter((p) => p.tags?.includes('bGussetPeriphery'));
+    expect(periPaths, '4 個角落各 1 條 bGussetPeriphery path').toHaveLength(4);
+    const r2Arcs = periPaths.flatMap((p) => p.segments).filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+    expect(r2Arcs, '4 個 R2 圓角（每角 1 個，不含 buildGussetB 既有的 R1.5/R5）').toHaveLength(4);
+    for (const a of r2Arcs) expect(a.r, 'B 款角撐周邊圓角半徑＝R2').toBeCloseTo(2, 6);
+  });
+
+  it('無 NaN、上蓋 cut 無自撞、無同線型共線區間重疊（production-P 完整參數，含 thickness=0.44）', () => {
+    expect(hasNaN(lidPaths.flatMap((p) => p.segments)), 'hasNaN').toBe(false);
+    const cutSegs = lidPaths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+    expect(hasSelfIntersection(cutSegs), 'cut 無自撞').toBe(false);
+    const overlaps = findCollinearOverlaps(lidPaths);
+    expect(overlaps, overlaps.join('; ')).toEqual([]);
+  });
+
+  it('攤平外框 bbox 不受影響：上蓋 359.399×425.401（±0.15，同 F4/F6-A 錨——F5/F6-B 新增幾何皆落在既有 tongueFlap 包絡內）', () => {
+    const lidBounds = segmentsBounds(lidGeomOnly.flatMap((p) => p.segments));
+    expect(Math.abs(lidBounds.maxX - lidBounds.minX - 359.399), '上蓋寬').toBeLessThanOrEqual(0.15);
+    expect(Math.abs(lidBounds.maxY - lidBounds.minY - 425.401), '上蓋高').toBeLessThanOrEqual(0.15);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Step 6：天地盒版 param-sweep（重用 Slice 1 掃描骨架：tests/boxes/param-sweep.test.ts
 // 的 assertSafe 慣例——不判斷幾何「對不對」，只判斷「不崩潰、無 NaN、bounds 有限」這條
 // 最低限度安全網，額外疊天地盒特有的兩項：不變式全過或正確警告、cut 無自撞（範圍化豁免，
@@ -905,8 +1019,14 @@ const ALWAYS_OK_INVARIANTS = new Set(['pieces-valid', 'pieces-identity', 'rim-fl
  * 警告觸發時只有這些 tag 的 cut 允許自撞——tray.ts 修好對應幾何後可逐項收窄。
  */
 const BOUNDARY_EXEMPT_TAGS: Record<string, readonly string[]> = {
-  'gusset-b-fits': ['gusset'],
-  'tongue-flap-fits': ['tongueFlap'],
+  // Slice 5 F6-B：B 款角撐周邊（bGussetPeriphery）的 a 軸終點（chainAReach，隨 height/
+  // wallTopCompensation/innerWallReduction 現場算）與 b 軸終點（recess+
+  // TUCK_FLAP_SHALLOW_DEPTH＝16.5，同 MIN_TONGUE_PERP_HALF 門檻）分別與 gusset-b-fits／
+  // tongue-flap-fits 兩條既有不變式的觸發條件同源（同一 minStyleBHeight／perpHalf<16.5
+  // 退化點）——壁高過矮或面板邊過短時周邊鏈跟著退化自撞，豁免範圍隨兩條既有不變式擴充
+  // （見 tray.ts buildBGussetPeriphery／bPeripheryTailB 註解）。
+  'gusset-b-fits': ['gusset', 'bGussetPeriphery'],
+  'tongue-flap-fits': ['tongueFlap', 'bGussetPeriphery'],
   // 2026-07-09 T7 gate 重定義：liner-flange-fits→liner-flap-fits；豁免範圍改為新幾何
   // 的翼片 cut tag（'linerFlap'）——平台式重定義後底面 crease 不含 cut，'linerPad' 不需要豁免。
   'liner-flap-fits': ['linerFlap'],
@@ -922,6 +1042,12 @@ const BOUNDARY_EXEMPT_TAGS: Record<string, readonly string[]> = {
   // Fix 2·2026-07-11：複合 relief 鏈（aGussetPeriphery）放不下時整鏈省略，不留半成品
   // 幾何——warning 是合法降級聲明，不是自交豁免，同樣不實際豁免任何 tag。
   'gusset-relief-omitted': [],
+  // Slice 5 F5：B 款端段縮減三分支（分支 2/3）與 V relief 可容納降級——三者皆為「端段/
+  // V relief 縮到剩餘長度」的合法幾何變化（crease 縮短、halfcut 補滿、V relief 省略），
+  // 不產生自撞問題，同 notch-reduced/notch-omitted 先例不實際豁免任何 tag。
+  'tongue-crease-shrunk': [],
+  'tongue-crease-omitted': [],
+  'relief-omitted': [],
 };
 
 type Overrides = Partial<Record<string, number | boolean | string>>;

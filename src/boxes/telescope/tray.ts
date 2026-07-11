@@ -447,35 +447,118 @@ function buildWallTop(axis: Axis, geom: WallGeom, perpHalf: number, platformWidt
   return { type: 'crease', tags: ['wallTop', side], segments: b.segments() };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// B 款舌根拓撲＋V relief（Slice 5 F5）：取代舊「兩端 9mm cut 讓位＋單一中段 halfcut」
+// 簡化語意——維護者裁決註記：P 的舌根兩端 crease 物理成立靠 V 形 detour 讓下方成為
+// 非自由邊，復刻必須整組做（spec F5 開頭）。端段固定 nominal crease（左右壁 45、
+// 前後壁 35）＋中段 halfcut 吃剩餘＋V relief（僅前後壁·hasDoubleRoot 壁）。
+// 全部固定 nominal，不隨壁長縮放（spec §縮放與降級規律 1）；精確座標來源＝T0 座標表
+// `tests/fixtures/telescope-production-details.json` 的 lid 區塊（獨立對算 100/100 CONFIRMED）。
+// ─────────────────────────────────────────────────────────────────────────
+
+/** 端段 crease nominal 長度：左右壁（longWall，x 向牆，hasDoubleRoot=false）45、前後壁（shortWall，y 向牆，hasDoubleRoot=true）35。 */
+const B_TONGUE_END_LONGWALL = 45;
+const B_TONGUE_END_SHORTWALL = 35;
+
+/** 端段縮減分支 3 門檻（可用長度<此值→全 halfcut 無端段，spec F5 v1.2 H1）。 */
+const B_TONGUE_MIN_SPAN = 10;
+
 /**
- * 舌摺線：中段 halfcut＋兩端各 TONGUE_END_RECESS 長的 cut（讓位角撐，見量測表
- * 「舌片兩端讓位」）。recess 對過窄的牆做防禦性鉗制（避免 perp 區間反轉）。
- *
- * 維護者裁決（軋斷需求·2026-07-09 T7 樣張 gate 反饋）：兩端讓位段線型是 cut，不是 crease——
- * 「否則刀模軋下來那裡不會斷，會連在紙上」。物理：這兩段的外側是角撐讓位缺口，線的下方
- * 沒有舌片相連（自由邊），刀模必須把它軋斷，不能只留壓痕。量測表原判讀（見
- * `.superpowers/sdd/量測附錄` 「舌片兩端讓位」條）誤將這兩段歸類為 crease，
- * 係生產 SVG 顏色分類誤差（黑/綠兩色在低解析度掃描檔上易混淆）；本次以維護者現場操作
- * 裁決為準，優先於量測表。中段 halfcut（軋半斷，供實際摺疊）不受影響、不動。
+ * longWall（左右壁）兩端保留給角撐周邊複合鏈（bGussetPeriphery，F6-B）的區域——T0 逐點
+ * 對算：lid 左壁 endTop_crease 起點距壁緣（panel corner）9.398mm（206.5373−197.1393，
+ * 見 tests/fixtures/telescope-production-details.json 的 lid.longWall_stack_d_landmarks_mm
+ * 與 tongueRoot.longWall.endTop_crease）。固定 nominal，不隨參數縮放（spec §縮放與降級
+ * 規律 1）。shortWall（前後壁）的對應保留區＝V_RELIEF_INSET（V relief 自己的內縮量，
+ * 兩者皆非獨立自由常數，是各自機制本身的固定量）。
  */
-function buildTongueFold(axis: Axis, geom: WallGeom, perpHalf: number, side: string): PathDescriptor[] {
-  const recess = Math.min(TONGUE_END_RECESS, perpHalf);
+const B_TONGUE_RESERVED_LONGWALL = 9.398;
+
+/** V relief 高×內縮（spec nominal 5×2.5，兩條 cut 直線無半徑，見 spec F5②）；MIN_END＝可容納門檻（E′≥7.5，2.5＋安全邊5）。 */
+const V_RELIEF_HEIGHT = 5;
+const V_RELIEF_INSET = 2.5;
+const V_RELIEF_MIN_END = 7.5;
+
+interface BTongueBranch {
+  /** 端段實際長度（0＝分支 3，全 halfcut 無端段）。 */
+  endLen: number;
+}
+
+/**
+ * B 款端段縮減三分支（spec F5 v1.2 H1，逐分支明寫；reservedSpan＝扣掉 V relief／角撐
+ * 周邊保留區後的可用舌摺線長度、eNominal＝該壁端段 nominal 45 或 35）：
+ *   1. reservedSpan ≥ 2×eNominal+10：端段＝eNominal，不縮不警告
+ *   2. 10 ≤ reservedSpan < 2×eNominal+10：端段縮至 (reservedSpan−10)/2＋warning
+ *      `tongue-crease-shrunk`
+ *   3. reservedSpan < 10：端段＝0（全 halfcut）＋warning `tongue-crease-omitted`
+ * warning 由 index.ts 依同一公式獨立重算（同 notchDegradation 先例——本函式純幾何，
+ * 不回報警告字串）。
+ */
+function bTongueBranch(reservedSpan: number, eNominal: number): BTongueBranch {
+  if (reservedSpan >= 2 * eNominal + B_TONGUE_MIN_SPAN) return { endLen: eNominal };
+  if (reservedSpan >= B_TONGUE_MIN_SPAN) return { endLen: (reservedSpan - B_TONGUE_MIN_SPAN) / 2 };
+  return { endLen: 0 };
+}
+
+/**
+ * V relief 一對（該壁兩端各一個，僅 hasDoubleRoot 壁——shortWall／前後壁——專屬，見
+ * buildBTongueTopology 呼叫端；longWall 沒有 V relief 機制，其兩端讓位改由 F6-B 的
+ * 角撐周邊複合鏈負責，見 B_TONGUE_RESERVED_LONGWALL 註解）：apex 落在 tongueFold 線上、
+ * 距壁緣 V_RELIEF_INSET；兩臂落在壁緣（perp=±perpHalf），沿 along 軸方向偏移
+ * ±V_RELIEF_HEIGHT/2（T0 對算：apex/arm 座標見 fixture lid.vReliefs 系列欄位）。
+ * 兩條 full-cut 直線、無圓角（spec F5②）。
+ */
+function buildVReliefPair(axis: Axis, along: number, perpHalf: number, side: string): PathDescriptor {
+  const b = new PathBuilder();
+  for (const endSign of [-1, 1] as Sign[]) {
+    const apex = toXY(axis, along, endSign * (perpHalf - V_RELIEF_INSET));
+    const arm1 = toXY(axis, along - V_RELIEF_HEIGHT / 2, endSign * perpHalf);
+    const arm2 = toXY(axis, along + V_RELIEF_HEIGHT / 2, endSign * perpHalf);
+    b.moveTo(arm1.x, arm1.y).lineTo(apex.x, apex.y).lineTo(arm2.x, arm2.y);
+  }
+  return { type: 'cut', tags: ['tongueFold', 'vRelief', side], segments: b.segments() };
+}
+
+/**
+ * B 款舌根拓撲組裝（取代舊 buildTongueFold「兩端 9mm cut 讓位＋單一中段 halfcut」語意，
+ * Slice 5 F5 整組復刻）：端段 crease（0/1/2 段，依三分支）＋中段 halfcut＋V relief（僅
+ * hasDoubleRoot 壁、E′≥7.5 才生成，spec §縮放與降級表）。
+ *
+ * reservedSpan／apex 位置：hasDoubleRoot 壁（shortWall，前後）保留區＝V_RELIEF_INSET
+ * （V relief 自己的內縮量）；非 hasDoubleRoot 壁（longWall，左右）保留區＝
+ * B_TONGUE_RESERVED_LONGWALL（角撐周邊複合鏈的固定消耗）——兩者皆為 T0 固定 nominal，
+ * reservedSpan＝2×(perpHalf−保留區)，逐壁獨立算（不是全域常數）。innerHalf 對過窄的牆
+ * 做防禦性鉗制（Math.max(...,0)，避免負值讓 perp 區間反轉）。
+ */
+function buildBTongueTopology(axis: Axis, geom: WallGeom, perpHalf: number, hasDoubleRoot: boolean, side: string): PathDescriptor[] {
+  const eNominal = hasDoubleRoot ? B_TONGUE_END_SHORTWALL : B_TONGUE_END_LONGWALL;
+  const reserved = hasDoubleRoot ? V_RELIEF_INSET : B_TONGUE_RESERVED_LONGWALL;
+  const innerHalf = Math.max(perpHalf - reserved, 0);
+  const { endLen } = bTongueBranch(2 * innerHalf, eNominal);
   const along = geom.tongueFoldAlong;
-  const pA = toXY(axis, along, -perpHalf);
-  const pB = toXY(axis, along, -perpHalf + recess);
-  const pC = toXY(axis, along, perpHalf - recess);
-  const pD = toXY(axis, along, perpHalf);
-  const cut = new PathBuilder()
-    .moveTo(pA.x, pA.y)
-    .lineTo(pB.x, pB.y)
-    .moveTo(pC.x, pC.y)
-    .lineTo(pD.x, pD.y)
-    .segments();
-  const halfcut = new PathBuilder().moveTo(pB.x, pB.y).lineTo(pC.x, pC.y).segments();
-  return [
-    { type: 'cut', tags: ['tongueFold', side], segments: cut },
-    { type: 'halfcut', tags: ['tongueFold', side], segments: halfcut },
-  ];
+
+  const paths: PathDescriptor[] = [];
+  if (endLen > 0) {
+    const c1 = toXY(axis, along, -innerHalf);
+    const c2 = toXY(axis, along, -innerHalf + endLen);
+    const c3 = toXY(axis, along, innerHalf - endLen);
+    const c4 = toXY(axis, along, innerHalf);
+    const crease = new PathBuilder().moveTo(c1.x, c1.y).lineTo(c2.x, c2.y).moveTo(c3.x, c3.y).lineTo(c4.x, c4.y).segments();
+    paths.push({ type: 'crease', tags: ['tongueFold', side], segments: crease });
+  }
+
+  const halfStart = -innerHalf + endLen;
+  const halfEnd = innerHalf - endLen;
+  if (halfEnd - halfStart > 1e-9) {
+    const h1 = toXY(axis, along, halfStart);
+    const h2 = toXY(axis, along, halfEnd);
+    const halfcut = new PathBuilder().moveTo(h1.x, h1.y).lineTo(h2.x, h2.y).segments();
+    paths.push({ type: 'halfcut', tags: ['tongueFold', side], segments: halfcut });
+  }
+
+  if (hasDoubleRoot && endLen >= V_RELIEF_MIN_END) {
+    paths.push(buildVReliefPair(axis, along, perpHalf, side));
+  }
+  return paths;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -629,9 +712,12 @@ function buildWall(
 ): PathDescriptor[] {
   const geom = computeWallGeom(sign, alongHalfSpan, outerLen, hasDoubleRoot, rootJog, innerWallReduction, platformWidth);
   // independentJogEntity＝useThickStyle（generateTray 呼叫端傳入，見該函式）：A 款
-  // （platformWidth>0）舌根改用 U-notch 切段拓撲（Slice 5 F4），取代 B 款沿用的
-  // buildTongueFold（9mm 端 cut＋單一中段 halfcut，F5 尚未落地前 B 款維持現狀不動）。
-  const tongueParts = independentJogEntity ? buildATongueTopology(axis, geom, perpHalfSpan, sign, hasDoubleRoot, side) : buildTongueFold(axis, geom, perpHalfSpan, side);
+  // （platformWidth>0）舌根用 U-notch 切段拓撲（Slice 5 F4）；B 款（platformWidth=0）
+  // 用端段 crease＋中段 halfcut＋V relief 整組拓撲（Slice 5 F5，取代舊「兩端 9mm cut
+  // 讓位」簡化語意，見 buildBTongueTopology）。
+  const tongueParts = independentJogEntity
+    ? buildATongueTopology(axis, geom, perpHalfSpan, sign, hasDoubleRoot, side)
+    : buildBTongueTopology(axis, geom, perpHalfSpan, hasDoubleRoot, side);
   // A 款側邊 cut 提早收筆——該段牆緣由角落複合 relief 鏈（buildAGussetChain／
   // buildAPlatformCornerRelief）取代（見 buildWallSideCuts 註解）；B 款不變。長壁
   // （hasDoubleRoot=false）鏈從 topEndAlong 開始佔用該側邊（LINE108 一類）；短壁
@@ -992,6 +1078,90 @@ function buildAPlatformCornerRelief(cornerX: number, cornerY: number, sx: Sign, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// B 款角撐周邊（Slice 5 F6-B）：4 個 R2 quarter turn＋2mm 側邊內縮，R1.5/R5 核心
+// （buildGussetB 既有幾何）不動。與 A 款「兩組手性模板＋180° 旋轉」不同——經 (a,b)
+// 局部座標驗證，B 款周邊四角鏡射對稱、單一模板即可涵蓋（四角數值一致 <0.005mm，
+// 任務報告驗證腳本記錄），故只需一組模板＋標準 sx/sy 鏡射實例化。
+// ─────────────────────────────────────────────────────────────────────────
+
+/** B 款角撐周邊 R2 圓角半徑（spec nominal，T0：bGussetPeripheryR measured 2.0003）。 */
+const B_PERIPHERY_FILLET_R = 2.0;
+
+/**
+ * B 款角撐周邊固定 nominal 模板——**a 存偏移量、相對 distTongueFold（呼叫端傳入相鄰
+ * longWall 現場算的 tongueFoldAlong 距角落距離）**，不是相對角落的絕對值（Fix wave，
+ * 本輪 實作期間 hasSelfIntersection 掃描抓到的教訓）：P6 的 a 偏移恰為
+ * +TUCK_FLAP_DEPTH（=15，見 buildBGussetPeriphery 呼叫端 chainAReach=distTongueFold+
+ * TUCK_FLAP_DEPTH，精確、非巧合）——這證實整條鏈其實是釘在 tongueFoldAlong 這個
+ * 「相鄰牆自身的既有參數化基準點」上，不是釘在角落本身；若仍用「相對角落的固定絕對值」
+ * （T0 原始量測在 production-P 下的字面值），innerWallReduction 改變會讓 tongueFoldAlong
+ * 位移、但模板的 a 不會跟著動，兩者錯開後 P2/P3/P4/P5 就會落進相鄰壁 buildTongueFlap
+ * 的淺深矩形／45° 斜邊範圍內，造成假交叉（S1 param-sweep innerWallReduction=max(5)
+ * 抓到：P3→P4 穿過 tongueFlap 淺深矩形邊、P4→P5 穿過其 45° 斜邊）。改用偏移量後，鏈
+ * 的內部形狀仍是 T0 固定 nominal（spec §縮放與降級規律 1，只有「基準點」現場算，不是
+ * 內部頂點被參數重建）——production-P 下（distTongueFold=89.2）偏移量還原回 T0 原始
+ * 量測的絕對值，數值不變。
+ *
+ * P0 在壁根線（b=0）、P0→P1 為 2mm 側邊內縮、P1→P2→(R2 quarter turn)→P3 為圓角轉接、
+ * P3→P4→P5 沿線接近 tongueFoldAlong（P3/P4 偏移為負＝落在 tongueFoldAlong 之前，避開
+ * buildTongueFlap 的淺深矩形；P5 偏移<TUCK_FLAP_SHALLOW_DEPTH＝落在其 45° 斜邊之前）。
+ * 全程一筆連續 cut（T0：lineType 皆 cut，無 crease）。
+ */
+const B_PERIPHERY_TEMPLATE_OFFSET: Record<'p0' | 'p1' | 'p2' | 'p3' | 'p4' | 'p5', ABPt> = {
+  p0: { a: -15.4995, b: 0 },
+  p1: { a: -15.4995, b: -2.0 },
+  p2: { a: -3.9988, b: -2.0 },
+  p3: { a: -1.9987, b: -4.0 },
+  p4: { a: -1.9987, b: -9.398 },
+  p5: { a: 6.7009, b: -9.398 },
+};
+
+/**
+ * P6（鏈終點）的 a 偏移固定為 TUCK_FLAP_DEPTH（見模板註解）；b 不能沿用 T0 固定量測值——
+ * 這個端點是鏈與相鄰 longWall 的 buildTongueFlap 全深角點的連接點（同一物理位置，兩種
+ * 公式各自表述）：真正終點是 buildTongueFlap 梯形本身的轉角（recess+
+ * TUCK_FLAP_SHALLOW_DEPTH，即該函式的 perpB／perpC），改由呼叫端傳入的 xWallPerpHalf
+ * 現場算 recess（同 buildTongueFlap 的 Math.min(TONGUE_END_RECESS,perpHalf) 鉗制邏輯），
+ * 讓 P6 與 tongueFlap 角點精確重合（觸而不穿），不再假交叉。
+ */
+function bPeripheryTailB(xWallPerpHalf: number): number {
+  const recess = Math.min(TONGUE_END_RECESS, xWallPerpHalf);
+  return -(recess + TUCK_FLAP_SHALLOW_DEPTH);
+}
+
+/**
+ * B 款角撐周邊組裝：P0→P1→P2→(R2 quarter turn)→P3→P4→P5→P6 一筆連續 cut。distTongueFold＝
+ * 相鄰 longWall 的 tongueFoldAlong 距角落距離（呼叫端傳入，見 generateTray 的
+ * longAnchors.distTongueFold——該公式對 platformWidth=0 一樣成立，不專屬 A 款）；
+ * chainAReach＝distTongueFold+TUCK_FLAP_DEPTH，供 P6 與 buildTongueFlap 全深終點對齊。
+ * sweep 由 P1→P2／P3→P4 的實際切線方向外積決定（sweepFor，四個角落 sx/sy 鏡射自動得到
+ * 正確凹凸向，同 buildGussetA/B、uNotchSegments 既有慣例，不手動硬編 sweep 常數）。
+ */
+function buildBGussetPeriphery(cornerX: number, cornerY: number, sx: Sign, sy: Sign, distTongueFold: number, xWallPerpHalf: number, side: string): PathDescriptor {
+  const t = B_PERIPHERY_TEMPLATE_OFFSET;
+  const resolve = (p: ABPt): ABPt => ({ a: distTongueFold + p.a, b: p.b });
+  const p0 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p0));
+  const p1 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p1));
+  const p2 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p2));
+  const p3 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p3));
+  const p4 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p4));
+  const p5 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p5));
+  const p6 = abToXY(cornerX, cornerY, sx, sy, { a: distTongueFold + TUCK_FLAP_DEPTH, b: bPeripheryTailB(xWallPerpHalf) });
+
+  const sweep = sweepFor({ x: p2.x - p1.x, y: p2.y - p1.y }, { x: p4.x - p3.x, y: p4.y - p3.y });
+  const segments = new PathBuilder()
+    .moveTo(p0.x, p0.y)
+    .lineTo(p1.x, p1.y)
+    .lineTo(p2.x, p2.y)
+    .arcTo(B_PERIPHERY_FILLET_R, sweep, p3.x, p3.y)
+    .lineTo(p4.x, p4.y)
+    .lineTo(p5.x, p5.y)
+    .lineTo(p6.x, p6.y)
+    .segments();
+  return { type: 'cut', tags: ['bGussetPeriphery', side], segments };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // 生成
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1062,17 +1232,23 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
         ? buildGussetA(cornerX, cornerY, sx, sy, height, wallTopCompensation, rootJog, label)
         : buildGussetB(cornerX, cornerY, sx, sy, height, thickness, label)),
     );
-    // A 款平台端＋角撐周邊複合 relief 鏈（Slice 5 F6-A；Fix 1 兩手性模板）：對角角落配對
-    // （left-front↔right-back、right-front↔left-back）各自 180° 旋轉——sx===sy 的兩角
-    // （left-front、right-back）用 topLeft 模板，sx!==sy 的兩角（right-front、left-back）
-    // 用 topRight 模板（見常數區塊 A_GUSSET_CHAIN_TL/_TR 註解：相鄰角落不是同一模板的鏡射，
-    // 是獨立量測的不同拓撲）。
     if (useThickStyle) {
+      // A 款平台端＋角撐周邊複合 relief 鏈（Slice 5 F6-A；Fix 1 兩手性模板）：對角角落配對
+      // （left-front↔right-back、right-front↔left-back）各自 180° 旋轉——sx===sy 的兩角
+      // （left-front、right-back）用 topLeft 模板，sx!==sy 的兩角（right-front、left-back）
+      // 用 topRight 模板（見常數區塊 A_GUSSET_CHAIN_TL/_TR 註解：相鄰角落不是同一模板的鏡射，
+      // 是獨立量測的不同拓撲）。
       if (chainFits) {
         const template = sx === sy ? A_GUSSET_CHAIN_TL : A_GUSSET_CHAIN_TR;
         descriptors.push(...buildAGussetChain(cornerX, cornerY, sx, sy, longAnchors, template, label));
       }
       descriptors.push(buildAPlatformCornerRelief(cornerX, cornerY, sx, sy, platformWidth, shortDistOuter, shortDistPlatformEnd, label));
+    } else {
+      // B 款角撐周邊（Slice 5 F6-B）：單一模板四角鏡射對稱，見 buildBGussetPeriphery 區塊註解。
+      // distTongueFold＝longAnchors.distTongueFold（相鄰 x 向牆——即 longWall——自己的
+      // tongueFoldAlong 距角落距離，該公式對 platformWidth=0 一樣成立）；xWallPerpHalf＝
+      // halfW，供 P6 與該牆 buildTongueFlap 角點精確重合（見 bPeripheryTailB）。
+      descriptors.push(buildBGussetPeriphery(cornerX, cornerY, sx, sy, longAnchors.distTongueFold, halfW, label));
     }
   }
 
