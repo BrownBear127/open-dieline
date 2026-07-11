@@ -60,7 +60,7 @@ const params: BoxParamDef[] = [
     min: 30,
     max: 600,
     step: 0.5,
-    group: { zh: '尺寸' },
+    group: { zh: '尺寸與材質' },
     description: {
       zh: '下盒主面板長邊尺寸（製造尺寸，與生產刀模直接對帳）；同時決定上蓋面板長邊（＋2×上蓋放大量）與內襯墊片底面長邊的套合基準（內襯現在錨定下盒內淨，見 linerFitGap）。',
     },
@@ -74,7 +74,7 @@ const params: BoxParamDef[] = [
     min: 30,
     max: 600,
     step: 0.5,
-    group: { zh: '尺寸' },
+    group: { zh: '尺寸與材質' },
     description: {
       zh: '下盒主面板短邊尺寸；同時決定上蓋面板短邊（＋2×上蓋放大量）與內襯墊片底面短邊的套合基準。',
     },
@@ -88,7 +88,7 @@ const params: BoxParamDef[] = [
     min: 10,
     max: 200,
     step: 0.5,
-    group: { zh: '尺寸' },
+    group: { zh: '尺寸與材質' },
     description: {
       zh: '下盒後摺壁的名義全高；先摺壁（左右壁）另再減一個壁頂平齊補償量（wallTopCompensation）做「頂緣平齊」修正，讓四片牆摺起後頂緣切齊（Slice 5 F3 解耦：此修正原讀紙厚，現改讀獨立參數）。內襯墊片的腳架深度（linerFlapDepth）不得超過此值，否則內襯會頂出盒口（見 liner-flap-fits 警告）。',
     },
@@ -130,7 +130,7 @@ const params: BoxParamDef[] = [
     min: 10,
     max: 200,
     step: 0.5,
-    group: { zh: '尺寸' },
+    group: { zh: '尺寸與材質' },
     description: { zh: '上蓋後摺壁的名義全高；B-06（Slice 5 F3）：上蓋左右壁的頂緣平齊特例已移除，四面外壁恆等高（不吃 wallTopCompensation，不再有「−1 個紙厚」修正）。' },
     highlightTags: ['lidHeight'],
   },
@@ -170,7 +170,7 @@ const params: BoxParamDef[] = [
     min: 0,
     max: 0.8,
     step: 0.01,
-    group: { zh: '材質' },
+    group: { zh: '尺寸與材質' },
     description: {
       zh: '紙張厚度（caliper）。驅動內襯套合間隙（linerFitGap 換算）與角撐對角線位置（reach＝壁高－紙厚）。Slice 5 F3 解耦（audit A-01）：不再直接驅動壁根雙摺線間距與內外壁差，改由 rootJog／innerWallReduction／wallTopCompensation 三個獨立參數負責——設 0 不會讓這三處補償跟著歸零，見各自的參數說明。',
     },

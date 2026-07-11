@@ -20,7 +20,7 @@ export interface ParamPanelProps {
 
 const LABEL_CLASS = 'text-[10px] uppercase tracking-wider text-zinc-400';
 const CONTROL_BASE_CLASS =
-  'w-full bg-white border-b text-sm py-1.5 px-2 text-right font-mono focus:outline-none focus:border-black transition-colors';
+  'w-full bg-white border-b text-sm py-1 px-2 text-right font-mono focus:outline-none focus:border-black transition-colors';
 
 /**
  * 單一參數列：定義在模組層級，不在 ParamPanel render 內宣告——前身 `index.tsx` 的
@@ -98,7 +98,7 @@ function ParamRow({
 
   return (
     <div
-      className="flex flex-col gap-1"
+      className="flex flex-col gap-0.5"
       onMouseEnter={() => onHighlight(param.highlightTags ?? null)}
       onMouseLeave={() => onHighlight(null)}
     >
@@ -143,11 +143,11 @@ function groupParams(params: BoxParamDef[]): { name: string; items: BoxParamDef[
 export function ParamPanel({ params, values, overriddenKeys, onChange, onResetOne, onHighlight }: ParamPanelProps) {
   const groups = groupParams(params);
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       {groups.map((g) => (
-        <div key={g.name} className="p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">{g.name}</h3>
-          <div className="grid grid-cols-2 gap-3">
+        <div key={g.name} className="p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">{g.name}</h3>
+          <div className="grid grid-cols-2 gap-2">
             {g.items.map((p) => (
               <ParamRow
                 key={p.key}

@@ -193,7 +193,7 @@ export function LayersPanel({
   };
 
   return (
-    <div className="flex flex-col gap-3 p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
+    <div className="flex flex-col gap-2 p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
       <div className="flex flex-col gap-1">
         <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">圖層</h3>
         <p className="text-[11px] text-zinc-400 leading-relaxed">
@@ -201,7 +201,7 @@ export function LayersPanel({
         </p>
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1">
         <h4 className={LABEL_CLASS}>生成圖層</h4>
         {GENERATED_LAYER_ORDER.map((key) => {
           const hasContent = generatedHasContent[key];
@@ -226,7 +226,7 @@ export function LayersPanel({
         })}
       </div>
 
-      <div className="flex flex-col gap-3 pt-2 border-t border-zinc-200">
+      <div className="flex flex-col gap-2 pt-2 border-t border-zinc-200">
         <h4 className={LABEL_CLASS}>對照圖層</h4>
 
         <div className="flex flex-col gap-1.5">
