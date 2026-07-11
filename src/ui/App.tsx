@@ -225,7 +225,7 @@ export function App() {
 
   return (
     <div className="flex h-screen bg-white text-zinc-900 overflow-hidden">
-      <aside className="w-[320px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto p-5 border-r border-zinc-200">
+      <aside className="w-[320px] flex-shrink-0 flex flex-col gap-2.5 overflow-y-auto p-3 border-r border-zinc-200">
         <div className="flex items-center justify-between">
           <h1 className="text-sm font-bold uppercase tracking-widest text-zinc-900">open-dieline</h1>
           <div className="flex items-center gap-3">
@@ -273,7 +273,7 @@ export function App() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-1.5 p-5 bg-zinc-50 border border-zinc-200 rounded-sm">
+        <div className="flex flex-col gap-1 p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
           <label htmlFor="box-select" className="text-[10px] uppercase tracking-wider text-zinc-400">
             盒型
           </label>

@@ -229,7 +229,7 @@ export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps
   };
 
   return (
-    <div className="flex flex-col gap-3 pt-4 border-t border-zinc-200">
+    <div className="flex flex-col gap-2 pt-3 border-t border-zinc-200">
       <label
         htmlFor="manufacturing-mode"
         title="僅影響 SVG 匯出：solid／0.25 線寬／round cap-join，排除尺寸標註與文字（DXF 恆排除標註，不受此開關影響）"
@@ -248,14 +248,14 @@ export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps
         <button
           type="button"
           onClick={handleSvgDownload}
-          className="flex-1 bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2.5 rounded-sm transition-colors"
+          className="flex-1 bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2 rounded-sm transition-colors"
         >
           {hasPieces ? '匯出目前視圖' : '下載 SVG'}
         </button>
         <button
           type="button"
           onClick={handleDxfDownload}
-          className="flex-1 bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2.5 rounded-sm transition-colors"
+          className="flex-1 bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2 rounded-sm transition-colors"
         >
           {hasPieces ? '匯出目前視圖（DXF）' : '下載 DXF'}
         </button>
