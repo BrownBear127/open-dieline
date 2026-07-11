@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { directionInstances, sectionOffsets, previewPaths } from '@/ui/impositionPreview';
 import type { PreviewInstance } from '@/ui/impositionPreview';
 import { MAX_PREVIEW_INSTANCES, computeImposition } from '@/core/imposition';
-import type { DirectionResult, ImpositionInput, ImpositionResult, WorkingSheet } from '@/core/imposition';
+import type { DirectionResult, ImpositionResult, WorkingSheet } from '@/core/imposition';
 import { computeProfileStrides } from '@/core/profile';
 import { segmentsBounds } from '@/core/geometry';
-import type { Bounds, Segment } from '@/core/geometry';
+import type { Bounds } from '@/core/geometry';
 import type { DielinePath, DielinePiece, GenerateResult, LineType } from '@/core/types';
+import {
+  Z_NOTCH_SEGMENTS,
+  Z_NOTCH_GAP,
+  POSITIVE_FILL_INPUT,
+  Z_NOTCH_ANCHOR_DEG0,
+  Z_NOTCH_ANCHOR_DEG90,
+} from './fixtures/z-notch';
 
 // ── instanceTransforms 變換代數驗證用的最小 helper（僅測試內部使用，不進生產碼）───────────
 //
@@ -524,12 +531,13 @@ describe('directionInstances — rows/cols 收縮（主格點讀 direction.strid
 
 // ── directionInstances — 正數補排＋收縮並存（task-3） ─────────────────────────────────
 //
-// 與 tests/imposition.test.ts「computeImposition — 正數補排案例」同一份人造 Z-notch 幾何與
-// 紙規（該檔已驗證的錨值：見該檔 Z_NOTCH_SEGMENTS docblock 完整推導）——這裡不手打
-// stride/usedW/usedH 數字，直接呼叫 `computeProfileStrides`＋`computeImposition` 讓 core
-// 算出真實 `DirectionResult`，一次驗證三個呼叫位分工同時成立：主格點讀 strideX/strideY、
-// 補排條帶維持旋轉後矩形、條帶起點讀 usedW/usedH（不本地重算）。兩個測試檔各自獨立定義
-// 這份幾何（未 export，無法 import），用「前提檢查」測試鎖住兩檔數字不會各自漂移。
+// 與 tests/imposition.test.ts「computeImposition — 正數補排案例」共用同一份人造 Z-notch
+// 幾何、紙規與權威錨值（tests/fixtures/z-notch.ts，T3 review Low：原本兩檔各自獨立定義
+// 這份幾何+錨值，只靠「前提檢查」測試互相對照——若一檔幾何+預期一起更新、另一檔忘了
+// 同步，兩檔會各自維持內部一致而測不出分歧；抽成單一 fixture 後不會再發生）。這裡不
+// 手打 stride/usedW/usedH 數字，直接呼叫 `computeProfileStrides`＋`computeImposition` 讓
+// core 算出真實 `DirectionResult`，一次驗證三個呼叫位分工同時成立：主格點讀
+// strideX/strideY、補排條帶維持旋轉後矩形、條帶起點讀 usedW/usedH（不本地重算）。
 
 /** ok:true 窄化＋失敗時印出 errors，同 tests/imposition.test.ts 的 assertOk（本檔獨立一份，
  *  兩檔互不 import）。 */
@@ -539,64 +547,18 @@ function assertOk(result: ImpositionResult): asserts result is Extract<Impositio
   }
 }
 
-const Z_NOTCH_SEGMENTS: Segment[] = [
-  { kind: 'line', x1: 0, y1: 140, x2: 40, y2: 140 },
-  { kind: 'line', x1: 40, y1: 140, x2: 40, y2: 200 },
-  { kind: 'line', x1: 40, y1: 200, x2: 50, y2: 200 },
-  { kind: 'line', x1: 50, y1: 200, x2: 50, y2: 60 },
-  { kind: 'line', x1: 50, y1: 60, x2: 10, y2: 60 },
-  { kind: 'line', x1: 10, y1: 60, x2: 10, y2: 0 },
-  { kind: 'line', x1: 10, y1: 0, x2: 0, y2: 0 },
-  { kind: 'line', x1: 0, y1: 0, x2: 0, y2: 140 },
-];
-const Z_NOTCH_GAP = 3;
-const POSITIVE_FILL_INPUT: ImpositionInput = {
-  pieceW: 50,
-  pieceH: 200,
-  paperW: 450,
-  paperH: 446,
-  orientation: 'landscape',
-  cutV: false,
-  cutH: false,
-  allowRotate: true,
-  gripper: 0,
-  gap: Z_NOTCH_GAP,
-};
-
 describe('directionInstances — 正數補排＋收縮並存（主格點 stride／補排矩形／條帶起點 usedW-usedH 三件事同時成立）', () => {
   const shrunk = computeProfileStrides(Z_NOTCH_SEGMENTS, Z_NOTCH_GAP);
   const mb = segmentsBounds(Z_NOTCH_SEGMENTS); // {minX:0,maxX:50,minY:0,maxY:200}——與 shrunk 同源同一份幾何
   const result = computeImposition({ ...POSITIVE_FILL_INPUT, shrunk });
   assertOk(result);
-  const direction = result.deg0; // 行縮擇優：見下方「前提檢查」測試列出的完整錨值
+  const direction = result.deg0; // 行縮擇優：見下方「前提檢查」測試對照的權威錨值
 
-  it('前提檢查：本檔獨立算出的 deg0/deg90 與 tests/imposition.test.ts 已驗證的錨值相同（防兩檔幾何/紙規未來各自漂移）', () => {
-    expect(direction).toMatchObject({
-      cols: 8,
-      rows: 2,
-      fillSplit: 'bottom-full',
-      bottomFill: { cols: 2, rows: 1, count: 2 },
-      rightFill: { cols: 0, rows: 6, count: 0 },
-      count: 18,
-      strideX: 53,
-      strideY: 143,
-      usedW: 421,
-      usedH: 343,
-    });
+  it('前提檢查：本檔算出的 deg0/deg90 與 tests/fixtures/z-notch.ts 的權威錨值相同（防 direction 選錯方向／core 行為意外變動——兩檔共用同一份 fixture，數字不會各自漂移）', () => {
+    expect(direction).toMatchObject(Z_NOTCH_ANCHOR_DEG0);
     // deg90（列縮擇優）：rightFill 非零——deg0 的 rightFill 恆為 0（見上方），下面「右條帶」
     // 測試需要靠這個方向才能覆蓋 usedW／右條帶呼叫位（deg0 覆蓋的是 usedH／底條帶）。
-    expect(result.deg90).toMatchObject({
-      cols: 2,
-      rows: 8,
-      fillSplit: 'bottom-full',
-      bottomFill: { cols: 8, rows: 0, count: 0 },
-      rightFill: { cols: 2, rows: 2, count: 4 },
-      count: 20,
-      strideX: 143,
-      strideY: 53,
-      usedW: 343,
-      usedH: 421,
-    });
+    expect(result.deg90).toMatchObject(Z_NOTCH_ANCHOR_DEG90);
   });
 
   it('主格點：cellY 序列用收縮後 strideY(143)，不是矩形 pieceH+gap(203)；cellX 序列＝未收縮 strideX(53)', () => {
