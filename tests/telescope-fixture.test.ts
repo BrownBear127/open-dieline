@@ -1264,3 +1264,81 @@ describe('telescope: tongue-flap-fits 邊界行為（F1 警告不變式）', () 
     expect(hasSelfIntersection(flapSegs), '幾何現狀：警告觸發下舌片仍自撞（BOUNDARY_EXEMPT_TAGS 豁免的正當性依據）').toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// tongue-flap-fits：B 款 longWall 門檻同步（Task 4 re-review concern 1 fix，2026-07-11）。
+//
+// F1（周邊鏈 P6 更正）把 B 款（platformWidth=0）longWall 的 buildTongueFlap recess 從通用
+// TONGUE_END_RECESS(9) 換成 B_TONGUE_RESERVED_LONGWALL+innerWallReduction 後，B 款 longWall
+// 插底舌梯形不反轉的真實 perpHalf 門檻已提高，但 index.ts 的 tongue-flap-fits 沒同步——
+// SOL re-review 用合法參數（baseLength=34、basePlatformWidth=0，innerWallReduction 沿用
+// production 預設 0.8）實測：B-longWall 插底舌已自撞，invariant 卻仍用舊 MIN_TONGUE_PERP_HALF
+// (16.5mm) 門檻回報正常（漏報，違反 fail-loud）。本 block 不依賴本次修正引入的常數，用獨立
+// 二分搜尋鎖定真實幾何邊界，與 invariant 新門檻互證。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope: tongue-flap-fits B 款 longWall 門檻同步（re-review concern 1 fix）', () => {
+  const inv = () => telescope.invariants.find((i) => i.id === 'tongue-flap-fits')!;
+
+  /** base 片 tongueFlap cut 在給定 baseLength（B 款，basePlatformWidth=0）下是否自撞。 */
+  function baseFlapSelfIntersectsAt(baseLength: number): boolean {
+    const params = resolveParams(telescope, { baseLength, basePlatformWidth: 0 });
+    const result = telescope.generate(params);
+    const piece = result.pieces!.find((p) => p.id === 'base')!;
+    const flapSegs = result.paths
+      .filter((p) => piece.pathIds.includes(p.id) && p.type === 'cut' && p.tags?.includes('tongueFlap'))
+      .flatMap((p) => p.segments);
+    return hasSelfIntersection(flapSegs);
+  }
+
+  it('SOL re-review 實測案例：baseLength=34, basePlatformWidth=0——B-longWall 插底舌已自撞，invariant 現在正確警告（修前用舊 16.5mm 門檻漏報）', () => {
+    expect(baseFlapSelfIntersectsAt(34), '幾何現狀：34mm（perpHalf=17）已自撞，獨立於本次不變式修正').toBe(true);
+    const params = resolveParams(telescope, { baseLength: 34, basePlatformWidth: 0 });
+    const outcome = inv().check(params, telescope.generate(params));
+    expect(outcome.ok, '34mm 應觸發警告').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.tags, '應指向可調的參數與實際自撞的輪廓').toEqual(expect.arrayContaining(['baseLength', 'tongueFlap']));
+    }
+  });
+
+  it('獨立二分搜尋鎖定真實幾何邊界（不假設任何公式），與 invariant 新門檻互證', () => {
+    let lo = 34; // 已知自撞（上一測試已驗證）
+    let hi = 40; // perpHalf=20，遠高於任何可能門檻，已知乾淨
+    expect(baseFlapSelfIntersectsAt(lo), '搜尋下界應為自撞').toBe(true);
+    expect(baseFlapSelfIntersectsAt(hi), '搜尋上界應為乾淨').toBe(false);
+    for (let i = 0; i < 25; i++) {
+      const mid = (lo + hi) / 2;
+      if (baseFlapSelfIntersectsAt(mid)) lo = mid;
+      else hi = mid;
+    }
+    // hi 收斂至真實幾何邊界的乾淨側（黑箱二分搜尋，未引用 minBLongWallPerpHalf 或任何門檻常數）。
+    // 與本次修正引用的 SOL 數字（35.396mm）做事後交叉驗證——非本測試的判定依據。
+    expect(hi, '獨立二分搜尋收斂值應與 SOL 給出的門檻數量級一致（事後交叉驗證）').toBeCloseTo(35.396, 2);
+
+    const paramsClean = resolveParams(telescope, { baseLength: hi, basePlatformWidth: 0 });
+    const outcomeClean = inv().check(paramsClean, telescope.generate(paramsClean));
+    expect(outcomeClean.ok, `二分搜尋邊界乾淨側 ${hi.toFixed(4)}mm：幾何乾淨，invariant 不應警告`).toBe(true);
+
+    const paramsSelfX = resolveParams(telescope, { baseLength: lo, basePlatformWidth: 0 });
+    const outcomeSelfX = inv().check(paramsSelfX, telescope.generate(paramsSelfX));
+    expect(outcomeSelfX.ok, `二分搜尋邊界自撞側 ${lo.toFixed(4)}mm：幾何自撞，invariant 應警告`).toBe(false);
+  });
+
+  it('A 款（預設 basePlatformWidth=5）不受影響：baseLength=34 仍沿用原 MIN_TONGUE_PERP_HALF 門檻、不警告（只有 B 款 longWall 門檻提高，範圍精確）', () => {
+    const params = resolveParams(telescope, { baseLength: 34 }); // 不覆寫 basePlatformWidth，維持預設 5（A 款）
+    const outcome = inv().check(params, telescope.generate(params));
+    expect(outcome.ok, 'A 款 longWall：34/2=17 > MIN_TONGUE_PERP_HALF(16.5)，應安全').toBe(true);
+  });
+
+  it('lid 片左右壁同一分流邏輯（防禦性、目前生產參數域下不可達，見 invariant description；用界外 lidMarginY 構造，同既有 F2 relief-omitted 手法）：lidPlatformWidth=0（預設 B 款）時 lid longWall 門檻同步提高', () => {
+    // baseLength=40＋baseWidth 預設 124：base 片左右／前後壁兩條 check 都安全（不搶先觸發）。
+    // lidMarginY=-3（界外值，schema min=5，resolveParams 不 clamp）讓 lid 左右壁邊＝40+2×(-3)=34，
+    // 與 base 案例同一數值、同一 perpHalf=17，驗證 lidLongWallMin 分支與 baseLongWallMin 完全對稱。
+    const params = resolveParams(telescope, { baseLength: 40, lidMarginY: -3 });
+    const outcome = inv().check(params, telescope.generate(params));
+    expect(outcome.ok, 'lid 左右壁邊＝34mm，perpHalf=17<17.698，應觸發（修前用舊 16.5mm 門檻不會觸發在此邊界，見下一斷言對照）').toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.tags).toEqual(expect.arrayContaining(['baseLength', 'lidMarginY', 'tongueFlap']));
+    }
+  });
+});
