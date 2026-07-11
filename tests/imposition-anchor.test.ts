@@ -203,11 +203,18 @@ interface Pt2D {
 }
 
 /** 統一取樣密度上限（mm）——line／bezier 直接控制弦長上界；arc 用同一個目標反解角步
- *  （見 discretizeArc）。0.1mm 遠小於刀模特徵尺度，也遠小於下面觀測到的真實間距餘裕
- *  （RTE 案例真實最小距離 ≈3.8mm、Z-notch DEG0 grid×strip 案例 ≈10.44mm）；效能上
- *  RTE 單件離散化約 20000 點，配合下方 minDistance 的排序+二分視窗剪枝，單次呼叫
- *  約 70-90ms（task-5-report.md 記錄了 0.5/0.2/0.1/0.05/0.02/0.01mm 六級的實測時間/
- *  誤差權衡，0.1mm 是其中效能與誤差界都舒適的選擇）。 */
+ *  （見 discretizeArc）。0.1mm 遠小於刀模特徵尺度。RTE 案例真實最小距離 ≈3.8mm（≈0.8mm
+ *  真實餘裕，0.1mm 遠小於這個餘裕，抽樣誤差不會製造假陽性）；但 Z-notch DEG0／DEG90
+ *  grid×strip 案例（全枚舉後，見下方「間距不變式」describe block）真實全域最小距離恰＝gap
+ *  （3mm，零餘裕——不是舊版誤測的 ≈10.44mm，那個數字來自只驗第 0 欄／第 0 件的單一件對，
+ *  漏掉真正最緊的那一對，見 2026-07 SOL review H2）。這兩個案例沒有餘裕可言，正確性不能靠
+ *  「取樣密度遠小於真實餘裕」這個論證，而是靠檔頭「誤差方向推論」的方向性保證（斷言門檻＝
+ *  `sampleDistance ≥ gap`，見該段落）：取樣點集合是真實曲線的子集，取樣得到的最小距離只會
+ *  因離散化誤差略高於真實最小距離，不會略低，所以即使真實值零餘裕貼齊 gap，這個門檻依然
+ *  不會誤判通過一個真正低於 gap 的案例。效能上 RTE 單件離散化約 20000 點，配合下方
+ *  minDistance 的排序+二分視窗剪枝，單次呼叫約 70-90ms（task-5-report.md 記錄了
+ *  0.5/0.2/0.1/0.05/0.02/0.01mm 六級的實測時間/誤差權衡，0.1mm 是其中效能與誤差界都舒適
+ *  的選擇）。 */
 const MAX_CHORD_MM = 0.1;
 
 /** `line`：本身即直線，取樣密度只影響「真實邊界點到最近取樣點」的間距誤差，上界＝半個
@@ -260,24 +267,43 @@ function discretizeArc(seg: Extract<Segment, { kind: 'arc' }>, maxChordMM: numbe
  *  曲線＝1 條線段」，但曲線實際偏離該線段達數十 mm（見下方「S 形反例」測試的密集抽樣量測）
  *  ——宣稱的 `maxChordMM/2+chordTol≈0.0501mm` 誤差界對這類曲線完全不成立。
  *
- *  改用「控制多邊形到弦的最大距離」：曲線上任一點是 `P0..P3` 的 Bernstein 凸組合，`P0`/`P3`
- *  本身在弦上（到弦距離＝0），故曲線上任一點到弦（視為無限長直線）的帶號距離＝該點對應
- *  Bernstein 權重對 `d(P1)`/`d(P2)` 的凸組合，恆 ≤ `max(|d(P1)|,|d(P2)|)`——直接檢查兩個
- *  控制點本身的真實偏離，不是對曲線抽樣一個可能剛好騙過判準的單一點，S 形對稱造成的
- *  「抽樣點恰好歸零」問題不存在。深度上限命中時直接丟錯（不像 `core/geometry.ts` 的
- *  `depth < MAX_FLATTEN_DEPTH` 讓超界的葉節點被靜默接受）——這裡在意的是「宣稱的誤差界
- *  是否真的成立」，靜默接受一個可能違反誤差界的葉節點會讓上面整套間距不變式失去意義。 */
-function distToChordLine(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+ *  改用「控制多邊形到『有限弦段』的最大距離」（2026-07 SOL 窄 re-review M 第二輪 finding
+ *  訂正後的版本——round-1 版本量到「無限延伸直線」，見下一段為何不夠）：曲線上任一點是
+ *  `P0..P3` 的 Bernstein 凸組合，`P0`/`P3` 本身在弦段上（到弦段距離＝0），而「到一個凸集合
+ *  的距離」本身是凸函式（標準結果：`d(·,S)` 對凸集合 `S` 是凸函式；弦段是兩點間的線段，
+ *  凸集合），故曲線上任一點（= 該組控制點的 Bernstein 凸組合）到弦段的距離 ≤ 同一組
+ *  Bernstein 權重對 `d(P0)`/`d(P1)`/`d(P2)`/`d(P3)` 的凸組合 ≤ `max(d(P1),d(P2))`
+ *  （`d(P0)=d(P3)=0` 兩項不貢獻）——直接檢查兩個控制點本身到有限弦段的真實偏離，不是對
+ *  曲線抽樣一個可能剛好騙過判準的單一點，S 形對稱造成的「抽樣點恰好歸零」問題不存在。深度
+ *  上限命中時直接丟錯（不像 `core/geometry.ts` 的 `depth < MAX_FLATTEN_DEPTH` 讓超界的
+ *  葉節點被靜默接受）——這裡在意的是「宣稱的誤差界是否真的成立」，靜默接受一個可能違反
+ *  誤差界的葉節點會讓上面整套間距不變式失去意義。
+ *
+ *  **第二輪修正**（round-1 版本量到「無限延伸直線」而非有限弦段，被 2026-07 SOL 窄
+ *  re-review 新反例打穿）：`P0=(0,0) P1=(100,0) P2=(-100,0) P3=(0.05,0)`——四個控制點
+ *  的 y 座標全為 0，彼此共線（曲線因此整條都落在 `y=0` 上）。控制點到「無限直線 `y=0`」的
+ *  垂直距離因此恆為 0（P1/P2 本身就在這條線上），即使它們的 x 座標（±100）遠遠超出弦段
+ *  本身的範圍 `[0, 0.05]`；round-1 版 `controlPolygonHeight` 讀出 0、`segLen=0.05` 也
+ *  小於 `maxSegLen`，判定「夠平」不細分。但真實曲線在 `t≈0.789` 附近回折到 `x≈-28.84`，
+ *  遠遠偏出弦段範圍，到有限弦段最近端點的距離約 28.843mm，宣稱的誤差界完全不成立（見下方
+ *  「SOL round-2 反例」測試的密集抽樣量測，以及本檔 M 驗紅記錄）。根源：「到無限直線的
+ *  距離」只證得到「那條無限延伸直線」的偏離受控，證不到「題目真正在意的有限弦段」的偏離
+ *  受控——兩者只有在控制點的垂足投影落在弦段範圍內時才相等，此反例故意讓投影落在弦段
+ *  範圍外，兩個距離因此分道揚鑣；「到無限直線」的距離函式是仿射（affine）的特例、只是
+ *  「到凸集合」這個更一般類別的其中一種，改量「到有限弦段」（上一段的凸集合論證，對任何
+ *  凸集合都成立，不只是對直線這個特例）才是這個判準真正該檢查的量。 */
+function distToChordSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len = Math.hypot(dx, dy);
   if (len < 1e-9) return Math.hypot(px - x1, py - y1);
-  return Math.abs(dx * (py - y1) - dy * (px - x1)) / len;
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (len * len)));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
 function controlPolygonHeight(b: Extract<Segment, { kind: 'bezier' }>): number {
-  const d1 = distToChordLine(b.c1x, b.c1y, b.x1, b.y1, b.x2, b.y2);
-  const d2 = distToChordLine(b.c2x, b.c2y, b.x1, b.y1, b.x2, b.y2);
+  const d1 = distToChordSegment(b.c1x, b.c1y, b.x1, b.y1, b.x2, b.y2);
+  const d2 = distToChordSegment(b.c2x, b.c2y, b.x1, b.y1, b.x2, b.y2);
   return Math.max(d1, d2);
 }
 
@@ -626,6 +652,70 @@ describe('discretizeBezier 的獨立控制多邊形終止判準（2026-07 SOL re
     // 對照：同一條曲線用真實使用的容差（chordTol=1e-4／maxSegLen=0.1／maxDepth=24 預設）
     // 不會撞上深度上限，正常路徑不受這條防線影響。
     expect(() => flattenBezierIndependent(curve, 1e-4, MAX_CHORD_MM)).not.toThrow();
+  });
+
+  it('SOL round-2 反例：控制點與弦共線但投影落在有限弦段外——到「無限直線」的距離讀出 0，到「有限弦段」的距離才讀出真實偏離（2026-07 SOL 窄 re-review M 第二輪 finding：round-1 版 controlPolygonHeight 用 distToChordLine 量控制點到「弦所在無限延伸直線」的垂直距離，這個反例的控制點恰好也在那條直線上，垂直距離恆為 0，即使控制點的座標遠遠超出弦段本身的範圍，判準也讀不出來，見下方函式 docblock「第二輪修正」段的完整推導）', () => {
+    // P0/P3 定弦（y=0 這條線，弦長僅 0.05mm）；P1=(100,0)/P2=(-100,0) 的 y 分量也是 0——
+    // 四個控制點的 y 座標全為 0，彼此共線，曲線因此整條都落在 y=0 上（貝茲曲線的 y(t) 是
+    // 四個控制點 y 座標的 Bernstein 加權和，四個都是 0，加權和恆為 0）。控制點到「無限直線
+    // y=0」的垂直距離因此恆為 0（P1/P2 本身就在這條線上）——但它們的 x 座標（±100）遠遠
+    // 超出弦段本身的範圍 `[0, 0.05]`，到「有限弦段」的距離（端點外投影 clamp 到端點）其實
+    // 很大：P1=(100,0) 投影超出 x2=0.05 這端，clamp 後距離＝100−0.05=99.95；P2=(-100,0)
+    // 投影超出 x1=0 這端，clamp 後距離＝100。
+    const chordLen = 0.05;
+    const foldbackCurve: Extract<Segment, { kind: 'bezier' }> = {
+      kind: 'bezier',
+      x1: 0,
+      y1: 0,
+      c1x: 100,
+      c1y: 0,
+      c2x: -100,
+      c2y: 0,
+      x2: chordLen,
+      y2: 0,
+    };
+
+    // 獨立參數式公式密集抽樣真實曲線（跟上方 S 形反例測試同一手法，不呼叫
+    // discretizeBezier/flattenBezierIndependent/controlPolygonHeight 內部任何東西）——
+    // 先確認「真實曲線到有限弦段 `[(0,0),(0.05,0)]` 的最大偏離」這個現象本身的量級，這是
+    // 曲線的客觀事實，跟判準怎麼實作無關（斷言 1：量級證據，brief 記錄真實偏離 ≈28.843mm，
+    // 命中在 t≈0.789 附近曲線回折到 x≈-28.84，遠遠偏出弦段範圍）。
+    let maxDeviationFromFiniteChord = 0;
+    const SAMPLES = 5000;
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t = i / SAMPLES;
+      const mt = 1 - t;
+      const bx = mt ** 3 * foldbackCurve.x1 + 3 * mt ** 2 * t * foldbackCurve.c1x + 3 * mt * t ** 2 * foldbackCurve.c2x + t ** 3 * foldbackCurve.x2;
+      const by = mt ** 3 * foldbackCurve.y1 + 3 * mt ** 2 * t * foldbackCurve.c1y + 3 * mt * t ** 2 * foldbackCurve.c2y + t ** 3 * foldbackCurve.y2;
+      const clampedX = Math.min(chordLen, Math.max(0, bx)); // by 恆為 0，最近弦段點的 y 分量恆為 0
+      const d = Math.hypot(bx - clampedX, by);
+      if (d > maxDeviationFromFiniteChord) maxDeviationFromFiniteChord = d;
+    }
+    expect(maxDeviationFromFiniteChord).toBeGreaterThan(25); // 量級證據：真實偏離達數十 mm，不是雜訊
+
+    // 斷言 2（真正鑑別新舊判準的斷言）：discretizeBezier 必須正確細分這條曲線，使得任一
+    // 真實曲線點到最近取樣頂點的距離確實 ≤ 宣稱的 pointErrorMM——同上方 S 形反例測試「斷言
+    // 1：細分數量足夠」＋「斷言 2：誤差真實受控」兩件事一起驗。round-1 版（到無限直線的
+    // 距離）在這個反例上 controlPolygonHeight 讀出 0、segLen=0.05<maxSegLen 也不觸發，
+    // 完全不細分，這裡會紅（見 report「M 驗紅」附的實際失敗輸出）；round-2 版（到有限弦段
+    // 的距離）讀出 max(99.95,100)=100，正確觸發細分，這裡才會綠。
+    const { points, pointErrorMM } = discretizeBezier(foldbackCurve, MAX_CHORD_MM);
+    expect(points.length).toBeGreaterThan(100);
+
+    let maxRealDeviation = 0;
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t = i / SAMPLES;
+      const mt = 1 - t;
+      const bx = mt ** 3 * foldbackCurve.x1 + 3 * mt ** 2 * t * foldbackCurve.c1x + 3 * mt * t ** 2 * foldbackCurve.c2x + t ** 3 * foldbackCurve.x2;
+      const by = mt ** 3 * foldbackCurve.y1 + 3 * mt ** 2 * t * foldbackCurve.c1y + 3 * mt * t ** 2 * foldbackCurve.c2y + t ** 3 * foldbackCurve.y2;
+      let nearest = Infinity;
+      for (const p of points) {
+        const d = Math.hypot(bx - p.x, by - p.y);
+        if (d < nearest) nearest = d;
+      }
+      if (nearest > maxRealDeviation) maxRealDeviation = nearest;
+    }
+    expect(maxRealDeviation).toBeLessThanOrEqual(pointErrorMM);
   });
 });
 
