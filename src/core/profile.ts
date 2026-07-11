@@ -441,9 +441,16 @@ function computeMinStride(far: number[], near: number[], gap: number, slotWidth:
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * `ImpositionInput.shrunk` 的型別（spec v1.4 §F2b 終版）：opaque class，唯一合法產地是本
- * 模組（`computeProfileStrides` 或本類別的 `create` 靜態工廠——兩者一起構成「profile 模組
- * 的計算函式」）。
+ * F3 單向擇優（`core/imposition.ts` Task 2）挑選單一軸 stride 時，承載「只留哪一軸」的
+ * 選項給 `computeProfileStrides`——兩軸都要時省略此參數即可。
+ */
+export type ProfileStridesAxis = 'x' | 'y';
+
+/**
+ * `ImpositionInput.shrunk` 的型別（spec v1.4 §F2b 終版·v1.5 收 F1 review）：opaque class，
+ * **唯一合法產地是本模組 export 的 `computeProfileStrides` 函式**（內部委託本類別的
+ * `compute` 靜態方法——該方法本身是 class 的成員，是唯一能呼叫 `private constructor` 的
+ * 地方；`compute` 的參數是幾何 `segments`＋`gap`＋可選單軸選項，不是任意數字）。
  *
  * - `private constructor` ＋ `#brand`（真正的 JS 私有欄位，不是 TS-only `private`）——
  *   手工物件字面量因缺少 `#brand` 在編譯期就不能賦值給 `ProfileStrides`（spec 驗收 8
@@ -452,13 +459,24 @@ function computeMinStride(far: number[], near: number[], gap: number, slotWidth:
  *   v1.4·M2 收口的關鍵修正——舊版「branded plain object」的 brand 只是一般欄位，spread
  *   會原樣複製，讓覆寫後的偽造物件仍通過型別檢查）：`#brand` 是真正的私有欄位，不是一般
  *   可列舉屬性，spread 不會複製它，TS 對 spread 結果的型別推導同樣反映這個事實。
- * - `create` 一律 `Object.freeze` 回傳的 instance——`Object.isFrozen` 可直接斷言
+ * - `compute` 一律 `Object.freeze` 回傳的 instance——`Object.isFrozen` 可直接斷言
  *   （spec 驗收 8：getter 沒有 setter 本來就會讓「賦值會拋錯」這種 mutate 探測「假通過」
  *   ——不管有沒有 freeze 都會拋，不能證明真的凍結了，需要獨立斷言）。
- * - `strideX`/`strideY` 各自獨立可為 `undefined`（F2b 缺省語意：由呼叫端／未來 F3 單向
- *   擇優決定要不要帶入某一軸；`gap` 恆為必填數字，是「這個 stride 是用哪個 gap 算的」
- *   這件事的機械驗證錨，見 spec F2b「gap 一致性」——那層 domain 驗證屬於
+ * - `strideX`/`strideY` 各自獨立可為 `undefined`（F2b 缺省語意：由呼叫端／F3 單向
+ *   擇優透過 `onlyAxis` 決定要不要帶入某一軸；`gap` 恆為必填數字，是「這個 stride 是用
+ *   哪個 gap 算的」這件事的機械驗證錨，見 spec F2b「gap 一致性」——那層 domain 驗證屬於
  *   `core/imposition.ts` 的職責，本類別本身不驗證數值合法性，只保證身份與不可變）。
+ *
+ * **F1 review fix（v1.5，SOL 指出）**：舊版 `static create(gap, strideX, strideY)` 是
+ * *公開*數值工廠——`ProfileStrides.create(4, 236.2, 194.825)` 可以合法組出「宣告
+ * `gap=4`、但 `194.825` 其實是用 `gap=3` 算出來的 stride」這種不同步 instance，即使帶
+ * `#brand`＋`freeze` 也不需要 spread/any/JS 手法就能組出，重開 spec v1.4 五輪 review
+ * 才封住的撞刀路徑（`shrunk.gap !== input.gap` 的 domain 檢查驗證的是「宣告的 gap」，
+ * 從沒能驗證「這個 stride 數字真的是從這個 gap 算出來的」——公開數值工廠讓這個事實
+ * 從型別層事實退化回口頭約定）。修法：拿掉公開數值工廠，只留一個吃幾何＋gap 的公開入口
+ * （`computeProfileStrides`）；單軸缺省需求改用該入口的 `onlyAxis` 選項承載，由本模組
+ * 內部（`compute` 方法本身就在 class body 內，能呼叫 private constructor）建 instance
+ * ——gap 與算出的 stride 恆綁在同一次呼叫內，外部不可能再組出兩者不同步的實例。
  */
 export class ProfileStrides {
   readonly #brand = 'ProfileStrides' as const;
@@ -482,7 +500,13 @@ export class ProfileStrides {
   }
 
   /**
-   * 合法產地入口——連同 `computeProfileStrides` 是唯一能建出 instance 的路徑，freeze 後回傳。
+   * 唯一合法產地（連同頂層 `computeProfileStrides`——後者只是轉呼叫本方法，兩者是同一件
+   * 事的兩個名字，保留頂層函式純粹是延續本模組「純函式、export 供測試鑑別」的既有慣例）：
+   * 接收已過濾的製造幾何（`Segment[]`）＋`gap`，內部算出 envelope／minStride 後才建
+   * instance。`onlyAxis` 承載 F3 單向擇優的單軸缺省需求（省略＝兩軸皆算，即
+   * `computeProfileStrides` 的預設行為；`'x'`／`'y'`＝只留該軸，另一軸明確 `undefined`）
+   * ——不論哪種呼叫方式，`gap` 與被保留的 stride 值恆來自同一次計算鏈，外部無法傳入
+   * 「宣告的 gap 與算出 stride 的 gap 不同步」的組合（F1 review fix 收斂的漏洞）。
    *
    * 刻意不寫成 `return Object.freeze(new ProfileStrides(...))`：`Object.freeze<T>` 的型別簽章
    * 回傳 `Readonly<T>`，這是個「映射型別」（mapped type over keyof T），對含私有欄位的
@@ -491,25 +515,33 @@ export class ProfileStrides {
    * 純粹取其「原地凍結」的 side effect（回傳值本身丟棄不用），再回傳原本那個具名參照——
    * 同一個物件，型別仍是乾淨的 `ProfileStrides`。
    */
-  static create(gap: number, strideX: number | undefined, strideY: number | undefined): ProfileStrides {
-    const instance = new ProfileStrides(gap, strideX, strideY);
+  static compute(segments: Segment[], gap: number, onlyAxis?: ProfileStridesAxis): ProfileStrides {
+    const envelope = computeProfileEnvelope(segments);
+    const strideY = computeMinStride(envelope.bottom, envelope.top, gap, envelope.slotWidthX);
+    const strideX = computeMinStride(envelope.right, envelope.left, gap, envelope.slotWidthY);
+
+    const instance = new ProfileStrides(gap, onlyAxis === 'y' ? undefined : strideX, onlyAxis === 'x' ? undefined : strideY);
     Object.freeze(instance);
     return instance;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 計算入口（單一 export 函式：過濾後 segments＋gap → ProfileStrides，spec F1）
+// 計算入口（單一 export 函式：過濾後 segments＋gap → ProfileStrides，spec F1／v1.5 收 F1）
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
  * 單件製造幾何（已過濾的 `Segment[]`，見 `manufacturingPaths`）＋gap → `ProfileStrides`
- * （兩軸皆算，spec F1）。呼叫端若只要單向收縮（F3 單向擇優），用 `ProfileStrides.create`
- * 另建只帶一軸的 instance——那是 `core/imposition.ts`（Task 2）的職責，不在本模組範圍。
+ * （spec F1）。**本模組唯一的公開計算入口**（v1.5 收 F1 review：移除了舊版
+ * `ProfileStrides.create(gap, strideX, strideY)` 這個接受任意數字的公開靜態工廠——它讓
+ * 外部能合法組出「宣告的 gap 與算出 stride 的 gap 不同步」的 instance，見 `ProfileStrides`
+ * class 文件字串的完整說明）。
+ *
+ * `onlyAxis` 承載 F3 單向擇優（`core/imposition.ts` Task 2）的單軸缺省需求：省略＝兩軸皆算
+ * （預設行為，兩者恆為 finite 數字）；傳 `'x'`／`'y'`＝只留該軸的計算值，另一軸明確
+ * `undefined`（F2b 缺省語意——該向使用矩形 stride）。不論哪種呼叫方式，gap 與被保留的
+ * stride 值恆來自同一次 `computeProfileEnvelope`／`computeMinStride` 計算鏈。
  */
-export function computeProfileStrides(segments: Segment[], gap: number): ProfileStrides {
-  const envelope = computeProfileEnvelope(segments);
-  const strideY = computeMinStride(envelope.bottom, envelope.top, gap, envelope.slotWidthX);
-  const strideX = computeMinStride(envelope.right, envelope.left, gap, envelope.slotWidthY);
-  return ProfileStrides.create(gap, strideX, strideY);
+export function computeProfileStrides(segments: Segment[], gap: number, onlyAxis?: ProfileStridesAxis): ProfileStrides {
+  return ProfileStrides.compute(segments, gap, onlyAxis);
 }
