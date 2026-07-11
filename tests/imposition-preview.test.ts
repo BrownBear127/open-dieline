@@ -58,10 +58,30 @@ function transformedBounds(transform: string, mb: Bounds): { minX: number; maxX:
 // 邊界、Global Constraints「主格點為 0」、huge cols/rows 惰性建構）覆蓋，這裡不重複。
 
 /** 建構「無補排」的 `DirectionResult`——只用來讓 `directionInstances` 只走主格點
- *  `buildGrid` 路徑，count/totalCount/utilization 這裡不驗證，數字只需型別合法。 */
+ *  `buildGrid` 路徑，count/totalCount/utilization 這裡不驗證，數字只需型別合法。
+ *  spacingAxis/strideX/strideY/usedW/usedH（T2 新增五欄）同理不影響本檔任何斷言——
+ *  `directionInstances` 只讀 cols/rows/fillSplit/bottomFill/rightFill，usedW/usedH 自己
+ *  重算（見 impositionPreview.ts `directionInstances` docblock「DirectionResult 不帶這兩個
+ *  欄位」段）；且這個 factory 本身無 piece 尺寸／gap 參數（兩個呼叫端各自傳入不同 mb/gap），
+ *  無法推導真實數值，比照既有欄位精神給型別合法的中性值。 */
 function noFillDirection(cols: number, rows: number): DirectionResult {
   const gridCount = cols * rows;
-  return { cols, rows, gridCount, fillSplit: null, bottomFill: null, rightFill: null, count: gridCount, totalCount: gridCount, utilization: 0 };
+  return {
+    cols,
+    rows,
+    gridCount,
+    fillSplit: null,
+    bottomFill: null,
+    rightFill: null,
+    count: gridCount,
+    totalCount: gridCount,
+    utilization: 0,
+    spacingAxis: null,
+    strideX: 0,
+    strideY: 0,
+    usedW: 0,
+    usedH: 0,
+  };
 }
 
 describe('directionInstances（fillSplit=null）— buildGrid 主格點代數驗證', () => {
@@ -146,6 +166,11 @@ describe('directionInstances — 主格點＋補排條帶排列（bottom-full／
     count: 10,
     totalCount: 10,
     utilization: 0.5, // 本模組不讀 count/totalCount/utilization，數字只需型別合法
+    spacingAxis: null, // 無 shrunk 輸入 → 矩形雙軸、零收益（spec：null＝無收縮或零收益）
+    strideX: 12, // pieceForCols(cellW=10，見上方 dir=0 註解)+gap(2)＝矩形 stride（未收縮）
+    strideY: 8, // pieceForRows(cellH=6)+gap(2)
+    usedW: 22, // cellW+(cols-1)*strideX=10+1*12=22（沿用上方既有推導註解逐字核對）
+    usedH: 22, // cellH+(rows-1)*strideY=6+2*8=22（沿用上方既有推導註解逐字核對）
   };
   // 同一組 cols/rows/mb/gripper/gap（usedW/usedH 因此相同）、只換 fillSplit 與兩條帶各自的
   // cols/rows——驗證「條帶原點公式與 fillSplit 是 bottom-full 還是 right-full 無關」（spec
@@ -204,6 +229,11 @@ describe('directionInstances — 補排件旋轉方向與主方向相反', () =>
       count: 10,
       totalCount: 10,
       utilization: 0.5,
+      spacingAxis: null, // 無 shrunk 輸入 → null
+      strideX: 12, // pieceForCols(mb w=11-1=10)+gap(2，見下方呼叫)＝矩形 stride
+      strideY: 8, // pieceForRows(mb h=8-2=6)+gap(2)
+      usedW: 22, // 10+(2-1)*12=22（cols=2,rows=3 與 bottomFullDirection 案例同形）
+      usedH: 22, // 6+(3-1)*8=22
     };
     const instances = directionInstances(0, direction, mb, 5, 2, 100);
     // 底條帶第一件：cellX=5,cellY=29；h=mb 原始高=6；localize=translate(-1 -2)。
@@ -226,6 +256,11 @@ describe('directionInstances — 補排件旋轉方向與主方向相反', () =>
       count: 6,
       totalCount: 6,
       utilization: 0.5,
+      spacingAxis: null, // 無 shrunk 輸入 → null
+      strideX: 5, // pieceForCols(cellW=4)+gap(1)——90° 卡 cols 軸吃旋轉後寬 4
+      strideY: 9, // pieceForRows(cellH=8)+gap(1)
+      usedW: 9, // 沿用上方既有推導註解：2*4+1*1=9
+      usedH: 17, // 沿用上方既有推導註解：2*8+1*1=17
     };
     const instances = directionInstances(90, direction, mb, gripper, gap, 100);
     expect(instances).toHaveLength(6);
@@ -255,6 +290,11 @@ describe('directionInstances — 截斷順序＋budget 恰截在主排/補排交
     count: 10,
     totalCount: 10,
     utilization: 0.5,
+    spacingAxis: null, // 無 shrunk 輸入 → null
+    strideX: 12, // pieceForCols(mb w=10)+gap(2)——與 bottomFullDirection 案例同一組 mb/gap/cols/rows
+    strideY: 8, // pieceForRows(mb h=6)+gap(2)
+    usedW: 22, // 10+(2-1)*12=22
+    usedH: 22, // 6+(3-1)*8=22
   };
 
   it.each([
@@ -297,6 +337,13 @@ describe('directionInstances — Global Constraints「主格點為 0 時不補�
       count: 0,
       totalCount: 0,
       utilization: 0,
+      // 即使 cols=0，strideX 仍照矩形算（見 core computeGridAndFill：strideForCols 無條件回傳，
+      // 不因 n=0 而省略；只有 usedW 才有 n=0→0 特判，見下方）。
+      spacingAxis: null, // 無 shrunk 輸入 → null
+      strideX: 12, // pieceForCols(mb w=10)+gap(2，見下方呼叫)
+      strideY: 22, // pieceForRows(mb h=20)+gap(2)
+      usedW: 0, // n=0→0（spec F2b 明定，cols=0）
+      usedH: 86, // n≥1：20+(4-1)*22=86（rows=4，pieceForRows=20,strideY=22）
     };
     expect(directionInstances(0, direction, mb, 5, 2, 100)).toEqual([]);
   });
@@ -316,6 +363,11 @@ describe('directionInstances — budget 邊界（review High 2：正規化並硬
     count: 10,
     totalCount: 10,
     utilization: 0.5,
+    spacingAxis: null, // 無 shrunk 輸入 → null
+    strideX: 12, // pieceForCols(mb w=10)+gap(2)——與 bottomFullDirection 案例同一組 mb/gap/cols/rows
+    strideY: 8, // pieceForRows(mb h=6)+gap(2)
+    usedW: 22, // 10+(2-1)*12=22
+    usedH: 22, // 6+(3-1)*8=22
   };
 
   it.each([
@@ -340,6 +392,11 @@ describe('directionInstances — budget 邊界（review High 2：正規化並硬
     count: 0,
     totalCount: 0,
     utilization: 0,
+    spacingAxis: null, // 無 shrunk 輸入 → null
+    strideX: 0.01 + 3, // pieceForCols(hugeMb w=0.01)+gap(3，見下方呼叫)＝矩形 stride
+    strideY: 0.01 + 3, // pieceForRows(hugeMb h=0.01)+gap(3)
+    usedW: 0.01 + (332_226 - 1) * (0.01 + 3), // n≥1：piece+(n-1)*stride，比照 gridCount 既有算式風格用運算式而非手算常數
+    usedH: 0.01 + (332_226 - 1) * (0.01 + 3),
   };
 
   it('Infinity → 硬限 500（主格點本身已超過上限，立即回傳、耗時 <1 秒）', () => {
@@ -365,6 +422,11 @@ describe('directionInstances — budget 邊界（review High 2：正規化並硬
       count: 0,
       totalCount: 0,
       utilization: 0,
+      spacingAxis: null, // 無 shrunk 輸入 → null
+      strideX: 0.01 + 3, // pieceForCols(hugeMb w=0.01)+gap(3，見下方呼叫)，與 hugeMainDirection 同一組 hugeMb/gap
+      strideY: 0.01 + 3, // pieceForRows(hugeMb h=0.01)+gap(3)
+      usedW: 0.01, // n=1：cols-1=0 → piece+0*stride=piece=0.01
+      usedH: 0.01, // n=1：rows-1=0 → piece+0*stride=piece=0.01
     };
     const start = Date.now();
     const result = directionInstances(0, direction, hugeMb, 0, 3, 1e9);
