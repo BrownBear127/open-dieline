@@ -355,6 +355,87 @@ function anyNotchDegradation(params: ResolvedParams, want: 'notch-reduced' | 'no
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// B 款舌根端段縮減／V relief 可容納降級（Slice 5 F5，spec §縮放與降級表）
+// ─────────────────────────────────────────────────────────────────────────
+
+// 複製自 tray.ts 的 B 款舌根拓撲私有常數（tray.ts 未 export；若該檔調整這些值，這裡需要
+// 同步更新——同上方 A 款 notch 常數的先例）。
+const B_TONGUE_END_LONGWALL = 45;
+const B_TONGUE_END_SHORTWALL = 35;
+const B_TONGUE_MIN_SPAN = 10;
+const B_TONGUE_RESERVED_LONGWALL = 9.398;
+const V_RELIEF_INSET_MM = 2.5;
+const V_RELIEF_MIN_END_MM = 7.5;
+
+/**
+ * 單一壁縮減後的可用舌摺線長度（reservedSpan，逐字對應 tray.ts buildBTongueTopology 的
+ * innerHalf×2 推導）：longWall（左右壁）保留區＝角撐周邊複合鏈固定消耗；shortWall
+ * （前後壁）保留區＝V relief 自己的內縮量。wallSpan＝該壁全跨（＝2×perpHalf）。
+ */
+function bTongueReservedSpan(wallSpan: number, isLongWall: boolean): number {
+  const reserved = isLongWall ? B_TONGUE_RESERVED_LONGWALL : V_RELIEF_INSET_MM;
+  return 2 * Math.max(wallSpan / 2 - reserved, 0);
+}
+
+/**
+ * 端段縮減三分支（spec F5 v1.2 H1，逐字對應 tray.ts bTongueBranch，這裡獨立重算供
+ * invariant 用）。回傳 undefined＝分支 1（不縮不警告）。
+ */
+function bTongueDegradation(reservedSpan: number, eNominal: number): 'tongue-crease-shrunk' | 'tongue-crease-omitted' | undefined {
+  if (reservedSpan >= 2 * eNominal + B_TONGUE_MIN_SPAN) return undefined;
+  if (reservedSpan >= B_TONGUE_MIN_SPAN) return 'tongue-crease-shrunk';
+  return 'tongue-crease-omitted';
+}
+
+/**
+ * 兩件（base／lid）裡 platformWidth=0（B 款）的那些，各自長壁／短壁 span 是否命中指定
+ * 降級狀態——tongue-crease-shrunk／tongue-crease-omitted 兩條 invariant 共用同一次掃描。
+ * span 定義同 anyNotchDegradation（A 款換 B 款判準：platformWidth<=0）。
+ */
+function anyBTongueDegradation(params: ResolvedParams, want: 'tongue-crease-shrunk' | 'tongue-crease-omitted'): boolean {
+  const baseLength = params.baseLength as number;
+  const baseWidth = params.baseWidth as number;
+  const lidMarginX = params.lidMarginX as number;
+  const lidMarginY = params.lidMarginY as number;
+  const pieces: Array<[number, number, number]> = [
+    [params.basePlatformWidth as number, baseLength, baseWidth],
+    [params.lidPlatformWidth as number, baseLength + 2 * lidMarginY, baseWidth + 2 * lidMarginX],
+  ];
+  for (const [platformWidth, longSpan, shortSpan] of pieces) {
+    if (platformWidth > 0) continue; // A 款無此細節（U-notch 拓撲，見 anyNotchDegradation）
+    const longDeg = bTongueDegradation(bTongueReservedSpan(longSpan, true), B_TONGUE_END_LONGWALL);
+    const shortDeg = bTongueDegradation(bTongueReservedSpan(shortSpan, false), B_TONGUE_END_SHORTWALL);
+    if (longDeg === want || shortDeg === want) return true;
+  }
+  return false;
+}
+
+/**
+ * V relief 可容納（spec §縮放與降級表）：依附 shortWall（hasDoubleRoot=true，唯一有
+ * V relief 的壁款，見 tray.ts buildBTongueTopology）端段實際長 E′——分支 1 用 nominal
+ * 35、分支 2 用縮減值、分支 3（endLen=0）恆不生成（E′<7.5 恆成立）。longWall 沒有
+ * V relief 機制，不參與此判定。
+ */
+function anyReliefOmitted(params: ResolvedParams): boolean {
+  const baseWidth = params.baseWidth as number;
+  const lidMarginX = params.lidMarginX as number;
+  const pieces: Array<[number, number]> = [
+    [params.basePlatformWidth as number, baseWidth],
+    [params.lidPlatformWidth as number, baseWidth + 2 * lidMarginX],
+  ];
+  for (const [platformWidth, shortSpan] of pieces) {
+    if (platformWidth > 0) continue;
+    const reservedSpan = bTongueReservedSpan(shortSpan, false);
+    let endLen: number;
+    if (reservedSpan >= 2 * B_TONGUE_END_SHORTWALL + B_TONGUE_MIN_SPAN) endLen = B_TONGUE_END_SHORTWALL;
+    else if (reservedSpan >= B_TONGUE_MIN_SPAN) endLen = (reservedSpan - B_TONGUE_MIN_SPAN) / 2;
+    else endLen = 0;
+    if (endLen < V_RELIEF_MIN_END_MM) return true;
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // A 款角撐周邊複合 relief 鏈可容納性（Fix 2·2026-07-11 SOL review H2，取代先前的
 // 無條件縮放安全網——tray.ts 的 buildAGussetChain 已改為固定 nominal＋放不下就整鏈省略）
 // ─────────────────────────────────────────────────────────────────────────
@@ -936,6 +1017,36 @@ const invariants: BoxInvariant[] = [
         message: { zh: 'A 款角撐周邊複合 relief 鏈與 U-notch／壁界衝突，或壁高偏離校準值致鏈自身扭曲自撞，已整鏈省略（gusset-relief-omitted）' },
         tags: ['aGussetPeriphery'],
       };
+    },
+  },
+  {
+    id: 'tongue-crease-shrunk',
+    description: {
+      zh: 'Slice 5 F5／spec §縮放與降級表：B 款（platformWidth=0）舌根端段縮減分支 2——扣除 V relief／角撐周邊保留區後的可用舌摺線長度 reservedSpan 若 10≤reservedSpan<2×E+10（E＝該壁端段 nominal 45/35），端段縮至 (reservedSpan−10)/2。只警告不擋。',
+    },
+    check(params) {
+      if (!anyBTongueDegradation(params, 'tongue-crease-shrunk')) return { ok: true };
+      return { ok: false, message: { zh: 'B 款舌根端段可用長度不足 nominal，已縮減（tongue-crease-shrunk）' }, tags: ['tongueFold'] };
+    },
+  },
+  {
+    id: 'tongue-crease-omitted',
+    description: {
+      zh: 'Slice 5 F5／spec §縮放與降級表：B 款舌根端段縮減分支 3——可用舌摺線長度 reservedSpan<10 時端段全省，整段改 halfcut。只警告不擋。',
+    },
+    check(params) {
+      if (!anyBTongueDegradation(params, 'tongue-crease-omitted')) return { ok: true };
+      return { ok: false, message: { zh: 'B 款舌根端段可用長度過短，已全省改 halfcut（tongue-crease-omitted）' }, tags: ['tongueFold'] };
+    },
+  },
+  {
+    id: 'relief-omitted',
+    description: {
+      zh: 'Slice 5 F5／spec §縮放與降級表：V relief 依附端段（僅 shortWall／前後壁）——端段實際長 E′<7.5（2.5＋安全邊5）時省略 V relief；分支 3（無端段）恆省略。只警告不擋。',
+    },
+    check(params) {
+      if (!anyReliefOmitted(params)) return { ok: true };
+      return { ok: false, message: { zh: 'V relief 依附端段過短，已省略（relief-omitted）' }, tags: ['tongueFold', 'vRelief'] };
     },
   },
   {
