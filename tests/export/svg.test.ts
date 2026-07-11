@@ -4,7 +4,7 @@ import { LINE_STYLES } from '@/core/styles';
 import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
-import { toSvgDocument } from '@/export/svg';
+import { DIMENSION_LINE_TYPES, manufacturingBounds, toSvgDocument } from '@/export/svg';
 import { DXF_LAYER_BY_LINETYPE } from '@/export/dxf';
 
 // ── 測試專用建構器：只覆寫關心的欄位，其餘用最小合法預設值 ──
@@ -245,5 +245,198 @@ describe('toSvgDocument', () => {
     const ids = [...svg.matchAll(/<g id="([^"]+)"/g)].map((m) => m[1]);
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // ── 製造模式匯出（F7·Slice 5 Task 6）──
+  // 預設關＝既有全量路徑，byte 級一致（迴歸保證，spec §F7／驗收 5）；製造模式開＝solid＋
+  // 0.25 線寬＋round cap/join＋排除 dimensions/annotation paths 與全部 texts＋viewBox/width/
+  // height 用過濾後的製造幾何 bounds 重算（不沿用含標註的 result.bounds）。
+
+  describe('預設關＝既有全量路徑（byte 級迴歸——防選項管線重構夾帶變動）', () => {
+    // 這兩個快照是本次改動前既有的真實輸出（generate() 走既有邏輯，toSvgDocument 省略第二
+    // 參數）——F7 上線後若任何一版重構動到了「manufacturing=false」這條路徑的輸出（哪怕只是
+    // 屬性順序、空白、或某個 opts 分支意外滲入預設路徑），這裡會逐 byte 炸開，不只是「有無
+    // dasharray」這種抽樣斷言可以掩蓋過去的變動。
+    it('RTE 真實輸出：省略第二參數，輸出逐 byte 鎖定（golden 快照）', () => {
+      const result = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
+      expect(toSvgDocument(result)).toMatchSnapshot();
+    });
+
+    it('telescope 真實輸出：省略第二參數，輸出逐 byte 鎖定（golden 快照）', () => {
+      const result = telescope.generate(resolveParams(telescope));
+      expect(toSvgDocument(result)).toMatchSnapshot();
+    });
+
+    it('明確傳 { manufacturing: false } 與省略第二參數完全等價（驗證 opts?.manufacturing ?? false 的預設語意，不是巧合地兩條路徑剛好同輸出）', () => {
+      const result = telescope.generate(resolveParams(telescope));
+      expect(toSvgDocument(result, { manufacturing: false })).toBe(toSvgDocument(result));
+    });
+  });
+
+  describe('製造模式開（{ manufacturing: true }）', () => {
+    it('solid：crease（原本有 dasharray）在製造模式下輸出不含 stroke-dasharray（mutation 檢查：若漏做 solid 覆寫，這裡會抓到殘留 dasharray）', () => {
+      const result = makeResult({
+        paths: [{ id: 'p-0', type: 'crease', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).not.toContain('stroke-dasharray');
+    });
+
+    it('halfcut（原本也有 dasharray）同樣不含 stroke-dasharray', () => {
+      const result = makeResult({
+        paths: [{ id: 'p-0', type: 'halfcut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).not.toContain('stroke-dasharray');
+    });
+
+    it('stroke-width 固定 0.25：覆寫 cut/crease/halfcut 各自的 LINE_STYLES.strokeWidth（三者原值皆 0.4，見 core/styles.ts）', () => {
+      const result = makeResult({
+        paths: [
+          { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+          { id: 'p-crease', type: 'crease', segments: [{ kind: 'line', x1: 0, y1: 1, x2: 10, y2: 1 }] },
+          { id: 'p-halfcut', type: 'halfcut', segments: [{ kind: 'line', x1: 0, y1: 2, x2: 10, y2: 2 }] },
+        ],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      const widths = [...svg.matchAll(/stroke-width="([^"]+)"/g)].map((m) => m[1]);
+      expect(widths).toEqual(['0.25', '0.25', '0.25']);
+      expect(svg).not.toContain('stroke-width="0.4"');
+    });
+
+    it('round cap/join：每個 path 都輸出 stroke-linecap="round" stroke-linejoin="round"', () => {
+      const result = makeResult({
+        paths: [{ id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).toContain('stroke-linecap="round"');
+      expect(svg).toContain('stroke-linejoin="round"');
+    });
+
+    it('非製造模式（預設）不輸出 stroke-linecap/stroke-linejoin（確認這兩個屬性是製造模式獨有，不會滲進既有路徑——與上方 byte 級迴歸快照互證）', () => {
+      const result = makeResult({
+        paths: [{ id: 'p-0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+      });
+      const svg = toSvgDocument(result);
+      expect(svg).not.toContain('stroke-linecap');
+      expect(svg).not.toContain('stroke-linejoin');
+    });
+
+    it('顏色維持 black/lime/yellow：cut/crease/halfcut 的 stroke 仍讀 LINE_STYLES，不被製造模式覆寫（製造模式只覆寫線寬/dasharray/cap-join 三個視覺屬性）', () => {
+      const result = makeResult({
+        paths: [
+          { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+          { id: 'p-crease', type: 'crease', segments: [{ kind: 'line', x1: 0, y1: 1, x2: 10, y2: 1 }] },
+          { id: 'p-halfcut', type: 'halfcut', segments: [{ kind: 'line', x1: 0, y1: 2, x2: 10, y2: 2 }] },
+        ],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).toContain(`stroke="${LINE_STYLES.cut.stroke}"`);
+      expect(svg).toContain(`stroke="${LINE_STYLES.crease.stroke}"`);
+      expect(svg).toContain(`stroke="${LINE_STYLES.halfcut.stroke}"`);
+      // 三個色碼本身就是 spec F7「black/lime/yellow」——鎖字面值，避免 LINE_STYLES 改了
+      // 這三個值時，上面三個 toContain 因為「兩邊都變了」而繼續巧合通過。
+      expect(LINE_STYLES.cut.stroke).toBe('#000000');
+      expect(LINE_STYLES.crease.stroke).toBe('#00FF00');
+      expect(LINE_STYLES.halfcut.stroke).toBe('#FFFF00');
+    });
+
+    it('排除 dimension／annotation paths 與全部 texts：輸出不含這兩種線型的 stroke、不含 <text>、不含空的 DIMENSIONS 群組', () => {
+      const result = makeResult({
+        paths: [
+          { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] },
+          { id: 'p-dim', type: 'dimension', segments: [{ kind: 'line', x1: 0, y1: 5, x2: 10, y2: 5 }] },
+          { id: 'p-ann', type: 'annotation', segments: [{ kind: 'line', x1: 0, y1: 8, x2: 10, y2: 8 }] },
+        ],
+        texts: [{ id: 't-0', x: 5, y: 5, text: '10mm' }],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).not.toContain(`stroke="${LINE_STYLES.dimension.stroke}"`);
+      expect(svg).not.toContain(`stroke="${LINE_STYLES.annotation.stroke}"`);
+      expect(svg).not.toContain('<text');
+      expect(svg).not.toContain('10mm');
+      expect(svg).not.toContain('id="DIMENSIONS"');
+      expect(svg).toContain(`stroke="${LINE_STYLES.cut.stroke}"`); // cut 本身仍保留，證明過濾有選擇性、不是整包清空
+    });
+
+    it('viewBox/width/height 以過濾後的製造幾何 bounds 重算，不沿用含標註的 result.bounds（mutation 檢查：若沿用 result.bounds，viewBox 會殘留標註外擴的空白邊）', () => {
+      // cut 幾何本身 bounds 只到 x∈[0,10]/y∈[0,10]；result.bounds 因為含 dimension 標註被
+      // 撐大到 x∈[-20,50]/y∈[-20,40]——製造模式必須用前者（10×10）算 viewBox，不能用後者。
+      const result = makeResult({
+        paths: [
+          { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 10 }] },
+          { id: 'p-dim', type: 'dimension', segments: [{ kind: 'line', x1: -20, y1: -20, x2: 50, y2: 40 }] },
+        ],
+        bounds: { minX: -20, maxX: 50, minY: -20, maxY: 40 },
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).toContain('width="10.00mm"');
+      expect(svg).toContain('height="10.00mm"');
+      expect(svg).toContain('viewBox="0.00 0.00 10.00 10.00"');
+      expect(svg).not.toContain('width="70.00mm"');
+      expect(svg).not.toContain('viewBox="-20.00 -20.00 70.00 60.00"');
+    });
+
+    it('viewBox 重算與獨立呼叫 manufacturingBounds() 的結果一致（不是測試巧合湊出的固定值，是真的用同一份 bounds 計算）', () => {
+      const result = makeResult({
+        paths: [
+          { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 3, y1: 4, x2: 13, y2: 24 }] },
+          { id: 'p-dim', type: 'dimension', segments: [{ kind: 'line', x1: -50, y1: -50, x2: 90, y2: 90 }] },
+        ],
+        bounds: { minX: -50, maxX: 90, minY: -50, maxY: 90 },
+      });
+      const expected = manufacturingBounds(result);
+      const svg = toSvgDocument(result, { manufacturing: true });
+      const width = expected.maxX - expected.minX;
+      const height = expected.maxY - expected.minY;
+      expect(svg).toContain(
+        `viewBox="${expected.minX.toFixed(2)} ${expected.minY.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}"`,
+      );
+    });
+
+    it('全部是 dimension/annotation（無 cut/crease/halfcut）：製造模式輸出合法但無圖形內容的 SVG 骨架，不拋錯、不出現 NaN', () => {
+      const result = makeResult({
+        paths: [{ id: 'p-dim', type: 'dimension', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
+        texts: [{ id: 't-0', x: 5, y: 0, text: '10mm' }],
+      });
+      const svg = toSvgDocument(result, { manufacturing: true });
+      expect(svg).toContain('<svg');
+      expect(svg).toContain('</svg>');
+      expect(svg).not.toContain('<path');
+      expect(svg).not.toContain('<text');
+      expect(svg).not.toContain('NaN');
+    });
+  });
+
+  describe('RTE 驗一組（全盒型證明——F7 是 exporter 層功能，不綁 telescope，見 spec §F7「全盒型功能」）', () => {
+    it('RTE 真實輸出套用製造模式：solid／0.25／round cap-join／排除標註＋文字／viewBox＝製造幾何 bounds', () => {
+      const result = reverseTuckEnd.generate(resolveParams(reverseTuckEnd));
+      const svg = toSvgDocument(result, { manufacturing: true });
+
+      expect(svg).not.toContain('stroke-dasharray');
+      expect(svg).not.toContain('stroke-width="0.4"');
+      expect(svg).toContain('stroke-linecap="round"');
+      expect(svg).toContain('stroke-linejoin="round"');
+      expect(svg).not.toContain('<text');
+      expect(svg).not.toContain('id="DIMENSIONS"');
+
+      const expectedBounds = manufacturingBounds(result);
+      const width = expectedBounds.maxX - expectedBounds.minX;
+      const height = expectedBounds.maxY - expectedBounds.minY;
+      expect(svg).toContain(
+        `viewBox="${expectedBounds.minX.toFixed(2)} ${expectedBounds.minY.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}"`,
+      );
+      // RTE 的 result.bounds 含尺寸標註外擴，理應比製造幾何 bounds 寬鬆——先確認兩者真的
+      // 不同，這條測試才有能力區分「用對 bounds」與「沿用 result.bounds 但巧合沒差」。
+      expect(result.bounds).not.toEqual(expectedBounds);
+
+      // 輸出的 <path> 數＝非 dimension/annotation 的 paths 數（RTE 沒有 halfcut，見既有
+      // 「空桶不輸出 g：RTE...不含 <g id="HALFCUT">」測試；這裡不重複假設 cut/crease 是
+      // 唯二型別，直接用 F7 的過濾定義 DIMENSION_LINE_TYPES 算期望值）。
+      const pathCount = (svg.match(/<path /g) ?? []).length;
+      const manufacturingPathCount = result.paths.filter((p) => !DIMENSION_LINE_TYPES.has(p.type)).length;
+      expect(pathCount).toBe(manufacturingPathCount);
+      expect(manufacturingPathCount).toBeGreaterThan(0);
+    });
   });
 });
