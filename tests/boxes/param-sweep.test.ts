@@ -18,7 +18,9 @@
 import { describe, it, expect } from 'vitest';
 import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { telescope } from '@/boxes/telescope';
 import { hasNaN } from '@/core/geometry';
+import type { GenerateResult, ResolvedParams } from '@/core/types';
 
 type Overrides = Partial<Record<string, number | boolean | string>>;
 
@@ -150,6 +152,261 @@ describe('RTE 參數邊界掃描（T9 Fix Round 2 修復 2B）', () => {
 
     for (const { label, overrides } of combos) {
       assertSafe(label, overrides);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// telescope（天地盒）：縮放降級矩陣 S1-S7（Slice 5 Task 5，spec §驗收 4「param-sweep
+// 固定參數矩陣」——spec F5 段原文「既有 param-sweep 機制擴充：固定參數矩陣見 §驗收」，
+// 這是該擴充在本檔的正式落地）。
+//
+// 與上方 RTE 區塊的關係：沿用同一套「安全網」哲學（generate 不 throw／無 NaN／bounds
+// 有限），額外疊一層「warning unique-id 集合精確匹配」。這 7 個 id（notch-reduced／
+// notch-omitted／platform-corner-omitted／gusset-relief-omitted／tongue-crease-shrunk／
+// tongue-crease-omitted／relief-omitted）是 spec §縮放與降級規律表格列出的「細節降級」
+// 範疇，不含 tongue-flap-fits／gusset-b-fits／liner-flap-fits／rim-flush／pieces-identity
+// 等「既有 module invariant」（那些是參數域邊界／結構完整性檢查，另一個獨立範疇——spec
+// §驗收 4 原文：「全組斷言：既有 module invariant（...）＋新 warning invariant 無
+// crash／無 NaN／warning unique-id 集合精確匹配」，兩者分開驗證，不混入 unique-id 比較）。
+//
+// 與 tests/telescope.test.ts「S1-S7 warning 矩陣」（Task 4，F5+F6-B 專屬測試的副產品）
+// 的關係：本檔是 controller 指定的正式落地位置（spec 原文明點 param-sweep 機制）。下面
+// 每組期望值都是逐組獨立重推（不是照抄 Task 4 的期望值）——推導過程見各組註解，使用的
+// 公式常數（NOTCH_CENTER_RATIO=29.3385/179、A_CHAIN_REACH_LONGWALL=21.5018、
+// B_TONGUE_RESERVED_LONGWALL=9.398、B_TONGUE_END_LONGWALL/SHORTWALL=45/35、
+// V_RELIEF_INSET=2.5、V_RELIEF_MIN_END=7.5、PLATFORM_CORNER_MIN_WIDTH=2.5）取自
+// tray.ts／index.ts 既有私有常數（同 index.ts 自己的獨立重算慣例，這些常數本身就是 T0
+// 量測／spec 公式的具體實例化，不是「code 的意見」）。結論：7 組全部與 spec §驗收 4
+// 表一致，且與 Task 4 的既有測試一致——沒有發現不一致，因此沒有需要回報 controller 的落差
+// （若曾發現落差，會在這裡改成註記＋不改 expected，而不是靜默調整）。
+//
+// gusset-relief-omitted 的特殊性（誠實記錄）：這一個 id 的可容納判定（tray.ts
+// aGussetChainFits）分兩層——①b 軸（壁界／notch 衝突，reachZoneStart=wallSpan/2−
+// A_CHAIN_REACH_LONGWALL，加上 notch 開口不得落進鏈區）是封閉公式，可手推；②a 軸（鏈
+// 自身錨點校正後是否自撞，hasSelfIntersection）沒有封閉公式（spec 原文也只說「鏈自身在
+// 該盒高下不扭曲自交」，未給不等式）——這部分的「推導」只能是實際跑 telescope.generate()
+// 直接讀結果（與 tray.ts 的 anyGussetChainOmitted 自己承認的作法一致，見 index.ts 該函式
+// docblock：「改為直接讀生成結果，保證這條 invariant 與 tray.ts 的實際輸出恆一致」）。
+// 下面每組會註明「b 軸」「a 軸」兩層各自的判定方式，凡屬 a 軸的結論都明講「已用
+// telescope.generate() 實跑驗證，非手算」，不偽裝成純公式推導。
+//
+// 「其餘取 production-P 值」（spec §驗收 4 表頭）：本檔嚴格採用完整 PRODUCTION_P fixture
+// 物件展開＋覆寫，不是只設被 override 的幾個 key、其餘落回 schema 預設（Task 4 的
+// warningSet() 用的是後者）。兩者對這 7 個 warning id 的判定結果經 telescope.generate()
+// 實跑交叉驗證完全一致（thickness 只進 B 款角撐 minStyleBHeight／A 款 reach 讀的是
+// wallTopCompensation 不是 thickness，兩者都與這 7 個 id 的判定公式無關；linerEnabled
+// 只影響 liner 自己的幾何，不影響這 7 個 id）——但完整 P fixture 展開讓「全組：無 crash」
+// 那條測試更乾淨：linerEnabled 用 P 的 false，S3（baseWidth=30）才不會額外多觸發一個
+// 不相關的 liner-flap-fits（linerEnabled=true 時 baseWidth=30 也會頂到內襯翼片外緣反轉
+// 門檻，是內襯自己的獨立退化，混進來會讓「既有 invariant 例外清單」多一項不必要的雜訊）。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope（天地盒）：縮放降級矩陣 S1-S7（spec §驗收 4，Slice 5 Task 5）', () => {
+  /** spec §production-P fixture（spec 原文 JSON 逐字）——S1-S7 每組「其餘」欄位的基準值。 */
+  const PRODUCTION_P: Overrides = {
+    baseLength: 179,
+    baseWidth: 124,
+    baseHeight: 60,
+    lidMarginX: 13.5,
+    lidMarginY: 18.5,
+    lidHeight: 45,
+    basePlatformWidth: 5,
+    lidPlatformWidth: 0,
+    thickness: 0.44,
+    rootJog: 0.5,
+    innerWallReduction: 0.8,
+    wallTopCompensation: 0.5,
+    linerEnabled: false,
+  };
+
+  /** spec §縮放與降級規律表列出的 7 個「細節降級」warning id（度量口徑，見上方檔頭註解）。 */
+  const DEGRADATION_IDS = ['notch-reduced', 'notch-omitted', 'platform-corner-omitted', 'gusset-relief-omitted', 'tongue-crease-shrunk', 'tongue-crease-omitted', 'relief-omitted'] as const;
+
+  /** production-P 疊加 override，跑 telescope.generate()，回傳觸發的 7-id 降級 warning 集合。 */
+  function degradationWarningSet(overrides: Overrides): { params: ResolvedParams; result: GenerateResult; fired: Set<string> } {
+    const params = resolveParams(telescope, { ...PRODUCTION_P, ...overrides });
+    const result = telescope.generate(params);
+    const fired = new Set<string>();
+    for (const id of DEGRADATION_IDS) {
+      const inv = telescope.invariants.find((i) => i.id === id)!;
+      if (!inv.check(params, result).ok) fired.add(id);
+    }
+    return { params, result, fired };
+  }
+
+  /** 單組 S 案例：warning unique-id 集合精確匹配 expected（推導見呼叫端上方註解）。 */
+  function assertDegradationMatrix(label: string, overrides: Overrides, expected: Set<string>): void {
+    it(`${label}：warning 集合＝${expected.size === 0 ? '∅' : JSON.stringify([...expected])}`, () => {
+      const { fired } = degradationWarningSet(overrides);
+      expect(fired, label).toEqual(expected);
+    });
+  }
+
+  // S1（production-P 原組，overrides=∅）：
+  // - notch（base，A 款，basePlatformWidth=5>0）：長壁（側壁）span=baseLength=179 恰為
+  //   T0 校準值本身，NOTCH_CENTER_RATIO×179=29.3385（定義上就是這個比例的來源）——
+  //   2×29.3385−30=28.677≥5 且 29.3385+15=44.3385≤89.5，兩 notch 皆放得下。短壁
+  //   span=baseWidth=124≥40，可容納單一置中（但這裡不需要，因為長壁已兩個都放下）。
+  //   → notch-reduced／notch-omitted 皆不觸發。
+  // - platform-corner-omitted：basePlatformWidth=5≥2.5、lidPlatformWidth=0（不>0，不參與判定）→ 不觸發。
+  // - gusset-relief-omitted（base，A 款）b 軸：reachZoneStart=179/2−21.5018=67.9982，
+  //   notch 中心±29.3385＋半開口15=44.3385≤67.9982→b 軸不衝突。a 軸：production-P 本身
+  //   就是 T0 校準點（height−wallTopCompensation=59.5），鏈的錨點校正在此點理論上不應
+  //   自撞——已用 telescope.generate() 實跑確認：不觸發。
+  // - B 款舌根（lid，B 款，lidPlatformWidth=0）：lidPanelY=179+2×18.5=216（長壁/左右壁），
+  //   reservedSpan=2×(216/2−9.398)=197.204≥2×45+10=100→分支 1（不縮，端段=45，無警告）；
+  //   lidPanelX=124+2×13.5=151（短壁/前後壁），reservedSpan=2×(151/2−2.5)=146≥2×35+10=80
+  //   →分支 1（端段=35，無警告）；V relief E′=35≥7.5，不省略。
+  //   （交叉核對：與 spec §T0/§F5 原文引用的「197.2」「146」「107.2」「76」等數字一致；
+  //   與 tests/telescope.test.ts S1-S7 warning 矩陣 Task 4 測試結論一致。）
+  // → S1 預期：∅。
+  assertDegradationMatrix('S1（production-P 原組）', {}, new Set());
+
+  // S2（baseLength=60, baseWidth=40）：
+  // - notch（base，A 款）：長壁 span=60，中心=NOTCH_CENTER_RATIO×60=9.8341，
+  //   2×9.8341−30=−10.33<5→兩個放不下；60≥40（開口30+2×安全邊5）→降級為單一置中
+  //   （notch-reduced，非 notch-omitted）。短壁 span=40，40≥40→單一 notch 仍放得下（不觸發）。
+  // - gusset-relief-omitted（base）b 軸：reachZoneStart=60/2−21.5018=8.4982；notch 降級後
+  //   中心=[0]，半開口15>8.4982→notch 已落進鏈區，b 軸衝突→整鏈省略（不需要再看 a 軸，
+  //   b 軸任一層失敗即整鏈省略）。已用 telescope.generate() 實跑確認觸發。
+  // - B 款舌根（lid）：lidPanelY=60+37=97（長壁），reservedSpan=2×(97/2−9.398)=78.204，
+  //   10≤78.204<100→分支 2（tongue-crease-shrunk，端段縮至 (78.204−10)/2=34.102）；
+  //   lidPanelX=40+27=67（短壁），reservedSpan=2×(67/2−2.5)=62，10≤62<80→分支 2 同 id
+  //   （端段縮至 (62−10)/2=26）。E′=26≥7.5，relief-omitted 不觸發；78.204／62 皆≥10，
+  //   tongue-crease-omitted 不觸發。
+  // - platform-corner-omitted：basePlatformWidth/lidPlatformWidth 未變（5/0）→不觸發。
+  // → S2 預期：{notch-reduced, tongue-crease-shrunk, gusset-relief-omitted}
+  //   （交叉核對：與 tests/telescope.test.ts 對應 S2 測試逐字一致的中間值 78.204/62/26）。
+  assertDegradationMatrix('S2（baseLength=60, baseWidth=40）', { baseLength: 60, baseWidth: 40 }, new Set(['notch-reduced', 'tongue-crease-shrunk', 'gusset-relief-omitted']));
+
+  // S3（baseLength=40, baseWidth=30）：
+  // - notch（base，A 款）：長壁 span=40，中心=NOTCH_CENTER_RATIO×40=6.5561，
+  //   2×6.5561−30=−16.89<5→兩個放不下；40≥40（恰為門檻，非嚴格小於）→降級為單一置中
+  //   （notch-reduced）。短壁 span=30<40→單一都放不下，全省（notch-omitted）。兩者同時觸發。
+  // - gusset-relief-omitted（base）b 軸：reachZoneStart=40/2−21.5018=−1.5018<0→壁本身已
+  //   窄於鏈的固定佔用量，無條件整鏈省略（不需要看 notch 或 a 軸）。已用
+  //   telescope.generate() 實跑確認觸發。
+  // - B 款舌根（lid）：lidPanelY=40+37=77（長壁），reservedSpan=2×(77/2−9.398)=58.204，
+  //   10≤58.204<100→分支 2（tongue-crease-shrunk，端段縮至 24.102）；lidPanelX=30+27=57
+  //   （短壁），reservedSpan=2×(57/2−2.5)=52，10≤52<80→分支 2 同 id（端段縮至 21）。
+  //   E′=21≥7.5，relief-omitted 不觸發。
+  // - platform-corner-omitted：未變（5/0）→不觸發。
+  // → S3 預期：{notch-reduced, notch-omitted, tongue-crease-shrunk, gusset-relief-omitted}
+  //   （無 relief-omitted——spec 表註記「E′ 仍≥7.5」，與這裡算出的 21 一致）。
+  //
+  // 已知例外（誠實記錄，不計入本組 7-id 集合）：production-P 全展開下，S3 的既有 module
+  // invariant `tongue-flap-fits` 會回 not-ok（base 前後壁 baseWidth=30mm 低於插底舌讓位
+  // 最小邊長 33mm，梯形已反轉自撞）——這是 F4/F5 之前就存在、與本輪 無關的獨立參數域
+  // 邊界退化（spec §驗收 4 把「既有 module invariant」與「新 warning invariant 集合」列
+  // 為兩個分開驗證的範疇，見檔頭註解），下方「全組：無 crash」測試只要求它的 check()
+  // 不 throw（已確認成立），不要求 ok:true。
+  assertDegradationMatrix(
+    'S3（baseLength=40, baseWidth=30）',
+    { baseLength: 40, baseWidth: 30 },
+    new Set(['notch-reduced', 'notch-omitted', 'tongue-crease-shrunk', 'gusset-relief-omitted']),
+  );
+
+  // S4（basePlatformWidth=2，其餘含 baseLength/baseWidth=179/124 nominal）：
+  // - platform-corner-omitted：basePlatformWidth=2，2>0 且 2<2.5（PLATFORM_CORNER_MIN_WIDTH）
+  //   →降級為直角，觸發。lidPlatformWidth=0（不>0）→不參與。
+  // - notch（base，A 款，basePlatformWidth=2 仍>0，仍走 A 款判準）：baseLength/baseWidth
+  //   未變（179/124），notch 中心公式只吃 wallSpan，不吃 platformWidth→與 S1 相同結果，
+  //   不觸發。
+  // - gusset-relief-omitted（base）b 軸：wallSpan=baseLength=179 未變，reachZoneStart=
+  //   67.9982、notch 中心 44.3385≤67.9982，與 S1 相同，b 軸不衝突。a 軸：這裡是本組唯一
+  //   無法只憑 b 軸公式排除的部分——longAnchors 的 distPlatformEnd/distTongueApproach/
+  //   distTongueFold 三個錨點都內含 `+platformWidth` 項（見 tray.ts generateTray 的
+  //   longAnchors 推導），platformWidth 5→2 讓這三個錨點少 3mm，鏈的錨點校正
+  //   （snapALongAnchor）餵進 aGussetChainSelfIntersects 的輸入因此與 S1 不同，是否仍不
+  //   自撞不能只憑「b 軸未變」類推——已用 telescope.generate() 實跑確認：不觸發
+  //   （3mm 的錨點平移不足以讓鏈自撞）。
+  // - B 款舌根（lid）：lidPlatformWidth/baseLength/baseWidth 皆未變→與 S1 相同，不觸發。
+  // → S4 預期：{platform-corner-omitted}
+  assertDegradationMatrix('S4（basePlatformWidth=2）', { basePlatformWidth: 2 }, new Set(['platform-corner-omitted']));
+
+  // S5（rootJog=innerWallReduction=wallTopCompensation=thickness=0，t=0 等價形態）：
+  // - baseLength/baseWidth/lidMargin*/platformWidth* 皆未變（179/124/13.5/18.5/5/0）→
+  //   notch／platform-corner／B 款舌根三組的判定只吃這些 span/platformWidth 輸入，與 S1
+  //   完全相同的公式輸入→不觸發（notch-reduced/omitted、platform-corner-omitted、
+  //   tongue-crease-shrunk/omitted、relief-omitted 全部沿用 S1 的∅結論）。
+  // - gusset-relief-omitted（base）b 軸：wallSpan/notch 中心與 S1 完全相同（這三個歸零
+  //   參數都不進 b 軸公式）→不衝突。a 軸：這裡也不能只憑 b 軸類推——longAnchors 的
+  //   distOuter=height−wallTopCompensation 從 59.5 變 60（+0.5mm），
+  //   distTongueApproach/distTongueFold 內的 innerWallReduction 項從 0.8 變 0（相對位移
+  //   −0.8mm）——兩個小位移是否仍不自撞已用 telescope.generate() 實跑確認：不觸發
+  //   （與 F3「t=0 且三補償全 0」等價形態裁決一致：合法參數形狀，非邊界穿越）。
+  // → S5 預期：∅（與 spec F3 t=0 裁決一致）。
+  assertDegradationMatrix('S5（rootJog=innerWallReduction=wallTopCompensation=thickness=0）', { rootJog: 0, innerWallReduction: 0, wallTopCompensation: 0, thickness: 0 }, new Set());
+
+  // S6（lidMarginX=5, lidMarginY=60，極端不對稱）：
+  // - base 完全未變（baseLength/baseWidth/basePlatformWidth/wallTopCompensation/
+  //   innerWallReduction 皆 production-P 值）→ base 的 notch／gusset-relief-omitted 兩組
+  //   （b 軸與 a 軸皆吃不到 lidMargin*）與 S1 逐位元相同→不觸發（a 軸這裡可以放心類推，
+  //   因為 base 的 longAnchors 輸入完全沒變，不像 S4/S5 那樣有位移）。
+  // - B 款舌根（lid，lidPlatformWidth 未變＝0）：lidPanelY=179+2×60=299（長壁），
+  //   reservedSpan=2×(299/2−9.398)=280.204≥100→分支 1（不縮）；lidPanelX=124+2×5=134
+  //   （短壁），reservedSpan=2×(134/2−2.5)=129≥80→分支 1（不縮，端段=35≥7.5，V relief
+  //   保留）。兩軸雖然極端不對稱（lidMarginX 取 min、lidMarginY 取 max），但都遠離各自
+  //   的降級門檻（280.204≫100、129≫80）→ 全部不觸發。
+  // - platform-corner-omitted：platformWidth* 未變→不觸發。
+  // → S6 預期：∅（spec 表註記「極端不對稱但全細節仍可容納」，與此處算出的餘裕量一致）。
+  assertDegradationMatrix('S6（lidMarginX=5, lidMarginY=60）', { lidMarginX: 5, lidMarginY: 60 }, new Set());
+
+  // S7（basePlatformWidth=0, lidPlatformWidth=5，A/B 款式互換）：
+  // - notch（now 換成 lid，A 款，height=lidHeight=45）：wallSpan=lidPanelY=216（未變，
+  //   baseLength/lidMarginY 都未變）、中心=NOTCH_CENTER_RATIO×216=35.4029，
+  //   2×35.4029−30=40.8058≥5 且 35.4029+15=50.4029≤108，兩 notch 放得下→不觸發。短壁
+  //   span=lidPanelX=151≥40→單一也放得下（不需要，因為長壁已兩個都放下）。
+  // - platform-corner-omitted：lidPlatformWidth=5≥2.5、basePlatformWidth=0（不>0，不參與）
+  //   →不觸發。
+  // - B 款舌根（now 換成 base，B 款）：baseLength=179（長壁本身，非 lid 疊加），
+  //   reservedSpan=2×(179/2−9.398)=160.204≥100→分支 1（端段=45，不縮）；baseWidth=124
+  //   （短壁），reservedSpan=2×(124/2−2.5)=119≥80→分支 1（端段=35，不縮，V relief 保留，
+  //   E′=35≥7.5）。**兩軸皆落分支 1**——與 spec §驗收 4 表 S7 列的結構斷言原文「下盒得
+  //   B 款舌根拓撲（crease 端段＋V relief，三分支落分支 1）」逐字對應。
+  // - gusset-relief-omitted（now 換成 lid，A 款，height=45，wallTopCompensation 對 lid
+  //   恆寫死 0，見 index.ts buildLidPiece）b 軸：reachZoneStart=216/2−21.5018=86.4982，
+  //   notch 中心 35.4029+15=50.4029≤86.4982→b 軸完全不衝突（可用公式排除，不是模糊地帶）。
+  //   a 軸：b 軸已排除，所以若觸發，原因必然是 a 軸自撞——longAnchors.distOuter=
+  //   height−wallTopCompensation=45−0=45，遠低於鏈模板校準時的 base 典型值（~59.5-60），
+  //   錨點校正後鏈的內部相對關係已偏離 T0 設計太遠。這部分無封閉公式，已用
+  //   telescope.generate() 實跑確認：觸發（v1.5 T4 實測更正的同一組，本次重新獨立驗證
+  //   仍然成立——T4 之後的三個 review fix commit(b839615/f05e6db/b5e904b) 未改變此結論）。
+  // → S7 預期：{gusset-relief-omitted}（v1.5 T4 實測更正值，非 v1.4 原始∅）。
+  assertDegradationMatrix('S7（basePlatformWidth=0, lidPlatformWidth=5，款式互換）', { basePlatformWidth: 0, lidPlatformWidth: 5 }, new Set(['gusset-relief-omitted']));
+
+  it('全組（S1-S7）：generate 不 throw、無 NaN、bounds 有限、全部既有 module invariant.check() 不 throw', () => {
+    const cases: Array<[string, Overrides]> = [
+      ['S1', {}],
+      ['S2', { baseLength: 60, baseWidth: 40 }],
+      ['S3', { baseLength: 40, baseWidth: 30 }],
+      ['S4', { basePlatformWidth: 2 }],
+      ['S5', { rootJog: 0, innerWallReduction: 0, wallTopCompensation: 0, thickness: 0 }],
+      ['S6', { lidMarginX: 5, lidMarginY: 60 }],
+      ['S7', { basePlatformWidth: 0, lidPlatformWidth: 5 }],
+    ];
+
+    for (const [label, overrides] of cases) {
+      let params: ResolvedParams | undefined;
+      let result: GenerateResult | undefined;
+      expect(() => {
+        params = resolveParams(telescope, { ...PRODUCTION_P, ...overrides });
+        result = telescope.generate(params);
+      }, label).not.toThrow();
+
+      const segs = result!.paths.flatMap((p) => p.segments);
+      expect(hasNaN(segs), `${label}：不應含 NaN 座標`).toBe(false);
+      for (const [key, v] of Object.entries(result!.bounds)) {
+        expect(Number.isFinite(v), `${label}：bounds.${key} 應為有限值，實際為 ${v}`).toBe(true);
+      }
+
+      // 既有 module invariant（含 S3 已知會 not-ok 的 tongue-flap-fits，見上方 S3 註解）
+      // 這裡只要求「不 throw」，不要求 ok:true——ok:true 的範疇是上面 7 個 degradation id
+      // 各自的 assertDegradationMatrix，兩者是 spec §驗收 4 明文分開的範疇。
+      for (const inv of telescope.invariants) {
+        expect(() => inv.check(params!, result!), `${label} / ${inv.id} 不應 throw`).not.toThrow();
+      }
     }
   });
 });
