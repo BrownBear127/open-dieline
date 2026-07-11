@@ -30,6 +30,7 @@ import { telescope, MIN_TONGUE_PERP_HALF } from '@/boxes/telescope';
 import { deriveLinerFrame } from '@/boxes/telescope/liner';
 import { validatePieces } from '@/core/pieces';
 import fixtureRaw from './fixtures/telescope-reference.json';
+import productionPRaw from './fixtures/telescope-production-P.json';
 
 // ─────────────────────────────────────────────────────────────────────────
 // fixture 型別與載入
@@ -1340,5 +1341,296 @@ describe('telescope: tongue-flap-fits B 款 longWall 門檻同步（re-review co
     if (!outcome.ok) {
       expect(outcome.tags).toEqual(expect.arrayContaining(['baseLength', 'lidMarginY', 'tongueFlap']));
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 Task 7（spec F8：原檔驅動的拓撲測試錨定收攏）。
+//
+// 單一參數源＝tests/fixtures/telescope-production-P.json（M7，不動既有
+// telescope-reference.json 數值欄）。T3（F4/F6-A）、T4（F5/F6-B）、F2（T1 review）三個
+// 既有 describe block 各自持有一份字面 literal 的 productionP 參數物件，供各自既有斷言
+// 引用——與本檔 fixture 數值相同但不共用變數（既有慣例：避免跨 describe block 隱性耦合），
+// 本輪 不動那些既有斷言。這裡是 F8 明文要求的整合層：把 span/jog、panel/bbox golden、
+// feature-normalized 計數、三組細節斷言收攏成一組以 fixture 檔為準的自足測試；與既有錨
+// 重疊處直接呼叫既有 EXTRACTORS/FORMULAS/helper（yRootNominalOffset／findTagged／
+// segmentsBounds／findCollinearOverlaps 等，皆為本檔前段已定義的 module-scope 函式），
+// 不重抄字面數字。
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ProductionPParams {
+  baseLength: number;
+  baseWidth: number;
+  baseHeight: number;
+  lidMarginX: number;
+  lidMarginY: number;
+  lidHeight: number;
+  basePlatformWidth: number;
+  lidPlatformWidth: number;
+  thickness: number;
+  rootJog: number;
+  innerWallReduction: number;
+  wallTopCompensation: number;
+  linerEnabled: boolean;
+  // index signature：同 FixtureParams 理由——滿足 resolveParams() OverrideMap 的結構要求。
+  [key: string]: number | boolean;
+}
+
+interface ProductionPFixture {
+  note: string;
+  params: ProductionPParams;
+  golden: {
+    base: { bboxWidth: number; bboxHeight: number; sideRootSpanY: number; centralFoldSpanY: number };
+    lid: { bboxWidth: number; bboxHeight: number; panelX: number; panelY: number; sideRootSpanY: number; centralFoldSpanY: number };
+  };
+  featureCounts: {
+    base: {
+      uNotchCount: number;
+      uNotchTotalSegs: number;
+      uNotchFilletCount: number;
+      tongueFoldCreaseSegs: number;
+      tongueFoldHalfcutSegs: number;
+      platformCornerFilletCount: number;
+    };
+    lid: {
+      vReliefCount: number;
+      vReliefTotalSegs: number;
+      tongueFoldCreaseSegs: number;
+      tongueFoldHalfcutSegs: number;
+      peripheryFilletCount: number;
+    };
+  };
+  details: {
+    uNotch: { opening: number; base: number; depth: number; filletR: number };
+    vRelief: { height: number; inset: number; linesPerRelief: number; count: number };
+    fillet: { basePlatformR: number; basePlatformCount: number; lidPeripheryR: number; lidPeripheryCount: number };
+  };
+  tolerance: { structural: number; bbox: number; detail: number };
+}
+
+const productionPFixture = productionPRaw as ProductionPFixture;
+
+describe('telescope: F8 production-P 整合錨（Slice 5 Task 7，原檔驅動拓撲測試錨定收攏）', () => {
+  const P = productionPFixture.params;
+  const golden = productionPFixture.golden;
+  const featureCounts = productionPFixture.featureCounts;
+  const details = productionPFixture.details;
+  const TOL = productionPFixture.tolerance;
+
+  const result = telescope.generate(resolveParams(telescope, P));
+  const basePiece = result.pieces!.find((p) => p.id === 'base')!;
+  const lidPiece = result.pieces!.find((p) => p.id === 'lid')!;
+  const basePaths = result.paths.filter((p) => basePiece.pathIds.includes(p.id));
+  const lidPaths = result.paths.filter((p) => lidPiece.pathIds.includes(p.id));
+  const baseGeomOnly = basePaths.filter((p) => p.type !== 'dimension');
+  const lidGeomOnly = lidPaths.filter((p) => p.type !== 'dimension');
+
+  it('整合層健康檢查：pieces 完整性、無 NaN、base/lid cut 無自撞、無同線型共線區間重疊（production-P 完整參數，含 thickness=0.44）', () => {
+    expect(validatePieces(result)).toEqual({ ok: true });
+    expect(hasNaN(result.paths.flatMap((p) => p.segments)), 'hasNaN').toBe(false);
+    for (const paths of [basePaths, lidPaths]) {
+      const cutSegs = paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+      expect(hasSelfIntersection(cutSegs), 'cut 無自撞').toBe(false);
+      const overlaps = findCollinearOverlaps(paths);
+      expect(overlaps, overlaps.join('; ')).toEqual([]);
+    }
+  });
+
+  describe('兩件 y 向 span＋jog 拓撲結構斷言（spec F8：179/180、216/217，±0.1）', () => {
+    it('下盒（base）：side-root span=179、central-fold span=180（P measured 179.003/179.998）', () => {
+      const front = yRootNominalOffset(basePaths, 'front');
+      const back = yRootNominalOffset(basePaths, 'back');
+      expect(Math.abs(minAbsGap(front, back) - golden.base.sideRootSpanY), 'side-root span＝baseLength（兩側翼 nominal 對 nominal）').toBeLessThanOrEqual(TOL.structural);
+      expect(Math.abs(maxAbsGap(front, back) - golden.base.centralFoldSpanY), 'central-fold span＝baseLength+2×rootJog（中央 offset 對 offset）').toBeLessThanOrEqual(TOL.structural);
+    });
+
+    it('上蓋（lid）：side-root span=216、central-fold span=217（P measured 215.999/217.001）', () => {
+      const front = yRootNominalOffset(lidPaths, 'front');
+      const back = yRootNominalOffset(lidPaths, 'back');
+      expect(Math.abs(minAbsGap(front, back) - golden.lid.sideRootSpanY), 'side-root span＝baseLength+2×lidMarginY').toBeLessThanOrEqual(TOL.structural);
+      expect(Math.abs(maxAbsGap(front, back) - golden.lid.centralFoldSpanY), 'central-fold span＝216+2×rootJog').toBeLessThanOrEqual(TOL.structural);
+    });
+
+    it('jog 拓撲結構斷言：base/lid 的 wallRoot(back) 皆非兩條 full-length 平行 crease——中央僅 1 段有 perp 延伸；base 另補 2 段零 perp 位移 jog 短段、lid 併入相鄰角落 gussetFold 不補（同 F2/T1 review 錨——這裡在完整 production-P 全參數組下覆核，F2 block 用的是部分 override＋預設值，兩者理論上應一致，覆核以防「只在預設值下對、production-P 全參數下錯」的隱藏耦合）', () => {
+      for (const pieceId of ['base', 'lid'] as const) {
+        const paths = pieceId === 'base' ? basePaths : lidPaths;
+        const root = findTagged(paths, 'wallRoot', 'back', 'crease');
+        expect(root, `${pieceId} wallRoot(back) 應恰有 1 條 path`).toHaveLength(1);
+
+        const perpExtentSegs = root[0]!.segments.filter((s) => s.kind === 'line' && Math.abs(s.x2 - s.x1) > 1e-6);
+        expect(perpExtentSegs, `${pieceId}: 應只有 1 段有 perp 延伸（中央 offset crease），不是 2 段 full-length 平行線`).toHaveLength(1);
+
+        const jogSegs = root[0]!.segments.filter((s) => {
+          if (s.kind !== 'line') return false;
+          return Math.abs(s.x2 - s.x1) < 1e-9 && Math.abs(s.y2 - s.y1) > 1e-9;
+        });
+        const wantJogSegs = pieceId === 'base' ? 2 : 0;
+        expect(jogSegs, `${pieceId}: base 應有 2 段零 perp 位移的 jog 短段、lid 不應新增（區間併入 gussetFold）`).toHaveLength(wantJogSegs);
+      }
+    });
+  });
+
+  it('上蓋兩軸 panel＝151×216（重用既有 EXTRACTORS 的 lid.x.panel／lid.y.panel，不複製公式）', () => {
+    const px = EXTRACTORS['lid.x.panel']!(basePaths, lidPaths);
+    const py = EXTRACTORS['lid.y.panel']!(basePaths, lidPaths);
+    expect(Math.abs(px - golden.lid.panelX), 'lid.x.panel＝baseWidth+2×lidMarginX').toBeLessThanOrEqual(TOL.structural);
+    expect(Math.abs(py - golden.lid.panelY), 'lid.y.panel＝baseLength+2×lidMarginY').toBeLessThanOrEqual(TOL.structural);
+  });
+
+  describe('攤平外框 golden bbox（spec F8：下盒 400.403×458.403／上蓋 359.399×425.401，±0.15，僅製造幾何不含標註）', () => {
+    it('下盒（base）bbox', () => {
+      const b = segmentsBounds(baseGeomOnly.flatMap((p) => p.segments));
+      expect(Math.abs(b.maxX - b.minX - golden.base.bboxWidth), '下盒寬').toBeLessThanOrEqual(TOL.bbox);
+      expect(Math.abs(b.maxY - b.minY - golden.base.bboxHeight), '下盒高').toBeLessThanOrEqual(TOL.bbox);
+    });
+
+    it('上蓋（lid）bbox', () => {
+      const b = segmentsBounds(lidGeomOnly.flatMap((p) => p.segments));
+      expect(Math.abs(b.maxX - b.minX - golden.lid.bboxWidth), '上蓋寬').toBeLessThanOrEqual(TOL.bbox);
+      expect(Math.abs(b.maxY - b.minY - golden.lid.bboxHeight), '上蓋高').toBeLessThanOrEqual(TOL.bbox);
+    });
+
+    it('mutation 自證：golden 寬故意壞 0.2mm 應被 ±0.15 容差攔下（證明 bbox 錨真的在量東西，非巧合通過——同既有 halfcut mutation 自證慣例，見 F5/F6-B block）', () => {
+      const b = segmentsBounds(baseGeomOnly.flatMap((p) => p.segments));
+      const actualWidth = b.maxX - b.minX;
+      const brokenGolden = golden.base.bboxWidth + 0.2;
+      expect(Math.abs(actualWidth - brokenGolden), '刻意錯誤 golden(+0.2mm) 應超出 ±0.15 容差（若這裡也 pass，代表容差形同虛設）').toBeGreaterThan(TOL.bbox);
+    });
+  });
+
+  describe('feature-normalized topology 計數（spec M5：不逼 Bézier 拆段口徑，計數單位＝結構特徵；口徑見各斷言註解）', () => {
+    it('下盒（base，A 款＝U-notch 切段拓撲）：6 個 U-notch（30 段=6×5）、12 個 R2 圓角、0 段 tongueFold crease（A 款無端段 crease，U-notch 取代）、10 段 tongueFold halfcut（上下壁各 2＋左右壁各 3，spec F4）、4 個平台角 R2.5 圓角', () => {
+      const notchPaths = baseGeomOnly.filter((p) => p.tags?.includes('uNotch'));
+      const totalNotchSegs = notchPaths.reduce((s, p) => s + p.segments.length, 0);
+      expect(totalNotchSegs, 'U-notch 總段數（每個 notch 固定 5 段：2 直線＋2 圓角＋1 底線）').toBe(featureCounts.base.uNotchTotalSegs);
+      expect(totalNotchSegs / 5, 'U-notch 數＝segs/5').toBe(featureCounts.base.uNotchCount);
+
+      const r2Arcs = notchPaths.flatMap((p) => p.segments).filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+      expect(r2Arcs, 'notch 圓角數＝2×notch 數').toHaveLength(featureCounts.base.uNotchFilletCount);
+
+      const creaseSegs = baseGeomOnly.filter((p) => p.type === 'crease' && p.tags?.includes('tongueFold')).reduce((s, p) => s + p.segments.length, 0);
+      expect(creaseSegs, 'A 款舌根拓撲不含 crease 段（U-notch 切段拓撲完全取代舊「端段 crease」語意）').toBe(featureCounts.base.tongueFoldCreaseSegs);
+
+      const halfcutSegs = baseGeomOnly.filter((p) => p.type === 'halfcut' && p.tags?.includes('tongueFold')).reduce((s, p) => s + p.segments.length, 0);
+      expect(halfcutSegs, 'tongueFold halfcut 總段數（spec F4：上下壁各 2 段＋左右壁各 3 段）').toBe(featureCounts.base.tongueFoldHalfcutSegs);
+
+      const cornerArcs = baseGeomOnly
+        .filter((p) => p.tags?.includes('platformCorner'))
+        .flatMap((p) => p.segments)
+        .filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+      expect(cornerArcs, '平台角 R2.5 圓角數（每角 1 個）').toHaveLength(featureCounts.base.platformCornerFilletCount);
+    });
+
+    it('上蓋（lid，B 款＝crease 端段＋halfcut 中段＋V relief）：4 個 V relief（8 段=4×2）、8 段 tongueFold crease（4 壁×2 端，production-P 全落 F5 分支 1，不縮不省）、4 段 tongueFold halfcut（4 壁×1 段中段）、4 個 R2 角撐周邊圓角', () => {
+      const vReliefPaths = lidGeomOnly.filter((p) => p.tags?.includes('vRelief'));
+      const totalVReliefSegs = vReliefPaths.reduce((s, p) => s + p.segments.length, 0);
+      expect(totalVReliefSegs, 'V relief 總段數（4 個 V×2 線）').toBe(featureCounts.lid.vReliefTotalSegs);
+      expect(totalVReliefSegs / 2, 'V relief 數＝segs/2（每個 V 固定 2 線、無圓角）').toBe(featureCounts.lid.vReliefCount);
+
+      const creaseSegs = lidGeomOnly.filter((p) => p.type === 'crease' && p.tags?.includes('tongueFold')).reduce((s, p) => s + p.segments.length, 0);
+      expect(creaseSegs, 'B 款端段 crease 總段數（4 壁×2 端——F5 分支 1：197.2≥100、146≥80，不縮不警告）').toBe(featureCounts.lid.tongueFoldCreaseSegs);
+
+      const halfcutSegs = lidGeomOnly.filter((p) => p.type === 'halfcut' && p.tags?.includes('tongueFold')).reduce((s, p) => s + p.segments.length, 0);
+      expect(halfcutSegs, 'B 款中段 halfcut 總段數（4 壁×1 段，恆存在）').toBe(featureCounts.lid.tongueFoldHalfcutSegs);
+
+      const periArcs = lidGeomOnly
+        .filter((p) => p.tags?.includes('bGussetPeriphery'))
+        .flatMap((p) => p.segments)
+        .filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+      expect(periArcs, 'B 款角撐周邊 R2 圓角數（每角 1 個，不含既有 buildGussetB 的 R1.5/R5 核心）').toHaveLength(featureCounts.lid.peripheryFilletCount);
+    });
+  });
+
+  describe('細節三組斷言（spec M6，±0.05）', () => {
+    it('U-notch：開口/底/深/圓角＝30/26/4.2/R2（逐 notch 驗，5 段一組；bbox 兩軸取 min=深／max=開口——axis-agnostic，不假設哪個座標軸是 along，見 report 推導）', () => {
+      const notchPaths = baseGeomOnly.filter((p) => p.tags?.includes('uNotch'));
+      const groups: Segment[][] = [];
+      for (const p of notchPaths) {
+        for (let i = 0; i < p.segments.length; i += 5) groups.push(p.segments.slice(i, i + 5));
+      }
+      expect(groups, '6 個 notch 分組（每組固定 5 段）').toHaveLength(featureCounts.base.uNotchCount);
+
+      for (const [idx, g] of groups.entries()) {
+        expect(g, `notch#${idx} 應恰 5 段`).toHaveLength(5);
+        const b = segmentsBounds(g);
+        const dims = [b.maxX - b.minX, b.maxY - b.minY].sort((a, c) => a - c);
+        expect(Math.abs(dims[0]! - details.uNotch.depth), `notch#${idx} 深（bbox 較短軸）`).toBeLessThanOrEqual(TOL.detail);
+        expect(Math.abs(dims[1]! - details.uNotch.opening), `notch#${idx} 開口（bbox 較長軸）`).toBeLessThanOrEqual(TOL.detail);
+
+        const baseSeg = g[2]!;
+        expect(baseSeg.kind, `notch#${idx} 第 3 段（底線）應為 line`).toBe('line');
+        if (baseSeg.kind === 'line') {
+          const len = Math.hypot(baseSeg.x2 - baseSeg.x1, baseSeg.y2 - baseSeg.y1);
+          expect(Math.abs(len - details.uNotch.base), `notch#${idx} 底長`).toBeLessThanOrEqual(TOL.detail);
+        }
+
+        const arcs = g.filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+        expect(arcs, `notch#${idx} 應恰 2 個圓角（第 2、4 段）`).toHaveLength(2);
+        for (const a of arcs) expect(Math.abs(a.r - details.uNotch.filletR), `notch#${idx} 圓角半徑`).toBeLessThanOrEqual(TOL.detail);
+      }
+    });
+
+    it('mutation 自證：notch 深度刻意壞 0.2mm 應被 ±0.05 容差攔下（證明深度錨真的在量東西）', () => {
+      const notchPaths = baseGeomOnly.filter((p) => p.tags?.includes('uNotch'));
+      const g = notchPaths[0]!.segments.slice(0, 5);
+      const b = segmentsBounds(g);
+      const actualDepth = Math.min(b.maxX - b.minX, b.maxY - b.minY);
+      expect(Math.abs(actualDepth - (details.uNotch.depth + 0.2)), '刻意錯誤深度(+0.2mm) 應超出 ±0.05 容差').toBeGreaterThan(TOL.detail);
+    });
+
+    it('V relief×4：nominal 5×2.5、每個 2 條 cut 直線、無圓角（同 F5/F6-B 錨——這裡在整合層覆核並引用同一 fixture 常數，非複製字面值）', () => {
+      const vReliefPaths = lidGeomOnly.filter((p) => p.tags?.includes('vRelief'));
+      expect(vReliefPaths, '前後壁各一條 vRelief path（每條含兩端共 2 個 V）').toHaveLength(2);
+      const allSegs = vReliefPaths.flatMap((p) => p.segments);
+      expect(allSegs, `2 條 path×${details.vRelief.linesPerRelief}段＝${details.vRelief.count}個V×${details.vRelief.linesPerRelief}線`).toHaveLength(featureCounts.lid.vReliefTotalSegs);
+      expect(allSegs.every((s) => s.kind === 'line'), 'V relief 全為直線，無圓角').toBe(true);
+
+      const expectedArmLen = Math.hypot(details.vRelief.inset, details.vRelief.height / 2);
+      for (const s of allSegs as LineSeg[]) {
+        const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+        expect(Math.abs(len - expectedArmLen), 'V 臂長＝√(inset²+(height/2)²)（nominal 5×2.5）').toBeLessThanOrEqual(TOL.detail);
+      }
+    });
+
+    it('圓角：下盒平台 R2.5×4＋上蓋周邊 R2×4', () => {
+      const cornerArcs = baseGeomOnly
+        .filter((p) => p.tags?.includes('platformCorner'))
+        .flatMap((p) => p.segments)
+        .filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+      expect(cornerArcs, '下盒平台角圓角數').toHaveLength(details.fillet.basePlatformCount);
+      for (const a of cornerArcs) expect(Math.abs(a.r - details.fillet.basePlatformR), '下盒平台角圓角半徑').toBeLessThanOrEqual(TOL.detail);
+
+      const periArcs = lidGeomOnly
+        .filter((p) => p.tags?.includes('bGussetPeriphery'))
+        .flatMap((p) => p.segments)
+        .filter((s): s is Extract<Segment, { kind: 'arc' }> => s.kind === 'arc');
+      expect(periArcs, '上蓋角撐周邊圓角數').toHaveLength(details.fillet.lidPeripheryCount);
+      for (const a of periArcs) expect(Math.abs(a.r - details.fillet.lidPeripheryR), '上蓋角撐周邊圓角半徑').toBeLessThanOrEqual(TOL.detail);
+    });
+  });
+
+  describe('解耦驗證（spec F3/F8：thickness 改變，rootJog/innerWallReduction/wallTopCompensation 驅動的輸出不漂移）', () => {
+    /** 重用既有 EXTRACTORS（不重寫抽取邏輯）在指定 thickness 下抽取 8 個補償驅動槽位的值。 */
+    function extractCompensationOutputs(thickness: number): Record<string, number> {
+      const r = telescope.generate(resolveParams(telescope, { ...P, thickness }));
+      const bPiece = r.pieces!.find((p) => p.id === 'base')!;
+      const lPiece = r.pieces!.find((p) => p.id === 'lid')!;
+      const bPaths = r.paths.filter((p) => bPiece.pathIds.includes(p.id));
+      const lPaths = r.paths.filter((p) => lPiece.pathIds.includes(p.id));
+      const keys = ['base.y.doubleCreaseGap', 'base.x.outerWall', 'base.x.innerWall', 'base.y.innerWall', 'lid.x.outerWall', 'lid.x.innerWall', 'lid.y.doubleCreaseGap', 'lid.y.innerWall'];
+      const out: Record<string, number> = {};
+      for (const key of keys) out[key] = EXTRACTORS[key]!(bPaths, lPaths);
+      return out;
+    }
+
+    it('thickness=0.4／0.44／0.5 三值下，rootJog/innerWallReduction/wallTopCompensation 驅動的 8 個輸出全部恆定不漂移（F3 解耦的整合級驗證）', () => {
+      const at40 = extractCompensationOutputs(0.4);
+      const at44 = extractCompensationOutputs(0.44);
+      const at50 = extractCompensationOutputs(0.5);
+      for (const key of Object.keys(at44)) {
+        expect(at40[key], `${key}: thickness=0.4 應與 thickness=0.44 相同`).toBeCloseTo(at44[key]!, 6);
+        expect(at50[key], `${key}: thickness=0.5 應與 thickness=0.44 相同`).toBeCloseTo(at44[key]!, 6);
+      }
+    });
   });
 });
