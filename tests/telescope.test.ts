@@ -1028,6 +1028,31 @@ describe('generateTray: F5 B 款舌根拓撲＋V relief（T0 座標表對算）'
       expect(len, 'V 臂長＝√(2.5²+2.5²)（inset 2.5、半高 2.5，nominal 5×2.5）').toBeCloseTo(Math.hypot(2.5, 2.5), 6);
     }
     expect(result.paths.some((p) => p.tags?.includes('vRelief') && p.segments.some((s) => s.kind === 'arc')), 'V relief 兩條直線，無圓角').toBe(false);
+
+    // Slice 5 Task 7 review fix（review Medium）：上面的斜邊長檢查對 (height,inset) 是等價類
+    // 不敏感——height=4/inset=2.915475947 仍給出同一斜邊長 √(2.915475947²+2²)≈3.5355，會
+    // 矇混過關（review mutation 實證，同縫修法見 telescope-fixture.test.ts 兩個 V relief
+    // block）。segs[0,1] 是第一個 V（apex↔arm）、segs[2,3] 是第二個 V（tray.ts
+    // buildVReliefPair 逐 endSign 產出的建構順序）：分組後①確認兩線共用 1 個頂點
+    // （也覆核分組沒配錯）②bbox 兩軸獨立鎖 height（兩臂端點間距）與 inset（頂點距壁緣）。
+    for (let i = 0; i < vSegs.length; i += 2) {
+      const g = vSegs.slice(i, i + 2);
+      const l1 = g[0]!;
+      const l2 = g[1]!;
+      const pts = [
+        { x: l1.x1, y: l1.y1 },
+        { x: l1.x2, y: l1.y2 },
+        { x: l2.x1, y: l2.y1 },
+        { x: l2.x2, y: l2.y2 },
+      ];
+      const distinctPts = pts.filter((p, idx) => pts.findIndex((q) => Math.abs(q.x - p.x) <= 1e-6 && Math.abs(q.y - p.y) <= 1e-6) === idx);
+      expect(distinctPts, `V#${i / 2} 兩線應共用 1 個頂點（apex）——4 端點只有 3 個相異點`).toHaveLength(3);
+
+      const b = segmentsBounds(g);
+      const dims = [b.maxX - b.minX, b.maxY - b.minY].sort((a, c) => a - c);
+      expect(dims[0], `V#${i / 2} 頂點距壁緣＝內縮量（bbox 較短軸，獨立於 height）`).toBeCloseTo(2.5, 6);
+      expect(dims[1], `V#${i / 2} 兩臂端點間距＝V 開口高（bbox 較長軸，獨立於 inset）`).toBeCloseTo(5, 6);
+    }
   });
 
   it('分支 2（縮減）：構造 reservedSpan 落在 [10,2E+10) 區間，端段縮至 (reservedSpan−10)/2、halfcut 保底吃剩餘', () => {
