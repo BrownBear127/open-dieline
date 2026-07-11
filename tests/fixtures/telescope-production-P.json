@@ -1,0 +1,58 @@
+{
+  "note": "Slice 5 Task 7（spec F8：原檔驅動的拓撲測試錨定收攏）。params 為 spec §production-P 完整參數組（liner 關，M7）——本檔是 tests/telescope-fixture.test.ts 內『F8 production-P 整合錨』describe block 的單一參數源。T3/T4/F2 三個既有 describe block（Slice 5 Task 3/4、T1 review）各自持有一份字面 literal 的 productionP 參數物件，供各自既有斷言引用——與本檔數值相同但不共用變數（既有慣例：避免跨 describe block 隱性耦合），本次新增不動那些既有斷言。golden／featureCounts／details 三段數值抄自 spec §F8＋§縮放與降級規律＋T0 座標表（tests/fixtures/telescope-production-details.json）獨立對算結果，並經本檔實作端以 telescope.generate() 實際跑一次 production-P 交叉核對（見 task-7-report.md 對照表）：base bbox 400.400×458.400（golden 400.403×458.403，差 0.003~0.000，design nominal vs P measured 圓整差，spec 已註記 ≤0.003 全部可達）、lid bbox 359.400×425.400（golden 359.399×425.401，差 0.001~0.001）。tolerance 三分層對應 spec §F8 容差分層：structural=±0.1（span／jog／notch 深／壁高等結構槽）、bbox=±0.15（攤平外框）、detail=±0.05（圓角半徑與 detour 尺寸）。",
+  "params": {
+    "baseLength": 179,
+    "baseWidth": 124,
+    "baseHeight": 60,
+    "lidMarginX": 13.5,
+    "lidMarginY": 18.5,
+    "lidHeight": 45,
+    "basePlatformWidth": 5,
+    "lidPlatformWidth": 0,
+    "thickness": 0.44,
+    "rootJog": 0.5,
+    "innerWallReduction": 0.8,
+    "wallTopCompensation": 0.5,
+    "linerEnabled": false
+  },
+  "golden": {
+    "base": {
+      "bboxWidth": 400.403,
+      "bboxHeight": 458.403,
+      "sideRootSpanY": 179,
+      "centralFoldSpanY": 180
+    },
+    "lid": {
+      "bboxWidth": 359.399,
+      "bboxHeight": 425.401,
+      "panelX": 151,
+      "panelY": 216,
+      "sideRootSpanY": 216,
+      "centralFoldSpanY": 217
+    }
+  },
+  "featureCounts": {
+    "note": "feature-normalized（spec M5）：計數單位＝結構特徵，不逼 Bézier/primitive 拆段口徑。base 舌根拓撲＝A 款（U-notch 切段，無 crease 端段）；lid 舌根拓撲＝B 款（crease 端段＋halfcut 中段＋V relief），production-P 全落 F5 分支 1（不縮不警告，見 spec S1）。",
+    "base": {
+      "uNotchCount": 6,
+      "uNotchTotalSegs": 30,
+      "uNotchFilletCount": 12,
+      "tongueFoldCreaseSegs": 0,
+      "tongueFoldHalfcutSegs": 10,
+      "platformCornerFilletCount": 4
+    },
+    "lid": {
+      "vReliefCount": 4,
+      "vReliefTotalSegs": 8,
+      "tongueFoldCreaseSegs": 8,
+      "tongueFoldHalfcutSegs": 4,
+      "peripheryFilletCount": 4
+    }
+  },
+  "details": {
+    "uNotch": { "opening": 30, "base": 26, "depth": 4.2, "filletR": 2 },
+    "vRelief": { "height": 5, "inset": 2.5, "linesPerRelief": 2, "count": 4 },
+    "fillet": { "basePlatformR": 2.5, "basePlatformCount": 4, "lidPeripheryR": 2, "lidPeripheryCount": 4 }
+  },
+  "tolerance": { "structural": 0.1, "bbox": 0.15, "detail": 0.05 }
+}
