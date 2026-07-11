@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 刀模意象：RTE 展開條剪影——黑=切割輪廓、綠虛線=摺線（對齊 LINE_STYLES 慣例色語意；
+       綠取暗一階 #00b300 保 16px 白底可讀性，favicon 是 UI 資產不是線型樣式來源） -->
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#ffffff" stroke="#d4d4d8" stroke-width="2"/>
+  <path d="M16 20 L21 8 L43 8 L48 20 L48 44 L43 56 L21 56 L16 44 Z" fill="none" stroke="#18181b" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M16 20 H48 M16 44 H48" stroke="#00b300" stroke-width="3.5" stroke-dasharray="5 3" fill="none"/>
+</svg>
