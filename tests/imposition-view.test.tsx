@@ -5,9 +5,11 @@ import type { Segment } from '@/core/geometry';
 import type { DielinePiece, GenerateResult } from '@/core/types';
 import * as impositionCore from '@/core/imposition';
 import { MIN_GAP_MM } from '@/core/imposition';
+import * as profileCore from '@/core/profile';
 import { segmentsToSvgD } from '@/core/path';
 import { ImpositionView, ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
+import { Z_NOTCH_SEGMENTS, Z_NOTCH_GAP, POSITIVE_FILL_INPUT, Z_NOTCH_ANCHOR_DEG0, Z_NOTCH_ANCHOR_DEG90 } from './fixtures/z-notch';
 
 // ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -144,6 +146,29 @@ const PRODUCTION_CHAIN_PIECE_RESULT: GenerateResult = {
   bounds: { minX: 0, maxX: 40, minY: 0, maxY: 20 },
 };
 
+// profile memoize 測試（profile-spacing slice T4）專屬 fixture：刻意不與本檔其他測試共用同一個
+// 物件參照——`ImpositionResults.tsx` 的 profile 快取（`profileMemo`）是 module-level 單槽變數，
+// import 只在檔案載入時跑一次、狀態橫跨本檔全部測試；若借用 SINGLE_PIECE_RESULT 這類被許多
+// 測試重複使用的 fixture，快取命中/未命中會受「本檔前面哪個測試最後摸過它」污染，斷言會隨
+// 測試執行順序漂移。用只有這裡會用到的全新物件參照，保證第一次呼叫必為快取未命中。
+const MEMO_TEST_RESULT: GenerateResult = {
+  paths: [{ id: 'cut-1', type: 'cut', segments: rectSegments(0, 0, 20, 10) }],
+  texts: [],
+  bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 },
+};
+const MEMO_TEST_MULTI_RESULT: GenerateResult = {
+  paths: [
+    { id: 'a-cut', type: 'cut', segments: rectSegments(0, 0, 20, 10) },
+    { id: 'b-cut', type: 'cut', segments: rectSegments(0, 0, 15, 15) },
+  ],
+  texts: [],
+  bounds: { minX: 0, maxX: 20, minY: 0, maxY: 15 },
+  pieces: [
+    { id: 'piece-a', label: { zh: 'A' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 } },
+    { id: 'piece-b', label: { zh: 'B' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 0, maxX: 15, minY: 0, maxY: 15 } },
+  ] satisfies DielinePiece[],
+};
+
 // allowRotate:false（T1 消費端最小遷移）：保留這個共用 fixture 底下所有既有數字錨（8 模等）
 // 逐字不變——這個測試檔的職責是 UI 接線／欄位級行為，不是補排演算法本身（那是
 // tests/imposition.test.ts 的職責，已有專屬的附錄數值錨表＋極端分支覆蓋）。
@@ -163,15 +188,15 @@ const BASE_STATE: ImpositionState = {
 // ── 兩卡並列＋列×行＝N 模＋利用率 ──────────────────────────────────────────
 
 describe('ImpositionView — 兩方向卡片', () => {
-  it('兩卡並列，各含「列×行＝N 模」與兩位小數利用率（customW=customH=50、製造 bounds 20×10 → 兩方向皆 8 模 64.00%）', () => {
+  it('兩卡並列，各含「列×行＝N 模」與主格點 footprint mm（customW=customH=50、製造 bounds 20×10、無收縮矩形件 → 兩方向皆 8 模，footprint 互為轉置 43.0×49.0／49.0×43.0，spec F6 終裁 b：利用率百分比已移除）', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');
     const card90 = screen.getByTestId('direction-card-90');
     expect(card0.textContent).toContain('2 列 × 4 行 ＝ 8 模');
-    expect(card0.textContent).toContain('外接矩形利用率 64.00%');
+    expect(card0.textContent).toContain('主格點 footprint 43.0 × 49.0 mm');
     expect(card90.textContent).toContain('4 列 × 2 行 ＝ 8 模');
-    expect(card90.textContent).toContain('外接矩形利用率 64.00%');
+    expect(card90.textContent).toContain('主格點 footprint 49.0 × 43.0 mm');
   });
 
   it('必須用製造 bounds（20×10）而非宣告 bounds（150×150，spec F1）：用宣告 bounds 會讓件比紙張還大、算出 0 模／放不下', () => {
@@ -193,7 +218,9 @@ describe('ImpositionView — 兩方向卡片', () => {
     expect(within(card0).queryAllByTestId('preview-instance')).toHaveLength(0);
 
     expect(card90.textContent).toContain('7 模');
-    expect(card90.textContent).toContain('56.00%');
+    // 無收縮矩形件：usedW=pieceH(10)+(cols90-1=6)*stride(10+gap3=13)=88.0；
+    // usedH=pieceW(800)+(rows90-1=0)*stride(800+gap3=803)=800.0（rows90=1，第二項歸零）。
+    expect(card90.textContent).toContain('主格點 footprint 88.0 × 800.0 mm');
     expect(within(card90).queryAllByTestId('preview-instance')).toHaveLength(7);
   });
 
@@ -220,7 +247,8 @@ describe('ImpositionView — 卡片文字格式：整紙有補排（T3）', () =
 
     const card0 = screen.getByTestId('direction-card-0'); // cols=2,rows=2,gridCount=4,補2＝6模
     expect(card0.textContent).toContain('2 列 × 2 行 ＋ 補 2 ＝ 6 模');
-    expect(card0.textContent).toContain('外接矩形利用率 25.67%');
+    // 無收縮矩形件：usedW=pieceW(4)+(cols-1=1)*stride(4+gap3=7)=11.0；usedH=pieceH(2)+(rows-1=1)*stride(2+gap3=5)=7.0。
+    expect(card0.textContent).toContain('主格點 footprint 11.0 × 7.0 mm');
 
     const card90 = screen.getByTestId('direction-card-90'); // cols=4,rows=2,無補排，8模
     expect(card90.textContent).toContain('4 列 × 2 行 ＝ 8 模');
@@ -234,7 +262,7 @@ describe('ImpositionView — 界線聲明', () => {
   it('固定顯示界線聲明，逐字相符', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
     expect(
-      screen.getByText('以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。'),
+      screen.getByText('以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。'),
     ).toBeInTheDocument();
   });
 });
@@ -732,7 +760,7 @@ describe('ImpositionControls／ImpositionResults — 獨立掛載（review Mediu
     expect(screen.getByTestId('direction-card-0').textContent).toContain('8 模');
     expect(screen.getByTestId('direction-card-90').textContent).toContain('8 模');
     expect(
-      screen.getByText('以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。'),
+      screen.getByText('以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: '件' })).toBeNull(); // 控制項不屬於 Results
   });
@@ -822,5 +850,190 @@ describe('ImpositionView — production-chain usedW/usedH 一致性（gate round
 
     // ⑤ SVG 序列化不含 NaN/Infinity（深度防禦：usedW/usedH 算式若有負值/除零污染會流出這裡）。
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+// ── profile-spacing slice T4：profile 前置驗證（gap/pieceW/H 非法輸入不建 ProfileStrides，
+// spec F2b／plan-review H2）──────────────────────────────────────────────────
+
+describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不建 ProfileStrides（profile-spacing slice T4）', () => {
+  it('gap=0（below MIN_GAP_MM）→ 不呼叫 computeProfileStrides，domain 錯誤顯示照舊', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      const state: ImpositionState = { ...BASE_STATE, gap: 0 };
+      render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(screen.getByText(`不得小於 ${MIN_GAP_MM}mm`)).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('gap=NaN → 不呼叫 computeProfileStrides，domain 錯誤顯示照舊', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      const state: ImpositionState = { ...BASE_STATE, gap: NaN };
+      render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(screen.getByText('請輸入有效數字')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('gap=Infinity → 不呼叫 computeProfileStrides，domain 錯誤顯示照舊（checkGap 的 not-finite 分支，同 NaN 訊息）', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      const state: ImpositionState = { ...BASE_STATE, gap: Infinity };
+      render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(screen.getByText('請輸入有效數字')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('零寬件（pieceW 由製造 bounds 導出為 0）→ 不呼叫 computeProfileStrides，整體錯誤顯示照舊', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      render(<ImpositionView result={DEGENERATE_ZERO_WIDTH_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('零高件（pieceH 由製造 bounds 導出為 0）→ 不呼叫 computeProfileStrides，整體錯誤顯示照舊', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      render(<ImpositionView result={DEGENERATE_ZERO_HEIGHT_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('合法輸入（對照組）：gap/pieceW/H 皆合法 → 正常呼叫 computeProfileStrides', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// ── profile-spacing slice T4：profile memoize（(result,pieceId,gap) 相同僅建一次，
+// spec F2b／plan-review M「效能」）────────────────────────────────────────────
+
+describe('ImpositionView — profile memoize（(result,pieceId,gap) 相同僅建一次，profile-spacing slice T4）', () => {
+  it('單次狀態更新：ImpositionControls／ImpositionResults 各呼叫一次 computeImpositionView，computeProfileStrides 僅實際執行一次；(result,pieceId,gap) 不變的重渲染不重算，gap 改變才重新計算一次', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      const onChange = vi.fn();
+      const { rerender } = render(<ImpositionView result={MEMO_TEST_RESULT} state={BASE_STATE} onChange={onChange} />);
+      // Controls／Results 各呼叫一次 computeImpositionView，同一次狀態更新內 (result,pieceId,gap)
+      // 三元組相同——只有第一個呼叫端真的跑 computeProfileStrides，第二個命中快取。
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      // 同一份 state 欄位值（新物件參照，值不變）重渲染：三元組未變，快取命中，不重算。
+      rerender(<ImpositionView result={MEMO_TEST_RESULT} state={{ ...BASE_STATE }} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      // gap 改變：三元組變了，快取失效，重新計算一次（Controls/Results 仍各呼叫一次
+      // computeImpositionView，但合計仍恰一次真計算——不是兩次）。
+      rerender(<ImpositionView result={MEMO_TEST_RESULT} state={{ ...BASE_STATE, gap: 5 }} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(2);
+
+      // 再次同一份新 gap 值重渲染：又命中快取，不重算。
+      rerender(<ImpositionView result={MEMO_TEST_RESULT} state={{ ...BASE_STATE, gap: 5 }} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('pieceId 改變（result／gap 皆不變）也會使快取失效——三元組缺一不可，只用 (result,gap) 當 key 會漏掉換片的情境而回傳前一片的 stride', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      const onChange = vi.fn();
+      const state: ImpositionState = { ...BASE_STATE, pieceId: 'piece-a' };
+      const { rerender } = render(<ImpositionView result={MEMO_TEST_MULTI_RESULT} state={state} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      rerender(<ImpositionView result={MEMO_TEST_MULTI_RESULT} state={{ ...state, pieceId: 'piece-b' }} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// ── profile-spacing slice T4：spacingAxis 標示收縮向＋footprint 顯示（spec F6，
+// Z-notch 權威 fixture，tests/fixtures/z-notch.ts）────────────────────────────
+
+describe('ImpositionView — spacingAxis 標示收縮向＋footprint 顯示（spec F6，profile-spacing slice T4）', () => {
+  const Z_NOTCH_RESULT: GenerateResult = {
+    paths: [{ id: 'cut-1', type: 'cut', segments: Z_NOTCH_SEGMENTS }],
+    texts: [],
+    bounds: { minX: 0, maxX: 50, minY: 0, maxY: 200 },
+  };
+  const Z_NOTCH_STATE: ImpositionState = {
+    pieceId: null,
+    paperPresetId: 'custom',
+    customW: POSITIVE_FILL_INPUT.paperW,
+    customH: POSITIVE_FILL_INPUT.paperH,
+    orientation: POSITIVE_FILL_INPUT.orientation,
+    cutV: false,
+    cutH: false,
+    allowRotate: true,
+    gripper: 0,
+    gap: Z_NOTCH_GAP,
+  };
+
+  it('Z-notch 人造件（權威錨見 tests/fixtures/z-notch.ts）：0° 卡行縮顯示「行距輪廓收縮」＋主格點 footprint；90° 卡列縮顯示「列距輪廓收縮」＋主格點 footprint（同一份幾何透過 UI 接線算出與 core 權威錨相同的 count／usedW／usedH，證明 ImpositionResults.tsx 的呼叫鏈與 core 直呼同源、無漂移）', () => {
+    render(<ImpositionView result={Z_NOTCH_RESULT} state={Z_NOTCH_STATE} onChange={vi.fn()} />);
+
+    const card0 = screen.getByTestId('direction-card-0');
+    const card90 = screen.getByTestId('direction-card-90');
+
+    // 前提檢查：卡片文字的模數與 tests/fixtures/z-notch.ts 的權威錨值一致（防 fixture 漂移，
+    // 同 tests/imposition.test.ts／tests/imposition-preview.test.ts 兩檔既有的前提檢查慣例）。
+    expect(card0.textContent).toContain(`＝ ${Z_NOTCH_ANCHOR_DEG0.count} 模`);
+    expect(card90.textContent).toContain(`＝ ${Z_NOTCH_ANCHOR_DEG90.count} 模`);
+
+    expect(card0.textContent).toContain('行距輪廓收縮');
+    expect(card0.textContent).toContain(
+      `主格點 footprint ${Z_NOTCH_ANCHOR_DEG0.usedW.toFixed(1)} × ${Z_NOTCH_ANCHOR_DEG0.usedH.toFixed(1)} mm`,
+    );
+    expect(card0.textContent).not.toContain('列距輪廓收縮');
+
+    expect(card90.textContent).toContain('列距輪廓收縮');
+    expect(card90.textContent).toContain(
+      `主格點 footprint ${Z_NOTCH_ANCHOR_DEG90.usedW.toFixed(1)} × ${Z_NOTCH_ANCHOR_DEG90.usedH.toFixed(1)} mm`,
+    );
+    expect(card90.textContent).not.toContain('行距輪廓收縮');
+  });
+
+  it('矩形件零收益退化（spacingAxis 恆 null，如既有 SINGLE_PIECE_RESULT）：兩卡皆不顯示任何收縮標示文字', () => {
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+    expect(screen.queryByText('行距輪廓收縮')).toBeNull();
+    expect(screen.queryByText('列距輪廓收縮')).toBeNull();
   });
 });
