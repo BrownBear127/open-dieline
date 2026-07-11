@@ -45,6 +45,10 @@ npm run dev
 
 開發用指令：`npx vitest run` 跑測試、`npm run build` 打包 production 版到 `dist/`。
 
+## Contributing
+
+歡迎貢獻——實際生產過的刀模樣本與量測數據尤其珍貴。工程慣例與授權條款詳見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## License
 
 [PolyForm Noncommercial License 1.0.0](LICENSE)——僅限非商業使用；商業使用請來信洽談：hello@konvolut.art
