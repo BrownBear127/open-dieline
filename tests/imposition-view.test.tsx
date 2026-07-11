@@ -983,6 +983,29 @@ describe('ImpositionView — profile memoize（(result,pieceId,gap) 相同僅建
       spy.mockRestore();
     }
   });
+
+  it('result 引用改變（pieceId／gap 皆不變）也會使快取失效——三元組缺一不可，只用 (pieceId,gap) 當 key 會在幾何真的換了（同一片重新 generate 出新 result）時仍沿用舊 result 算出的 stride', () => {
+    const spy = vi.spyOn(profileCore, 'computeProfileStrides');
+    try {
+      const onChange = vi.fn();
+      // 全新物件參照（同上方 MEMO_TEST_RESULT docblock 的理由：module-level 單槽快取橫跨
+      // 全檔測試，用只有這裡會用到的參照才能保證第一次呼叫必為快取未命中）。
+      const resultA: GenerateResult = {
+        paths: [{ id: 'cut-1', type: 'cut', segments: rectSegments(0, 0, 20, 10) }],
+        texts: [],
+        bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 },
+      };
+      const { rerender } = render(<ImpositionView result={resultA} state={BASE_STATE} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      // 只換 result 參照（clone 出新物件，內容值不變）——pieceId／gap 皆沿用 BASE_STATE 原值不變。
+      const resultB: GenerateResult = { ...resultA };
+      rerender(<ImpositionView result={resultB} state={BASE_STATE} onChange={onChange} />);
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 // ── profile-spacing slice T4：spacingAxis 標示收縮向＋footprint 顯示（spec F6，
