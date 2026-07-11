@@ -40,8 +40,12 @@ export interface PreviewInstance {
  *
  * - 先 `translate(-mb.minX, -mb.minY)` 把製造 bounds 局部化到 (0,0) 原點，幾何恆落在
  *   `[0,w]×[0,h]`（w/h＝mb 寬高）。
- * - `d=0`：局部化後直接套 `translate(originX+c*(cellW+gap), originY+r*(cellH+gap))`，
- *   佔位＝w×h。
+ * - `stepX`/`stepY`（cell 中心距）由呼叫端算好傳入，本函式不內建 `cellW+gap` 假設
+ *   （profile-spacing spec F4/F5）：`directionInstances` 的主格點呼叫傳
+ *   `direction.strideX`/`strideY`（core 依收縮擇優算好，同源不重算）；補排條帶呼叫傳
+ *   「旋轉後矩形」`cellW+gap`/`cellH+gap`（補排件與主件不同相位，輪廓對接無定義，矩形＝
+ *   保守正確，spec F4）。
+ * - `d=0`：局部化後直接套 `translate(originX+c*stepX, originY+r*stepY)`，佔位＝w×h。
  * - `d=90`：`rotate(90)` 對點的效果是 `(x,y)→(−y,x)`，`[0,w]×[0,h]` 旋轉後落在
  *   `[−h,0]×[0,w]`，需要 `translate(h,0)` 修回正象限（`h`＝mb 原始高，不是 cellH——旋轉
  *   修正量恆基於局部化前的原始寬高）。修正必須在局部化「之後」、cell 位移「之前」，SVG
@@ -59,7 +63,8 @@ function buildGrid(
   cols: number,
   rows: number,
   mb: Bounds,
-  gap: number,
+  stepX: number,
+  stepY: number,
   limit: number,
 ): PreviewInstance[] {
   const w = mb.maxX - mb.minX;
@@ -75,8 +80,8 @@ function buildGrid(
   return Array.from({ length: clampedLimit }, (_, i): PreviewInstance => {
     const r = Math.floor(i / safeCols);
     const c = i % safeCols;
-    const cellX = originX + c * (cellW + gap);
-    const cellY = originY + r * (cellH + gap);
+    const cellX = originX + c * stepX;
+    const cellY = originY + r * stepY;
     const transform =
       d === 0
         ? `translate(${cellX} ${cellY}) ${localize}`
@@ -103,17 +108,22 @@ function normalizeBudget(budget: number): number {
  * L 形剩餘空間，見 core `pickFillSplit` docblock）——旋轉修正沿用 `buildGrid` 同一條
  * `translate(h,0) rotate(90)` 鏈，這裡只是把 origin 從 `(gripper,gripper)` 換成條帶起點。
  *
+ * **cell 位移分工（profile-spacing spec F4/F5）**：主格點 `buildGrid` 呼叫傳
+ * `direction.strideX`/`strideY`——本卡實際採用的 stride（含收縮，core `computeDirection`
+ * 擇優算好，同源不重算）。補排條帶呼叫傳「旋轉後矩形」`fillCellW+gap`/`fillCellH+gap`
+ * （`fillCellW`/`fillCellH`＝mb 寬高依 `fillDir` 對調後的值——補排件相對主件轉 90°，輪廓
+ * 不同相位，輪廓對接無定義，矩形界＝保守正確，spec F4「維持矩形」）——與主格點的 stride
+ * 無關，即使主格點方向收縮，條帶內部排列仍固定矩形。
+ *
  * 條帶起點只有兩個、與 `fillSplit` 是 bottom-full 或 right-full 無關（兩種分割下底／右
  * 條帶的左上角公式相同，差別只在哪條拿到「全長延伸」，但那已經反映在 core 算好的
  * `bottomFill.cols/rows`／`rightFill.cols/rows` 裡，這裡不需要另外分支）：
  *   - 底條帶原點 `(gripper, gripper+usedH+gap)`
  *   - 右條帶原點 `(gripper+usedW+gap, gripper)`
- * `usedW`/`usedH`（`DirectionResult` 不帶這兩個欄位）用主格點 `cols/rows`＋mb 寬高＋gap
- * 現場重算，公式與 core `pickFillSplit` 的 `usedW`/`usedH` 逐字相同（`cellW`/`cellH` 即該處
- * 的 `pieceForCols`/`pieceForRows`——見 core 呼叫處的 0°/90° 對調關係）。只在
- * `fillSplit !== null` 分支內計算——此時保證 `gridCount>0`（Global Constraints「主格點為 0
- * 時不補排」），即 `cols/rows≥1`，公式不會遇到 `(cols−1)` 為 −1 的負值污染，不需要重複
- * core 已做過的 `gridCount=0` 短路防禦。
+ * `usedW`/`usedH` 直接讀 `DirectionResult` 輸出欄位（core 已依主格點實際採用的 stride 算好、
+ * `n=0→0`，與主格點 footprint 同源——T3 前這裡曾用 `cols/rows×mb 寬高×gap` 本地重算，矩形
+ * 假設在收縮排列下算出偏大的值、條帶起點跟著偏移，吃掉收縮省下的空間，已刪，見 spec 驗收 7
+ * 「同源、不重算」）。
  *
  * budget 正規化並硬限在 `0…MAX_PREVIEW_INSTANCES`——`NaN`／`≤0`（含 `-Infinity`）→ 0；
  * `+Infinity`／超過上限的有限值（如 `1e9`）→ 硬限 500（SOL review High 2：公開函式不信任
@@ -133,28 +143,26 @@ export function directionInstances(
   const limit = normalizeBudget(budget);
   if (limit === 0) return [];
 
-  const mainInstances = buildGrid(gripper, gripper, dir, direction.cols, direction.rows, mb, gap, limit);
+  const mainInstances = buildGrid(gripper, gripper, dir, direction.cols, direction.rows, mb, direction.strideX, direction.strideY, limit);
   const remainingAfterMain = limit - mainInstances.length;
   if (remainingAfterMain <= 0 || direction.fillSplit === null) return mainInstances;
 
   const w = mb.maxX - mb.minX;
   const h = mb.maxY - mb.minY;
-  const cellW = dir === 0 ? w : h;
-  const cellH = dir === 0 ? h : w;
   const fillDir: 0 | 90 = dir === 0 ? 90 : 0;
-  const usedW = direction.cols * cellW + (direction.cols - 1) * gap;
-  const usedH = direction.rows * cellH + (direction.rows - 1) * gap;
+  const fillCellW = fillDir === 0 ? w : h;
+  const fillCellH = fillDir === 0 ? h : w;
 
   const bottomFill = direction.bottomFill;
   const bottomInstances = bottomFill
-    ? buildGrid(gripper, gripper + usedH + gap, fillDir, bottomFill.cols, bottomFill.rows, mb, gap, remainingAfterMain)
+    ? buildGrid(gripper, gripper + direction.usedH + gap, fillDir, bottomFill.cols, bottomFill.rows, mb, fillCellW + gap, fillCellH + gap, remainingAfterMain)
     : [];
   const remainingAfterBottom = remainingAfterMain - bottomInstances.length;
   if (remainingAfterBottom <= 0) return [...mainInstances, ...bottomInstances];
 
   const rightFill = direction.rightFill;
   const rightInstances = rightFill
-    ? buildGrid(gripper + usedW + gap, gripper, fillDir, rightFill.cols, rightFill.rows, mb, gap, remainingAfterBottom)
+    ? buildGrid(gripper + direction.usedW + gap, gripper, fillDir, rightFill.cols, rightFill.rows, mb, fillCellW + gap, fillCellH + gap, remainingAfterBottom)
     : [];
   return [...mainInstances, ...bottomInstances, ...rightInstances];
 }
