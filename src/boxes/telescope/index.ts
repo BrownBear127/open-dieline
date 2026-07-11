@@ -489,6 +489,32 @@ const TONGUE_END_RECESS = 9;
  */
 export const MIN_TONGUE_PERP_HALF = TONGUE_END_RECESS + TUCK_FLAP_SHALLOW_DEPTH;
 
+/**
+ * B 款（platformWidth=0）longWall 專屬的插底舌梯形最小垂直半跨——MIN_TONGUE_PERP_HALF
+ * 的姊妹推導，門檻代數完全同構，唯一差異是 recess 換成 B 款 longWall 的真實值。
+ *
+ * tray.ts 的 buildWall 只在 B 款 longWall（!independentJogEntity && !hasDoubleRoot，即
+ * platformWidth<=0 且該壁為左右壁）把 buildTongueFlap 的 recess 從通用
+ * TONGUE_END_RECESS(9) 換成 bLongWallFlapRecess＝B_TONGUE_RESERVED_LONGWALL(9.398)＋
+ * innerWallReduction（F1 review Fix，2026-07-11——見該函式 docblock 與呼叫端
+ * flapRecess 分流條件）；shortWall 與 A 款 longWall 不受影響，仍沿用 undefined→
+ * TONGUE_END_RECESS，門檻不變仍是 MIN_TONGUE_PERP_HALF。
+ *
+ * 代入 MIN_TONGUE_PERP_HALF 同一套代數（perpHalf≥recess 時門檻＝recess＋SHALLOW；
+ * perpHalf<recess 時 recess 被鉗到 perpHalf、條件恆真——兩段合併，退化條件就是
+ * perpHalf < B_TONGUE_RESERVED_LONGWALL+innerWallReduction+TUCK_FLAP_SHALLOW_DEPTH）：
+ * production 預設 innerWallReduction=0.8 時＝17.698（對應面板邊長 35.396mm），比原
+ * MIN_TONGUE_PERP_HALF(16.5mm／33mm) 更緊——若沿用舊門檻，面板邊長落在
+ * [33,35.396) 這個窗口時 B 款 longWall 插底舌已實際自撞但不變式仍回報正常（review
+ * re-review Medium finding，2026-07-11：baseLength=34＋basePlatformWidth=0 實測驗證，
+ * 見 開發紀錄 concern 1 fix 段的重現紀錄；已用 generateTray+
+ * hasSelfIntersection 對 baseLength 掃描驗證：35.39（perpHalf=17.695）自撞、35.396
+ * （perpHalf=17.698）乾淨，門檻精確落在此處）。
+ */
+function minBLongWallPerpHalf(innerWallReduction: number): number {
+  return B_TONGUE_RESERVED_LONGWALL + innerWallReduction + TUCK_FLAP_SHALLOW_DEPTH;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // 從生成幾何反推量測值——rim-flush／pieces-identity 兩條不變式共用
 // ─────────────────────────────────────────────────────────────────────────
@@ -933,14 +959,23 @@ const invariants: BoxInvariant[] = [
   {
     id: 'tongue-flap-fits',
     description: {
-      zh: '插底舌兩端各留 TONGUE_END_RECESS 的角撐讓位、45° 過渡再各吃掉半個全深——牆的垂直半跨（＝面板另一軸邊長的一半）小於兩者之和（MIN_TONGUE_PERP_HALF=16.5mm）時，梯形全深段的兩端點順序反轉、插底舌 cut 自我交叉。門檻對應面板邊長 33mm。上蓋面板恆比下盒大（Slice 5 F1 拆兩軸後：x 向 +2×lidMarginX、y 向 +2×lidMarginY，兩者下限皆 5），實務上由下盒兩邊長把關，上蓋兩列為防禦性保留（防未來參數域調整）。只警告不擋（同 gusset-b-fits 慣例），讓使用者知道幾何已退化。',
+      zh: '插底舌兩端各留一段角撐讓位、45° 過渡再各吃掉半個全深——牆的垂直半跨（＝面板另一軸邊長的一半）小於兩者之和時，梯形全深段的兩端點順序反轉、插底舌 cut 自我交叉。shortWall 與 A 款（platformWidth>0）longWall 讓位＝TONGUE_END_RECESS(9)，門檻＝MIN_TONGUE_PERP_HALF(16.5mm，對應面板邊長 33mm)；B 款（platformWidth=0）longWall 讓位改用角撐周邊複合鏈的接合 recess（B_TONGUE_RESERVED_LONGWALL+innerWallReduction，恆≥9），門檻改用 minBLongWallPerpHalf（production 預設 innerWallReduction=0.8 時＝17.698mm，對應面板邊長 35.396mm；F1 review Fix，2026-07-11——同步門檻見該函式 docblock，re-review Medium finding）。上蓋面板恆比下盒大（Slice 5 F1 拆兩軸後：x 向 +2×lidMarginX、y 向 +2×lidMarginY，兩者下限皆 5），實務上由下盒兩邊長把關，上蓋兩列為防禦性保留（防未來參數域調整）。只警告不擋（同 gusset-b-fits 慣例），讓使用者知道幾何已退化。',
     },
     check(params) {
       const baseLength = params.baseLength as number;
       const baseWidth = params.baseWidth as number;
       const lidMarginX = params.lidMarginX as number;
       const lidMarginY = params.lidMarginY as number;
-      const minEdge = 2 * MIN_TONGUE_PERP_HALF;
+      const innerWallReduction = params.innerWallReduction as number;
+      const basePlatformWidth = params.basePlatformWidth as number;
+      const lidPlatformWidth = params.lidPlatformWidth as number;
+      // B 款（platformWidth<=0，同 tray.ts useThickStyle=platformWidth>0 的反相判準，見
+      // anyBTongueDegradation 先例）longWall 門檻改用 minBLongWallPerpHalf；其餘（A 款
+      // longWall、shortWall 不分款式）沿用原 MIN_TONGUE_PERP_HALF——只有 longWall 受影響，
+      // 因 tray.ts buildWall 的 flapRecess 只在 !independentJogEntity && !hasDoubleRoot
+      // （B 款＋longWall）時才傳 recessOverride，shortWall 恆為 undefined。
+      const baseLongWallMin = basePlatformWidth <= 0 ? minBLongWallPerpHalf(innerWallReduction) : MIN_TONGUE_PERP_HALF;
+      const lidLongWallMin = lidPlatformWidth <= 0 ? minBLongWallPerpHalf(innerWallReduction) : MIN_TONGUE_PERP_HALF;
       // 每片×每軸：x 向牆（左右壁）的舌片沿面板 y 邊分佈（perpHalf＝panelW/2）、
       // y 向牆（前後壁）沿面板 x 邊（perpHalf＝panelL/2）——見 tray.ts generateTray 的
       // buildWall 呼叫（perpHalfSpan 參數）。lid 的 panelL＝baseWidth+2×lidMarginX（x 向，
@@ -950,14 +985,15 @@ const invariants: BoxInvariant[] = [
       // FX4：baseLength/baseWidth/lidMarginX/lidMarginY 這些字串本身有效（同時是 index.ts
       // 自己蓋的 dimension path tag，見上方檔頭註解），但真正退化的幾何是插底舌本身，補上
       // 'tongueFlap'（tray.ts buildTongueFlap 的 tag）讓高亮同時點出實際自撞的那段輪廓。
-      const checks: Array<[string, number, string[]]> = [
-        ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength', 'tongueFlap']],
-        ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth', 'tongueFlap']],
-        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap']],
-        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap']],
+      const checks: Array<[string, number, string[], number]> = [
+        ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength', 'tongueFlap'], baseLongWallMin],
+        ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
+        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap'], lidLongWallMin],
+        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
       ];
-      for (const [label, edge, tags] of checks) {
-        if (edge / 2 < MIN_TONGUE_PERP_HALF) {
+      for (const [label, edge, tags, minPerpHalf] of checks) {
+        if (edge / 2 < minPerpHalf) {
+          const minEdge = 2 * minPerpHalf;
           return {
             ok: false,
             message: { zh: `${label}＝${edge}mm 低於插底舌讓位所需的最小邊長 ${minEdge}mm，該側插底舌梯形已反轉自撞` },
