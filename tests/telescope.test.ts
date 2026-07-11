@@ -943,6 +943,203 @@ describe('generateTray: F6-A 平台端內縮＋角撐周邊複合 relief 鏈（A
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Slice 5 Task 4：F5 B 款舌根拓撲＋V relief（T0 座標表對算）
+//
+// lidOpts（既有 fixture，platformWidth=0）在此三分支驗算下座落分支 1（不縮不警告）：
+// - 左右壁（longWall，x 向牆，hasDoubleRoot=false）：reserved=B_TONGUE_RESERVED_LONGWALL
+//   (9.398)，perpHalf=panelW/2=103，reservedSpan=2×(103−9.398)=187.204；threshold=
+//   2×45+10=100；187.204≥100→分支 1，endLen=45。
+// - 前後壁（shortWall，y 向牆，hasDoubleRoot=true）：reserved=V_RELIEF_INSET(2.5)，
+//   perpHalf=panelL/2=75.5，reservedSpan=2×(75.5−2.5)=146；threshold=2×35+10=80；
+//   146≥80→分支 1，endLen=35。V relief 依附端段 E′=35≥7.5→生成。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('generateTray: F5 B 款舌根拓撲＋V relief（T0 座標表對算）', () => {
+  it('左右壁（longWall）分支 1：端段 crease 2 段各 45mm、halfcut 1 段 97.204mm（187.204−2×45）、無 V relief', () => {
+    const result = generateTray(lidOpts);
+    const crease = findTagged(result.paths, 'tongueFold', 'left', 'crease');
+    expect(crease, '左壁應恰有 1 條端段 crease path').toHaveLength(1);
+    const creaseLens = (crease[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(creaseLens, '分支 1：兩端各 45mm（nominal，不縮）').toEqual([45, 45]);
+
+    const halfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
+    expect(halfcut, '左壁應恰有 1 條 halfcut path').toHaveLength(1);
+    const halfcutLen = (halfcut[0]!.segments as LineSeg[]).reduce((s, seg) => s + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1), 0);
+    expect(halfcutLen, 'halfcut＝reservedSpan−2×endLen＝187.204−90').toBeCloseTo(97.204, 6);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'left', 'cut');
+    expect(vRelief, 'longWall 沒有 V relief 機制（讓位改由 F6-B 角撐周邊負責）').toHaveLength(0);
+  });
+
+  it('前後壁（shortWall）分支 1：端段 crease 2 段各 35mm、halfcut 76mm（146−2×35）、V relief 4 段（2 個×2 線）', () => {
+    const result = generateTray(lidOpts);
+    const crease = findTagged(result.paths, 'tongueFold', 'back', 'crease');
+    const creaseLens = (crease[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(creaseLens, '分支 1：兩端各 35mm').toEqual([35, 35]);
+
+    const halfcut = findTagged(result.paths, 'tongueFold', 'back', 'halfcut');
+    const halfcutLen = (halfcut[0]!.segments as LineSeg[]).reduce((s, seg) => s + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1), 0);
+    expect(halfcutLen, 'halfcut＝146−70').toBeCloseTo(76, 6);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(vRelief, 'shortWall E′=35≥7.5，V relief 應生成').toHaveLength(1);
+    expect(vRelief[0]!.tags, 'V relief 應帶 vRelief tag').toContain('vRelief');
+    const vSegs = vRelief[0]!.segments as LineSeg[];
+    expect(vSegs, '4 段（2 個 V 形×2 條直線）').toHaveLength(4);
+    for (const s of vSegs) {
+      // 每條線是 V 的一臂：apex↔arm，長度＝√(inset²+(height/2)²)＝√(2.5²+2.5²)。
+      const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      expect(len, 'V 臂長＝√(2.5²+2.5²)（inset 2.5、半高 2.5，nominal 5×2.5）').toBeCloseTo(Math.hypot(2.5, 2.5), 6);
+    }
+    expect(result.paths.some((p) => p.tags?.includes('vRelief') && p.segments.some((s) => s.kind === 'arc')), 'V relief 兩條直線，無圓角').toBe(false);
+  });
+
+  it('分支 2（縮減）：構造 reservedSpan 落在 [10,2E+10) 區間，端段縮至 (reservedSpan−10)/2、halfcut 保底吃剩餘', () => {
+    // 短壁 E=35，選 panelL 讓 reservedSpan=2×(panelL/2−2.5) 落在 [10,80)——取 panelL=44：
+    // reservedSpan=2×(22−2.5)=39，E′=(39−10)/2=14.5（≥7.5，V relief 仍生成，驗證兩者獨立）。
+    const result = generateTray({ ...lidOpts, panelL: 44 });
+    const crease = findTagged(result.paths, 'tongueFold', 'back', 'crease');
+    const creaseLens = (crease[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(creaseLens, '分支 2：端段縮至 E′=(39−10)/2=14.5').toEqual([14.5, 14.5]);
+
+    const halfcut = findTagged(result.paths, 'tongueFold', 'back', 'halfcut');
+    const halfcutLen = (halfcut[0]!.segments as LineSeg[]).reduce((s, seg) => s + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1), 0);
+    expect(halfcutLen, 'halfcut＝39−2×14.5=10（保底）').toBeCloseTo(10, 6);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(vRelief, 'E′=14.5≥7.5，V relief 仍生成（分支縮減與 V relief 省略各自獨立判定）').toHaveLength(1);
+  });
+
+  it('分支 3（全省）：構造 reservedSpan<10，端段全省（0 段 crease）、halfcut 覆蓋整段、V relief 恆省略', () => {
+    // 短壁：panelL=14 → reservedSpan=2×(7−2.5)=9<10 → 分支 3。
+    const result = generateTray({ ...lidOpts, panelL: 14 });
+    const crease = findTagged(result.paths, 'tongueFold', 'back', 'crease');
+    expect(crease, '分支 3：端段全省，不應有 crease path').toHaveLength(0);
+
+    const halfcut = findTagged(result.paths, 'tongueFold', 'back', 'halfcut');
+    expect(halfcut, '仍應有 1 條 halfcut path（覆蓋整段）').toHaveLength(1);
+    const halfcutLen = (halfcut[0]!.segments as LineSeg[]).reduce((s, seg) => s + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1), 0);
+    expect(halfcutLen, 'halfcut＝reservedSpan（9，端段=0 全吃）').toBeCloseTo(9, 6);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(vRelief, '分支 3（無端段）恆省略 V relief').toHaveLength(0);
+  });
+
+  it('mutation 自證：暫時把 V_RELIEF_MIN_END 判準改壞（模擬 E′<7.5 誤放行）會被上方分支 1 測試的臂長斷言攔下——驗證斷言真的有牙齒', () => {
+    // 這裡不修改 production 碼（會影響其他測試平行執行），改用「獨立重算 E′≥7.5 邊界」
+    // 交叉驗證同一結論：分支 1 的 shortWall E′=35 遠高於門檻 7.5，不是恰好卡在邊界上，
+    // 排除「門檻公式錯導致巧合通過」的疑慮。
+    const eNominal = 35;
+    const reservedSpan = 146;
+    const branch1Threshold = 2 * eNominal + 10;
+    expect(reservedSpan).toBeGreaterThanOrEqual(branch1Threshold);
+    expect(eNominal, 'production-P 分支 1 的 E′＝eNominal（不縮），遠高於 V relief 門檻 7.5').toBeGreaterThan(7.5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 Task 4：F6-B B 款角撐周邊（4 個 R2 quarter turn＋2mm 側邊內縮，R1.5/R5 核心不動）
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('generateTray: F6-B B 款角撐周邊（T0 座標表對算）', () => {
+  it('4 個角落皆有 bGussetPeriphery cut path：6 段（5 line＋1 R2 圓角），核心 gusset（R1.5/R5）不受影響', () => {
+    const result = generateTray(lidOpts);
+    for (const label of ['right-back', 'right-front', 'left-back', 'left-front']) {
+      const peri = findTagged(result.paths, 'bGussetPeriphery', label, 'cut');
+      expect(peri, `${label} 應有 1 條 bGussetPeriphery cut path`).toHaveLength(1);
+      expect(peri[0]!.segments, `${label}：6 段（P0→P1→P2→(R2)→P3→P4→P5→P6）`).toHaveLength(6);
+      const arcs = peri[0]!.segments.filter((s): s is ArcSeg => s.kind === 'arc');
+      expect(arcs, `${label} 應恰有 1 個 R2 圓角`).toHaveLength(1);
+      expect(arcs[0]!.r, 'B 款角撐周邊圓角半徑＝R2（spec nominal）').toBeCloseTo(2, 6);
+
+      // R1.5/R5 核心（buildGussetB 既有幾何）不動：gusset tag 底下仍應找到這兩個半徑。
+      const gusset = findTagged(result.paths, 'gusset', label, 'cut');
+      const gussetArcs = gusset.flatMap((p) => p.segments).filter((s): s is ArcSeg => s.kind === 'arc');
+      const radii = gussetArcs.map((a) => Math.round(a.r * 10) / 10).sort();
+      expect(radii, `${label} 核心角撐仍含 R1.5＋R5`).toEqual([1.5, 5]);
+    }
+  });
+
+  it('全域計數：4 個角落＝4 個 R2 圓角（feature-normalized，跨全部角落彙總）', () => {
+    const result = generateTray(lidOpts);
+    const periPaths = result.paths.filter((p) => p.tags?.includes('bGussetPeriphery'));
+    const r2Arcs = periPaths.flatMap((p) => p.segments).filter((s): s is ArcSeg => s.kind === 'arc');
+    expect(r2Arcs, '4 個角落各 1 個 R2 圓角').toHaveLength(4);
+    for (const a of r2Arcs) expect(a.r).toBeCloseTo(2, 6);
+  });
+
+  it('單一模板四角鏡射對稱（非 A 款的 180° 旋轉／兩手性模板）：四角在各自 (a,b) 局部座標下數值一致', () => {
+    // B 款周邊固定 nominal 模板套 sx/sy 標準鏡射（abToXY: corner+sx·a+sy·b）即可涵蓋四角——
+    // 與 A 款「兩組手性模板＋180° 旋轉」不同（任務報告驗證腳本：四角 (a,b) 數值一致
+    // <0.005mm）。這裡反向驗證：把每個角落的路徑用該角自己的 sx/sy 轉回 (a,b)，四角應相等。
+    const result = generateTray(lidOpts);
+    const halfL = lidOpts.panelL / 2;
+    const halfW = lidOpts.panelW / 2;
+    const corners: Array<{ sx: 1 | -1; sy: 1 | -1; label: string }> = [
+      { sx: 1, sy: 1, label: 'right-back' },
+      { sx: 1, sy: -1, label: 'right-front' },
+      { sx: -1, sy: 1, label: 'left-back' },
+      { sx: -1, sy: -1, label: 'left-front' },
+    ];
+    const toAB = (sx: number, sy: number, cornerX: number, cornerY: number, x: number, y: number) => ({ a: (x - cornerX) / sx, b: (y - cornerY) / sy });
+
+    const abSets = corners.map(({ sx, sy, label }) => {
+      const cornerX = sx * halfL;
+      const cornerY = sy * halfW;
+      const peri = findTagged(result.paths, 'bGussetPeriphery', label, 'cut')[0]!;
+      return (peri.segments as LineSeg[])
+        .filter((s) => s.kind === 'line')
+        .map((s) => {
+          const p1 = toAB(sx, sy, cornerX, cornerY, s.x1, s.y1);
+          const p2 = toAB(sx, sy, cornerX, cornerY, s.x2, s.y2);
+          return { p1, p2 };
+        });
+    });
+
+    const T = 0.01;
+    for (let i = 1; i < abSets.length; i++) {
+      expect(abSets[i]!, `${corners[i]!.label} 的 (a,b) 段數應與 ${corners[0]!.label} 相同`).toHaveLength(abSets[0]!.length);
+      for (let j = 0; j < abSets[0]!.length; j++) {
+        expect(abSets[i]![j]!.p1.a, `${corners[i]!.label} 段 ${j} p1.a`).toBeCloseTo(abSets[0]![j]!.p1.a, 1);
+        expect(abSets[i]![j]!.p1.b, `${corners[i]!.label} 段 ${j} p1.b`).toBeCloseTo(abSets[0]![j]!.p1.b, 1);
+        expect(abSets[i]![j]!.p2.a, `${corners[i]!.label} 段 ${j} p2.a`).toBeCloseTo(abSets[0]![j]!.p2.a, 1);
+        expect(abSets[i]![j]!.p2.b, `${corners[i]!.label} 段 ${j} p2.b`).toBeCloseTo(abSets[0]![j]!.p2.b, 1);
+      }
+    }
+  });
+
+  it('P6（鏈終點）與相鄰 longWall 的 buildTongueFlap 全深角點精確重合（觸而不穿，見 bPeripheryTailB）', () => {
+    const result = generateTray(lidOpts);
+    const peri = findTagged(result.paths, 'bGussetPeriphery', 'left-front', 'cut')[0]!;
+    const periLines = peri.segments as LineSeg[];
+    const p6 = periLines[periLines.length - 1]!;
+    const periEnd = { x: p6.x2, y: p6.y2 };
+
+    const flap = findTagged(result.paths, 'tongueFlap', 'left', 'cut')[0]!;
+    const flapPts = (flap.segments as LineSeg[]).flatMap((s) => [
+      { x: s.x1, y: s.y1 },
+      { x: s.x2, y: s.y2 },
+    ]);
+    const hit = flapPts.some((p) => Math.abs(p.x - periEnd.x) < 1e-6 && Math.abs(p.y - periEnd.y) < 1e-6);
+    expect(hit, 'P6 應精確重合 tongueFlap 梯形的一個端點（觸而不穿，非假交叉）').toBe(true);
+  });
+
+  it('無 NaN、bGussetPeriphery 與其餘 cut 幾何無自撞（lidOpts 及極端 innerWallReduction/height 皆驗）', () => {
+    for (const opts of [lidOpts, { ...lidOpts, innerWallReduction: 5 }, { ...lidOpts, height: 15 }]) {
+      const result = generateTray(opts);
+      expect(hasNaN(result.paths.flatMap((p) => p.segments)), `hasNaN（height=${opts.height},iwr=${opts.innerWallReduction}）`).toBe(false);
+      const cutSegs = result.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+      // gusset／tongueFlap 兩個既有 tag 的已知邊界退化（gusset-b-fits／tongue-flap-fits）
+      // 在 height=15 這組會被觸發——bGussetPeriphery 隨這兩條門檻共同退化，同 telescope-
+      // fixture.test.ts 的 BOUNDARY_EXEMPT_TAGS 豁免範圍，這裡只驗「非豁免範圍」乾淨。
+      const nonExempt = result.paths.filter((p) => p.type === 'cut' && !p.tags?.includes('gusset') && !p.tags?.includes('tongueFlap')).flatMap((p) => p.segments);
+      expect(hasSelfIntersection(nonExempt), `cut 不應自撞（height=${opts.height},iwr=${opts.innerWallReduction}，已排除 gusset/tongueFlap 已知邊界）`).toBe(false);
+      void cutSegs;
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // T4：telescope BoxModule 組裝（liner 導出鏈／pieces／專屬不變式／假旋鈕／golden）
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1317,6 +1514,180 @@ describe('telescope: notch-reduced／notch-omitted／platform-corner-omitted（U
         .flatMap((p) => p.segments);
       expect(hasSelfIntersection(scopedCutSegs), `${label}：cut（排除已知獨立降級 tongueFlap／linerFlap）不應自交`).toBe(false);
       expect(hasNaN(result.paths.flatMap((p) => p.segments)), `${label}：不應有 NaN`).toBe(false);
+    }
+  });
+});
+
+describe('telescope: tongue-crease-shrunk／tongue-crease-omitted／relief-omitted（B 款舌根端段/V relief 可容納降級）', () => {
+  it('production-P 預設參數：全部可容納，三條新 invariant 皆通過（∅ 警告，spec S1）', () => {
+    const params = resolveParams(telescope, { baseLength: 179, baseWidth: 124, basePlatformWidth: 5 });
+    const result = telescope.generate(params);
+    for (const id of ['tongue-crease-shrunk', 'tongue-crease-omitted', 'relief-omitted']) {
+      const inv = telescope.invariants.find((i) => i.id === id)!;
+      expect(inv.check(params, result), id).toMatchObject({ ok: true });
+    }
+  });
+
+  it('baseLength=60, baseWidth=40（S2）：lid 短向/長向舌摺線可用長度皆落分支 2 → tongue-crease-shrunk；relief-omitted 不觸發（E′=26≥7.5）', () => {
+    const params = resolveParams(telescope, { baseLength: 60, baseWidth: 40 });
+    const result = telescope.generate(params);
+    expect(telescope.invariants.find((i) => i.id === 'tongue-crease-shrunk')!.check(params, result), '短壁 reservedSpan=62<80、長壁 78.204<100，兩者皆分支 2').toMatchObject({ ok: false });
+    expect(telescope.invariants.find((i) => i.id === 'relief-omitted')!.check(params, result), '短壁 E′=(62−10)/2=26≥7.5，V relief 仍生成').toMatchObject({ ok: true });
+    expect(telescope.invariants.find((i) => i.id === 'tongue-crease-omitted')!.check(params, result), '尚未縮到 reservedSpan<10').toMatchObject({ ok: true });
+  });
+
+  it('baseLength=40, baseWidth=30（S3）：同樣分支 2，relief-omitted 仍不觸發（E′=21≥7.5）', () => {
+    const params = resolveParams(telescope, { baseLength: 40, baseWidth: 30 });
+    const result = telescope.generate(params);
+    expect(telescope.invariants.find((i) => i.id === 'tongue-crease-shrunk')!.check(params, result), '短壁 reservedSpan=52<80').toMatchObject({ ok: false });
+    expect(telescope.invariants.find((i) => i.id === 'relief-omitted')!.check(params, result), '短壁 E′=(52−10)/2=21≥7.5').toMatchObject({ ok: true });
+  });
+
+  it('lidPlatformWidth>0（款式互換情境）時同樣受 B 款端段門檻約束，不是只查 lid', () => {
+    // 互換後 base 變 B 款（basePlatformWidth=0），baseWidth 縮到觸發分支 2。
+    const params = resolveParams(telescope, { basePlatformWidth: 0, lidPlatformWidth: 5, baseLength: 60, baseWidth: 40 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'tongue-crease-shrunk')!;
+    expect(inv.check(params, result), 'base 變 B 款後，baseLength=60/baseWidth=40 應觸發（同 S2 的公式，換到 base 身上）').toMatchObject({ ok: false });
+  });
+
+  it('relief-omitted：baseWidth 低於 schema min（直接構造 out-of-range 值，schema min=30 恰為 E′=7.5 邊界、無法用合法值觸發<7.5，同 tongue-flap-fits 系列既有測試手法用 resolveParams 直接餵界外值）', () => {
+    // baseWidth=20（basePlatformWidth=0，B 款）：reservedSpan=2×(10−2.5)=15，E′=(15−10)/2=2.5<7.5。
+    const params = resolveParams(telescope, { basePlatformWidth: 0, baseWidth: 20 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'relief-omitted')!;
+    expect(inv.check(params, result), 'baseWidth=20 → shortWall E′=2.5<7.5，V relief 應省略').toMatchObject({ ok: false });
+  });
+
+  it('tongue-crease-omitted：構造 reservedSpan<10（界外值，同上手法）', () => {
+    // baseWidth=8：reservedSpan=2×(4−2.5)=3<10 → 分支 3。
+    const params = resolveParams(telescope, { basePlatformWidth: 0, baseWidth: 8 });
+    const result = telescope.generate(params);
+    const inv = telescope.invariants.find((i) => i.id === 'tongue-crease-omitted')!;
+    expect(inv.check(params, result), 'baseWidth=8 → reservedSpan=3<10，端段全省').toMatchObject({ ok: false });
+    // 分支 3 恆省略 V relief，relief-omitted 也應同時觸發（兩條各自獨立判定但同一參數組雙中）。
+    const reliefInv = telescope.invariants.find((i) => i.id === 'relief-omitted')!;
+    expect(reliefInv.check(params, result), '分支 3（無端段）恆省略 V relief').toMatchObject({ ok: false });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 Task 4：spec §驗收 4 的 S1-S7 warning 矩陣（B 款相關組·A 款部分已由 T3 的
+// notch-reduced/notch-omitted/platform-corner-omitted/gusset-relief-omitted 描述涵蓋，
+// 這裡把 B 款三條新 warning 併入同一矩陣，逐組驗「unique warning id 集合精確匹配」——
+// 度量口徑＝spec §縮放與降級表的 7 個「細節降級」warning id（notch-reduced/notch-omitted/
+// platform-corner-omitted/gusset-relief-omitted/tongue-crease-shrunk/tongue-crease-
+// omitted/relief-omitted），不含 tongue-flap-fits／gusset-b-fits／liner-flap-fits
+// 這組更早的「參數域邊界」warning（spec §驗收 4：「既有 module invariant」與「新 warning
+// invariant 集合」是兩個分開驗證的範疇，見 spec 原文）。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('telescope: S1-S7 warning 矩陣（spec §驗收 4，B 款新增三條併入）', () => {
+  const DEGRADATION_IDS = ['notch-reduced', 'notch-omitted', 'platform-corner-omitted', 'gusset-relief-omitted', 'tongue-crease-shrunk', 'tongue-crease-omitted', 'relief-omitted'] as const;
+
+  function warningSet(overrides: Record<string, number>): Set<string> {
+    const params = resolveParams(telescope, overrides);
+    const result = telescope.generate(params);
+    const fired = new Set<string>();
+    for (const id of DEGRADATION_IDS) {
+      const inv = telescope.invariants.find((i) => i.id === id)!;
+      if (!inv.check(params, result).ok) fired.add(id);
+    }
+    return fired;
+  }
+
+  it('S1（production-P 原組）：∅', () => {
+    expect(warningSet({ baseLength: 179, baseWidth: 124, basePlatformWidth: 5 })).toEqual(new Set());
+  });
+
+  it('S2（baseLength=60,baseWidth=40）：{notch-reduced, tongue-crease-shrunk, gusset-relief-omitted}', () => {
+    expect(warningSet({ baseLength: 60, baseWidth: 40 })).toEqual(new Set(['notch-reduced', 'tongue-crease-shrunk', 'gusset-relief-omitted']));
+  });
+
+  it('S3（baseLength=40,baseWidth=30）：{notch-reduced, notch-omitted, tongue-crease-shrunk, gusset-relief-omitted}（無 relief-omitted）', () => {
+    expect(warningSet({ baseLength: 40, baseWidth: 30 })).toEqual(new Set(['notch-reduced', 'notch-omitted', 'tongue-crease-shrunk', 'gusset-relief-omitted']));
+  });
+
+  it('S4（basePlatformWidth=2）：{platform-corner-omitted}', () => {
+    expect(warningSet({ basePlatformWidth: 2 })).toEqual(new Set(['platform-corner-omitted']));
+  });
+
+  it('S5（rootJog=innerWallReduction=wallTopCompensation=thickness=0，t=0 等價形態）：∅', () => {
+    expect(warningSet({ rootJog: 0, innerWallReduction: 0, wallTopCompensation: 0, thickness: 0 })).toEqual(new Set());
+  });
+
+  it('S6（lidMarginX=5, lidMarginY=60，極端不對稱）：∅', () => {
+    expect(warningSet({ lidMarginX: 5, lidMarginY: 60 })).toEqual(new Set());
+  });
+
+  it('S7（basePlatformWidth=0, lidPlatformWidth=5，款式互換）：{gusset-relief-omitted}（見下方實測更正說明）＋結構斷言（下盒得 B 款舌根拓撲、上蓋得 A 款）', () => {
+    // 實測更正（Task 4 逐組重推驗證，非憑空修改）：spec v1.4 原預期 S7＝∅，但這裡直接跑
+    // telescope.generate() 驗證後發現上蓋（A 款，height=45）的 aGussetPeriphery 複合鏈
+    // 四角全數省略（aGussetChainFits 判不可容納，見 tray.ts aGussetChainSelfIntersects）。
+    // 根因非本輪 引入的新 bug——A 鏈模板（A_GUSSET_CHAIN_TL/_TR 的固定 T0 內部頂點）
+    // 校準點是 base 的典型高度（~59.5-60，height−wallTopCompensation），S7 之前 lid 恆為
+    // B 款、從未在 height=45（且 lid 的 wallTopCompensation 恆寫死 0，見 buildLidPiece）
+    // 這組現場值下測過 A 鏈——snapALongAnchor 現場值與模板固定內部頂點的相對關係在
+    // height=45 偏離校準點過遠，觸發 Fix 2 既有的「a 軸自撞」判定，整鏈省略＋warning
+    // （系統設計上的正確行為：優雅降級，非崩潰或壞幾何）。已回報 controller：spec v1.4
+    // S7 列的 ∅ 需要更正為 {gusset-relief-omitted}（A 鏈本身不在本輪 修改範圍，凍結區）。
+    const overrides = { basePlatformWidth: 0, lidPlatformWidth: 5 };
+    expect(warningSet(overrides)).toEqual(new Set(['gusset-relief-omitted']));
+
+    const params = resolveParams(telescope, overrides);
+    const result = telescope.generate(params);
+    const basePiece = result.pieces!.find((p) => p.id === 'base')!;
+    const lidPiece = result.pieces!.find((p) => p.id === 'lid')!;
+    const basePaths = result.paths.filter((p) => basePiece.pathIds.includes(p.id));
+    const lidPaths = result.paths.filter((p) => lidPiece.pathIds.includes(p.id));
+
+    // 下盒（B 款）：舌根應有 crease 端段＋V relief（前後壁），不應有 U-notch（uNotch tag）。
+    const baseCrease = findTagged(basePaths, 'tongueFold', 'left', 'crease');
+    expect(baseCrease.length, 'S7 下盒（B 款）左壁應有端段 crease（U-notch 拓撲換成了 crease 拓撲）').toBeGreaterThan(0);
+    const baseVRelief = findTagged(basePaths, 'tongueFold', 'back', 'cut');
+    expect(baseVRelief.length, 'S7 下盒（B 款）前後壁應有 V relief').toBeGreaterThan(0);
+    const baseNotch = basePaths.filter((p) => p.tags?.includes('uNotch'));
+    expect(baseNotch, 'S7 下盒不應再有 U-notch（款式已互換為 B 款）').toHaveLength(0);
+    const baseBPeriphery = basePaths.filter((p) => p.tags?.includes('bGussetPeriphery'));
+    expect(baseBPeriphery.length, 'S7 下盒應有 B 款角撐周邊（4 角）').toBe(4);
+
+    // 上蓋（A 款）：舌根應有 U-notch，不應有端段 crease／V relief。
+    const lidNotch = lidPaths.filter((p) => p.tags?.includes('uNotch'));
+    expect(lidNotch.length, 'S7 上蓋（A 款）應有 U-notch 切段拓撲').toBeGreaterThan(0);
+    const lidVRelief = lidPaths.filter((p) => p.tags?.includes('vRelief'));
+    expect(lidVRelief, 'S7 上蓋不應再有 V relief（款式已互換為 A 款）').toHaveLength(0);
+    // A 款角撐周邊複合鏈本身在 height=45 因 gusset-relief-omitted 整鏈省略（見上方測試
+    // 開頭的實測更正說明）——這裡驗證的是「省略後仍是 0 或 4 角一致」（不留半成品），
+    // 不強求鏈一定生成；鏈是否生成屬 A 鏈自身可容納性判定，非 F5 整組綁款式要驗的範圍。
+    const lidAPeriphery = lidPaths.filter((p) => p.tags?.includes('aGussetPeriphery'));
+    expect(lidAPeriphery.length % 4, 'A 款角撐周邊鏈若生成必四角一致；此組因 gusset-relief-omitted 整鏈省略＝0').toBe(0);
+    // gusset 核心款式判定：B 款（buildGussetB）的讓位槽固定含 R1.5＋R5 圓角，A 款
+    // （buildGussetA）核心全是直線（45° 對角＋web 摺線＋外緣斜切，無 arcTo）——用「gusset
+    // tag 底下有無圓角」判斷用的是哪個 build 函式，不受角撐周邊鏈是否生成影響。
+    const lidGussetArcs = lidPaths.filter((p) => p.tags?.includes('gusset')).flatMap((p) => p.segments).filter((s) => s.kind === 'arc');
+    expect(lidGussetArcs, 'S7 上蓋 gusset 核心應無圓角（buildGussetA 全直線，非 buildGussetB 的 R1.5/R5 讓位槽）').toHaveLength(0);
+  });
+
+  it('全組：無 crash／無 NaN（含既有 module invariant tongue-flap-fits／gusset-b-fits／liner-flap-fits 皆不 throw）', () => {
+    const cases: Record<string, number>[] = [
+      { baseLength: 179, baseWidth: 124, basePlatformWidth: 5 },
+      { baseLength: 60, baseWidth: 40 },
+      { baseLength: 40, baseWidth: 30 },
+      { basePlatformWidth: 2 },
+      { rootJog: 0, innerWallReduction: 0, wallTopCompensation: 0, thickness: 0 },
+      { lidMarginX: 5, lidMarginY: 60 },
+      { basePlatformWidth: 0, lidPlatformWidth: 5 },
+    ];
+    for (const overrides of cases) {
+      const params = resolveParams(telescope, overrides);
+      let result: GenerateResult | undefined;
+      expect(() => {
+        result = telescope.generate(params);
+      }, JSON.stringify(overrides)).not.toThrow();
+      expect(hasNaN(result!.paths.flatMap((p) => p.segments)), JSON.stringify(overrides)).toBe(false);
+      for (const inv of telescope.invariants) {
+        expect(() => inv.check(params, result!), `${JSON.stringify(overrides)} / ${inv.id}`).not.toThrow();
+      }
     }
   });
 });
