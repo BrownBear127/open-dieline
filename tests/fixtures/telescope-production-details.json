@@ -1710,6 +1710,22 @@
       },
       "topLeft_chain": [
         {
+          "gid": "LINE161",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            100.6722,
+            197.1393
+          ],
+          "p2_mm": [
+            100.6722,
+            199.136
+          ],
+          "length_mm": 1.9967,
+          "angle_deg": 90.0,
+          "note": "F2 review Fix（2026-07-11）：P0→P1，先前遺漏於 topLeft_chain（原 5 段從 P1 開始）——補齊供 F1/F2 review fix 的四角完整鏈 (a,b) 迴歸測試使用。"
+        },
+        {
           "gid": "LINE162",
           "kind": "line",
           "lineType": "cut",
@@ -1838,6 +1854,54 @@
           ],
           "length_mm": 2.0002,
           "angle_deg": -90.0
+        },
+        {
+          "gid": "LINE123",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            87.1714,
+            409.1376
+          ],
+          "p2_mm": [
+            87.1714,
+            403.7365
+          ],
+          "length_mm": 5.401,
+          "angle_deg": -90.0,
+          "note": "F2 review Fix（2026-07-11）：P3→P4，先前遺漏（原 3 段只到 P2/P3）——補齊供四角完整鏈 (a,b) 迴歸測試使用。"
+        },
+        {
+          "gid": "LINE124",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            87.1714,
+            403.7365
+          ],
+          "p2_mm": [
+            78.4719,
+            403.7365
+          ],
+          "length_mm": 8.6995,
+          "angle_deg": 180.0,
+          "note": "F2 review Fix（2026-07-11）：P4→P5，補齊四角完整鏈。"
+        },
+        {
+          "gid": "LINE125",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            78.4719,
+            403.7365
+          ],
+          "p2_mm": [
+            70.171,
+            395.4392
+          ],
+          "length_mm": 11.7367,
+          "angle_deg": -135.0122,
+          "note": "F2 review Fix（2026-07-11）：P5→P6（鏈終點，F1 review 爭議點）——與 topLeft_chain 的 LINE165 鏡射對稱，獨立確認 P6 局部距離 17.6988mm（見 bPeripheryTailB 修正）。"
         }
       ],
       "bottomRight_chain": [
@@ -1889,9 +1953,73 @@
           ],
           "length_mm": 2.0002,
           "angle_deg": -90.0
+        },
+        {
+          "gid": "LINE143",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            412.5736,
+            409.1376
+          ],
+          "p2_mm": [
+            412.5736,
+            403.7365
+          ],
+          "length_mm": 5.401,
+          "angle_deg": -90.0,
+          "note": "F2 review Fix（2026-07-11）：P3→P4，先前遺漏（原 3 段只到 P2/P3）——補齊供四角完整鏈 (a,b) 迴歸測試使用。"
+        },
+        {
+          "gid": "LINE144",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            412.5736,
+            403.7365
+          ],
+          "p2_mm": [
+            421.2731,
+            403.7365
+          ],
+          "length_mm": 8.6995,
+          "angle_deg": 0.0,
+          "note": "F2 review Fix（2026-07-11）：P4→P5，補齊四角完整鏈。"
+        },
+        {
+          "gid": "LINE145",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            421.2731,
+            403.7365
+          ],
+          "p2_mm": [
+            429.5704,
+            395.4392
+          ],
+          "length_mm": 11.7342,
+          "angle_deg": -45.0,
+          "note": "F2 review Fix（2026-07-11）：P5→P6（鏈終點）——與 bottomLeft_chain 的 LINE125、topLeft/topRight 的 LINE165/184 四角互證 P6 局部距離 17.6988mm。"
         }
       ],
       "topRight_chain": [
+        {
+          "gid": "LINE180",
+          "kind": "line",
+          "lineType": "cut",
+          "p1_mm": [
+            399.0728,
+            197.1393
+          ],
+          "p2_mm": [
+            399.0728,
+            199.136
+          ],
+          "length_mm": 1.9967,
+          "angle_deg": 90.0,
+          "note": "F2 review Fix（2026-07-11）：P0→P1，先前遺漏於 topRight_chain（原 5 段從 P1 開始）——補齊供四角完整鏈 (a,b) 迴歸測試使用。"
+        },
         {
           "gid": "LINE181",
           "kind": "line",

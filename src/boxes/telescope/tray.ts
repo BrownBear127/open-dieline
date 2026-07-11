@@ -473,6 +473,24 @@ const B_TONGUE_MIN_SPAN = 10;
  */
 const B_TONGUE_RESERVED_LONGWALL = 9.398;
 
+/**
+ * B 款 longWall 的 tongueFlap／周邊鏈共用 recess（F1 review Fix，2026-07-11）——與
+ * buildTongueFlap 內部其他呼叫（shortWall、A 款）用的通用 TONGUE_END_RECESS(9) 不同：
+ * 獨立重新量測 P（LINE161-165／LINE180-184／LINE121-125／LINE141-145 四角互證，見
+ * bPeripheryTailB／buildTongueFlap 呼叫端註解）顯示 longWall 這個角點的真實 recess＝
+ * B_TONGUE_RESERVED_LONGWALL(9.398，即 buildBTongueTopology 的舌根保留區起點)＋
+ * innerWallReduction(0.8 production 值)＝10.198——非通用 recess(9)。兩者相差恰為
+ * innerWallReduction，物理意義：角撐周邊複合鏈與 tongueFlap 全深角點的接合點，其相對
+ * 舌根保留區的偏移量隨內壁縮進量（innerWallReduction）平移，與 tongueFoldAlong 本身的
+ * 參數化方式一致（innerLen=outerLen−innerWallReduction）。bPeripheryTailB／buildWall
+ * 對 longWall 呼叫 buildTongueFlap 時共用本函式，確保兩者的 recess 恆一致（P6 與
+ * tongueFlap 角點精確重合，觸而不穿）。Math.min 鉗制邏輯同原 TONGUE_END_RECESS 用法，
+ * 防禦極端窄壁（perpHalf<recess）。
+ */
+function bLongWallFlapRecess(perpHalf: number, innerWallReduction: number): number {
+  return Math.min(B_TONGUE_RESERVED_LONGWALL + innerWallReduction, perpHalf);
+}
+
 /** V relief 高×內縮（spec nominal 5×2.5，兩條 cut 直線無半徑，見 spec F5②）；MIN_END＝可容納門檻（E′≥7.5，2.5＋安全邊5）。 */
 const V_RELIEF_HEIGHT = 5;
 const V_RELIEF_INSET = 2.5;
@@ -667,9 +685,14 @@ function buildATongueTopology(axis: Axis, geom: WallGeom, perpHalf: number, sign
  * 插底舌梯形 cut：兩端深 TUCK_FLAP_SHALLOW_DEPTH、中段全深 TUCK_FLAP_DEPTH、45° 過渡。
  * 過渡跨度＝TUCK_FLAP_SHALLOW_DEPTH（因全深＝2×淺深，45° 表示 perp 跨度＝along 跨度，
  * 兩者剛好相等，見 task-3-report.md 常數關係推導）。
+ *
+ * recessOverride（F1 review Fix，2026-07-11）：B 款 longWall 呼叫端（buildWall）傳入
+ * bLongWallFlapRecess(perpHalf,innerWallReduction)，讓本函式生成的角點與 bPeripheryTailB
+ * 的周邊鏈終點精確重合（兩者共用同一 recess 公式）——A 款與 shortWall 不傳（維持原
+ * TONGUE_END_RECESS(9) 既有行為不變，這兩者無 B 款周邊鏈的接合需求）。
  */
-function buildTongueFlap(axis: Axis, sign: Sign, geom: WallGeom, perpHalf: number, side: string): PathDescriptor {
-  const recess = Math.min(TONGUE_END_RECESS, perpHalf);
+function buildTongueFlap(axis: Axis, sign: Sign, geom: WallGeom, perpHalf: number, side: string, recessOverride?: number): PathDescriptor {
+  const recess = Math.min(recessOverride ?? TONGUE_END_RECESS, perpHalf);
   const along0 = geom.tongueFoldAlong;
   const alongShallow = along0 + sign * TUCK_FLAP_SHALLOW_DEPTH;
   const alongFull = along0 + sign * TUCK_FLAP_DEPTH;
@@ -725,12 +748,16 @@ function buildWall(
   // P0＝LINE39 起點，即 topStartAlong 角落端）——兩者在 P 原檔本就不對稱（見 task-3-
   // report.md 對算過程），不是筆誤。
   const sideCutEnd = !independentJogEntity ? geom.tongueFoldAlong : hasDoubleRoot ? geom.topStartAlong : geom.topEndAlong;
+  // B 款 longWall（!independentJogEntity && !hasDoubleRoot）：tongueFlap 角點須與 F6-B
+  // 周邊鏈終點（bPeripheryTailB）精確重合，recess 改用 bLongWallFlapRecess（F1 review
+  // Fix）；A 款與 shortWall 維持原生 undefined（沿用 TONGUE_END_RECESS，行為不變）。
+  const flapRecess = !independentJogEntity && !hasDoubleRoot ? bLongWallFlapRecess(perpHalfSpan, innerWallReduction) : undefined;
   return [
     buildWallRoot(axis, geom, perpHalfSpan, hasDoubleRoot, rootJog, side, independentJogEntity),
     buildWallSideCuts(axis, sign, geom, perpHalfSpan, sideCutStart, sideCutEnd, side),
     buildWallTop(axis, geom, perpHalfSpan, platformWidth, side, hasDoubleRoot),
     ...tongueParts,
-    buildTongueFlap(axis, sign, geom, perpHalfSpan, side),
+    buildTongueFlap(axis, sign, geom, perpHalfSpan, side, flapRecess),
   ];
 }
 
@@ -1117,15 +1144,24 @@ const B_PERIPHERY_TEMPLATE_OFFSET: Record<'p0' | 'p1' | 'p2' | 'p3' | 'p4' | 'p5
 };
 
 /**
- * P6（鏈終點）的 a 偏移固定為 TUCK_FLAP_DEPTH（見模板註解）；b 不能沿用 T0 固定量測值——
- * 這個端點是鏈與相鄰 longWall 的 buildTongueFlap 全深角點的連接點（同一物理位置，兩種
- * 公式各自表述）：真正終點是 buildTongueFlap 梯形本身的轉角（recess+
- * TUCK_FLAP_SHALLOW_DEPTH，即該函式的 perpB／perpC），改由呼叫端傳入的 xWallPerpHalf
- * 現場算 recess（同 buildTongueFlap 的 Math.min(TONGUE_END_RECESS,perpHalf) 鉗制邏輯），
- * 讓 P6 與 tongueFlap 角點精確重合（觸而不穿），不再假交叉。
+ * P6（鏈終點）的 a 偏移固定為 TUCK_FLAP_DEPTH（見模板註解）；b 不能沿用 T0 原始量測值
+ * （−17.6988，見下方 review Fix 說明）也不能沿用通用 TONGUE_END_RECESS——這個端點是鏈
+ * 與相鄰 longWall 的 buildTongueFlap 全深角點的連接點（同一物理位置，兩種公式各自
+ * 表述）：真正終點是 buildTongueFlap 梯形本身的轉角（recess+TUCK_FLAP_SHALLOW_DEPTH，
+ * 即該函式的 perpB／perpC），recess 改由 bLongWallFlapRecess 現場算（見該函式），讓 P6
+ * 與 tongueFlap 角點精確重合（觸而不穿），不再假交叉。
+ *
+ * **F1 review Fix（2026-07-11，SOL@High 指出＋獨立重新量測 P 四角確認)**：原實作誤用通用
+ * TONGUE_END_RECESS(9) 算出 16.5，但獨立重新量測 P 四角（topLeft LINE165／topRight LINE184／
+ * bottomLeft LINE125／bottomRight LINE145，四角局部 b 座標一致 17.6988-17.699mm，見
+ * tests/fixtures/telescope-production-details.json 的 lid.bGussetPeriphery.*_chain）
+ * 顯示鏈終點真正局部距離＝17.6988＝B_TONGUE_RESERVED_LONGWALL(9.398)＋
+ * TUCK_FLAP_SHALLOW_DEPTH(7.5)＋innerWallReduction(0.8 production 值)，不是萃取腳本
+ * 跟隨連通路徑時的誤停——LINE165/184/125/145 皆為 P 中確實終止於此的實體線段
+ * （長度 11.7342-11.7392mm 的 45° 對角線，非巧合）。
  */
-function bPeripheryTailB(xWallPerpHalf: number): number {
-  const recess = Math.min(TONGUE_END_RECESS, xWallPerpHalf);
+function bPeripheryTailB(xWallPerpHalf: number, innerWallReduction: number): number {
+  const recess = bLongWallFlapRecess(xWallPerpHalf, innerWallReduction);
   return -(recess + TUCK_FLAP_SHALLOW_DEPTH);
 }
 
@@ -1137,7 +1173,7 @@ function bPeripheryTailB(xWallPerpHalf: number): number {
  * sweep 由 P1→P2／P3→P4 的實際切線方向外積決定（sweepFor，四個角落 sx/sy 鏡射自動得到
  * 正確凹凸向，同 buildGussetA/B、uNotchSegments 既有慣例，不手動硬編 sweep 常數）。
  */
-function buildBGussetPeriphery(cornerX: number, cornerY: number, sx: Sign, sy: Sign, distTongueFold: number, xWallPerpHalf: number, side: string): PathDescriptor {
+function buildBGussetPeriphery(cornerX: number, cornerY: number, sx: Sign, sy: Sign, distTongueFold: number, xWallPerpHalf: number, innerWallReduction: number, side: string): PathDescriptor {
   const t = B_PERIPHERY_TEMPLATE_OFFSET;
   const resolve = (p: ABPt): ABPt => ({ a: distTongueFold + p.a, b: p.b });
   const p0 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p0));
@@ -1146,7 +1182,7 @@ function buildBGussetPeriphery(cornerX: number, cornerY: number, sx: Sign, sy: S
   const p3 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p3));
   const p4 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p4));
   const p5 = abToXY(cornerX, cornerY, sx, sy, resolve(t.p5));
-  const p6 = abToXY(cornerX, cornerY, sx, sy, { a: distTongueFold + TUCK_FLAP_DEPTH, b: bPeripheryTailB(xWallPerpHalf) });
+  const p6 = abToXY(cornerX, cornerY, sx, sy, { a: distTongueFold + TUCK_FLAP_DEPTH, b: bPeripheryTailB(xWallPerpHalf, innerWallReduction) });
 
   const sweep = sweepFor({ x: p2.x - p1.x, y: p2.y - p1.y }, { x: p4.x - p3.x, y: p4.y - p3.y });
   const segments = new PathBuilder()
@@ -1247,8 +1283,9 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
       // B 款角撐周邊（Slice 5 F6-B）：單一模板四角鏡射對稱，見 buildBGussetPeriphery 區塊註解。
       // distTongueFold＝longAnchors.distTongueFold（相鄰 x 向牆——即 longWall——自己的
       // tongueFoldAlong 距角落距離，該公式對 platformWidth=0 一樣成立）；xWallPerpHalf＝
-      // halfW，供 P6 與該牆 buildTongueFlap 角點精確重合（見 bPeripheryTailB）。
-      descriptors.push(buildBGussetPeriphery(cornerX, cornerY, sx, sy, longAnchors.distTongueFold, halfW, label));
+      // halfW，innerWallReduction 供 P6 與該牆 buildTongueFlap 角點精確重合（F1 review
+      // Fix：兩者共用 bLongWallFlapRecess，見 bPeripheryTailB）。
+      descriptors.push(buildBGussetPeriphery(cornerX, cornerY, sx, sy, longAnchors.distTongueFold, halfW, innerWallReduction, label));
     }
   }
 
