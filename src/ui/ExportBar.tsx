@@ -41,7 +41,16 @@
  * `application/dxf`——`application/dxf` 比 `text/plain` 更精確描述內容型別，即使非 IANA 正式
  * 登錄，這裡的 MIME 只影響〈使用者手動處理 blob URL〉這類邊角案例，不影響 `<a download>`
  * 這條下載路徑本身（download 屬性已強制指定副檔名／檔名）。
+ *
+ * **製造模式 checkbox（Slice 5 Task 6，spec §F7）**：`manufacturing` 是純本檔內的 `useState`，
+ * 預設 `false`（關）——跟已退役的 `includeDimensions` 不同，這顆不需要提升到 App.tsx：
+ * spec F7 明文「畫布顯示不變」，沒有 Canvas 端要同步的對象，純粹是「按下 SVG 下載當下要不要
+ * 套用製造模式」的匯出期選項。只影響 `handleSvgDownload`（`toSvgDocument` 第二參數）——
+ * `handleDxfDownload` 完全不讀這個 state，DXF 依 spec 恆不動（見上方 DXF 下載段落）。關閉
+ * （預設）時 `toSvgDocument(exportResult, { manufacturing: false })` 與省略第二參數等價
+ * （`export/svg.ts` 內部 `opts?.manufacturing ?? false`），既有下載行為 byte 級不變。
  */
+import { useState } from 'react';
 import type { Bounds } from '@/core/geometry';
 import { segmentsBounds } from '@/core/geometry';
 import type { DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
@@ -194,22 +203,26 @@ function exportFilename(boxId: string, values: ResolvedParams, result: GenerateR
 
 export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps) {
   const hasPieces = result.pieces !== undefined;
+  // 製造模式（F7）：預設關，純本檔 state，見本檔開頭 docblock「製造模式 checkbox」段。
+  const [manufacturing, setManufacturing] = useState(false);
   // exportResult 在 render 期計算（而非各自 handler 內才算）是 T2（Slice 2）的刻意變更：
   // SVG／DXF 兩個 handler 共用同一份已過濾結果，不必各自呼叫 scopeResultToPiece。
   // scopeResultToPiece 是純函式，行為與「handler 內即時算」功能等價；代價是未點擊匯出按鈕
   // 的 render 也會多跑一次過濾（result 的 paths/texts 量體小，可忽略）。
   const exportResult = activePiece ? scopeResultToPiece(result, activePiece) : result;
 
-  // toSvgDocument 只接受一個參數：includeDimensions opts 已於 T4 退役，SVG 匯出恆全量
-  // （Slice 3 gate round 1 T2 plan 裁決，見本檔開頭 docblock）且按線型分 4 個命名 <g> 圖層
-  // （T4，見 export/svg.ts）。
+  // toSvgDocument 第二參數＝製造模式選項（F7，選填）：includeDimensions opts 已於 T4 退役，
+  // 「恆全量」的既有行為由 export/svg.ts 內部在 manufacturing=false 時維持（見該檔
+  // toSvgDocument 文件），按線型分 4 個命名 <g> 圖層（T4）也不受影響——這裡多傳的
+  // `{ manufacturing }` 只在 checkbox 勾選時才改變輸出。
   const handleSvgDownload = () => {
-    const svg = toSvgDocument(exportResult);
+    const svg = toSvgDocument(exportResult, { manufacturing });
     downloadBlob(svg, 'image/svg+xml;charset=utf-8', exportFilename(boxId, values, result, activePiece, 'svg'));
   };
 
   // toDxfDocument 恆排除 dimension/annotation 線型與全部 texts（生產檔裁決，見
-  // export/dxf.ts 檔頭），這個函式從一開始就沒有 includeDimensions 這種 opts 參數。
+  // export/dxf.ts 檔頭），這個函式從一開始就沒有 includeDimensions 這種 opts 參數；F7 製造
+  // 模式 checkbox 也不讀這個 handler——spec 明文「DXF 不動」，見本檔開頭 docblock。
   const handleDxfDownload = () => {
     const dxf = toDxfDocument(exportResult);
     downloadBlob(dxf, 'application/dxf', exportFilename(boxId, values, result, activePiece, 'dxf'));
@@ -217,6 +230,20 @@ export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps
 
   return (
     <div className="flex flex-col gap-3 pt-4 border-t border-zinc-200">
+      <label
+        htmlFor="manufacturing-mode"
+        title="僅影響 SVG 匯出：solid／0.25 線寬／round cap-join，排除尺寸標註與文字（DXF 恆排除標註，不受此開關影響）"
+        className="flex items-center gap-2 text-xs text-zinc-600"
+      >
+        <input
+          id="manufacturing-mode"
+          type="checkbox"
+          checked={manufacturing}
+          onChange={(e) => setManufacturing(e.target.checked)}
+          className="h-4 w-4 accent-blue-600"
+        />
+        製造模式
+      </label>
       <div className="flex gap-2">
         <button
           type="button"
