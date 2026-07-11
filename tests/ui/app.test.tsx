@@ -13,7 +13,7 @@ import { telescope } from '@/boxes/telescope';
 import { OVERLAY_STROKE } from '@/overlay/state';
 import { parseOverlaySvg } from '@/overlay/parse';
 import { createOverlayLayer } from '@/overlay/layers';
-import { manufacturingBounds } from '@/export/svg';
+import { manufacturingBounds, toSvgDocument } from '@/export/svg';
 // T1 的 parseDxf 原本 export 於 tests/export/dxf.test.ts，供本檔重用、不重寫解析器；但靜態
 // import 一個 *.test.ts 檔案會連帶重新執行它自己頂層的 describe（Vitest globals 模式下
 // `describe`/`it` 是模組執行當下綁定的全域）——下面「ExportBar：下載 DXF」那組測試跑起來時，
@@ -456,7 +456,7 @@ describe('Canvas：多片盒型初始縮放 130%（T7 gate 反饋修 3）', () =
   });
 });
 
-describe('ExportBar：下載內容恆含尺寸標註（includeDimensions checkbox 已於 Slice 3 gate round 1 T2 退役，plan 裁決「匯出恆全量」——畫布圖層可見性純顯示，不影響匯出）', () => {
+describe('ExportBar：下載內容恆含尺寸標註（非製造模式；includeDimensions 專用 checkbox 已於 Slice 3 gate round 1 T2 退役，plan 裁決「匯出恆全量」——畫布圖層可見性純顯示，不影響匯出。T6 新增的「製造模式」checkbox 是另一個獨立功能，關閉〔預設〕時＝本 describe 涵蓋的既有全量路徑，接線測試見下方新 describe）', () => {
   // 明確標註參數型別為 Blob（即使實作忽略它）：讓 `.mock.calls[0][0]` 型別正確推斷成 Blob，
   // 而不是從「忽略參數」的箭頭函式推斷出空 tuple `[]`（那樣下面讀 `calls[0]![0]` 會型別錯誤）。
   const createObjectURLMock = vi.fn((_blob: Blob) => 'blob:mock-url');
@@ -487,7 +487,7 @@ describe('ExportBar：下載內容恆含尺寸標註（includeDimensions checkbo
   };
   const values = { L: 55, W: 55, D: 117 };
 
-  it('下載內容恆含 dimension 線與文字（無 checkbox 可關閉；T4 已依圖層分 g 分組，見 export/svg.ts）', async () => {
+  it('下載內容恆含 dimension 線與文字（製造模式 checkbox 未勾選時的既有全量路徑；T4 已依圖層分 g 分組，見 export/svg.ts）', async () => {
     render(<ExportBarHarness boxId="rte" values={values} result={result} />);
     fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
@@ -538,6 +538,100 @@ describe('ExportBar：下載內容恆含尺寸標註（includeDimensions checkbo
     // 修前行為（直接用 result.bounds，含 dimension 外擴至 [-30,50]x[-30,40]）會得到 80.00×70.00。
     expect(capturedFilename).toBe('test-dim-bounds-box-20.00x10.00.svg');
     clickSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5 Task 6 review fix（Low）：上面「下載內容恆含尺寸標註」整組 T6 測試（14 條）全部
+// 直呼 exporter／檔名邏輯，沒有一條真的「操作 UI checkbox 後驗下載內容」——checkbox 的
+// onChange 沒接到 handleSvgDownload、或誤接進 handleDxfDownload、或預設值不是關閉，這類
+// 接線回歸完全沒有測試會抓到（單元層 tests/export/svg.test.ts 測的是 toSvgDocument 本身，
+// 不涉及 ExportBar 這個 UI 元件）。這個 describe 專門補這一段：透過 fireEvent.click 真的點擊
+// checkbox（而非直接呼叫 toSvgDocument({ manufacturing: true })），驗證 state 有沒有正確
+// 傳到下載內容。
+// ─────────────────────────────────────────────────────────────────────────
+describe('ExportBar：製造模式 checkbox 接線（Slice 5 Task 6 review fix，UI 整合測試）', () => {
+  const createObjectURLMock = vi.fn((_blob: Blob) => 'blob:mock-url-manufacturing-ui');
+  const revokeObjectURLMock = vi.fn((_url: string) => undefined);
+
+  beforeEach(() => {
+    (URL as unknown as { createObjectURL: typeof createObjectURLMock }).createObjectURL = createObjectURLMock;
+    (URL as unknown as { revokeObjectURL: typeof revokeObjectURLMock }).revokeObjectURL = revokeObjectURLMock;
+  });
+
+  afterEach(() => {
+    createObjectURLMock.mockClear();
+    revokeObjectURLMock.mockClear();
+  });
+
+  // cut／crease 幾何刻意落在 x∈[0,10]/y∈[0,10] 的 hull 內（crease 的 y=5 水平線在 cut 對角線
+  // 的 y 範圍內，不外擴 hull）；crease 另外用來證明「無 dasharray」斷言有意義（cut 本身
+  // LINE_STYLES 就沒有 dasharray，光用 cut 測不出「solid 覆寫」有沒有生效）。dimension 幾何
+  // 刻意外擴到 [-20,50]x[-20,40]，讓 result.bounds 明顯大於製造 bounds——與
+  // tests/export/svg.test.ts「viewBox 重算」案例同一組數字，方便對照兩邊期望值一致。
+  const result: GenerateResult = {
+    paths: [
+      { id: 'p-cut', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 10 }] },
+      { id: 'p-crease', type: 'crease', segments: [{ kind: 'line', x1: 0, y1: 5, x2: 10, y2: 5 }] },
+      { id: 'p-dim', type: 'dimension', segments: [{ kind: 'line', x1: -20, y1: -20, x2: 50, y2: 40 }] },
+    ],
+    texts: [{ id: 't-0', x: 5, y: 5, text: '10mm' }],
+    bounds: { minX: -20, maxX: 50, minY: -20, maxY: 40 },
+  };
+  const values = { L: 55, W: 55, D: 117 };
+
+  it('checkbox 預設未勾選；下載 SVG 內容與 exporter 省略 opts 呼叫（toSvgDocument(result)）逐字相同', async () => {
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
+    expect(screen.getByLabelText('製造模式')).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
+    const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+    const text = await blob.text();
+
+    expect(text).toBe(toSvgDocument(result)); // 與 exporter 無選項呼叫逐字一致，非抽樣斷言
+    // 對照組：確認這份 result 真的能反映「未開製造模式」——crease 仍是虛線、標註仍在，
+    // 下一條測試勾選後才有能力區分兩者不同輸出，不是巧合地兩條路徑本來就長一樣。
+    expect(text).toContain('stroke-dasharray');
+    expect(text).toContain('10mm');
+  });
+
+  it('勾選製造模式後下載 SVG：0.25 線寬／round cap-join／無 dasharray／排除標註與文字／viewBox＝製造 bounds', async () => {
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
+    fireEvent.click(screen.getByLabelText('製造模式'));
+    expect(screen.getByLabelText('製造模式')).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: /下載 SVG/ }));
+    const blob = createObjectURLMock.mock.calls[0]![0] as Blob;
+    const text = await blob.text();
+
+    expect(text).toContain('stroke-width="0.25"');
+    expect(text).not.toContain('stroke-width="0.4"');
+    expect(text).toContain('stroke-linecap="round"');
+    expect(text).toContain('stroke-linejoin="round"');
+    expect(text).not.toContain('stroke-dasharray');
+    expect(text).not.toContain('<text');
+    expect(text).not.toContain('10mm');
+    expect(text).not.toContain('id="DIMENSIONS"');
+    // viewBox＝製造 bounds（排除 dimension 後 cut+crease 的 hull＝x[0,10]/y[0,10]），不是
+    // result.bounds 原值（-20/-20/70.00/60.00）——與 svg.test.ts 的 viewBox mutation 案例同數字。
+    expect(text).toContain('viewBox="0.00 0.00 10.00 10.00"');
+    expect(text).not.toContain('viewBox="-20.00 -20.00 70.00 60.00"');
+  });
+
+  it('勾選製造模式前後下載 DXF：內容完全相同（DXF 恆不動，checkbox 不應誤接進 handleDxfDownload）', async () => {
+    render(<ExportBarHarness boxId="rte" values={values} result={result} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '下載 DXF' }));
+    const textOff = await (createObjectURLMock.mock.calls[0]![0] as Blob).text();
+
+    fireEvent.click(screen.getByLabelText('製造模式'));
+    expect(screen.getByLabelText('製造模式')).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: '下載 DXF' }));
+    const textOn = await (createObjectURLMock.mock.calls[1]![0] as Blob).text();
+
+    expect(textOn).toBe(textOff); // 兩次呼叫內容逐字相同——checkbox 的 manufacturing state 沒有滲透進 DXF 路徑
+    expect(createObjectURLMock).toHaveBeenCalledTimes(2); // 兩次下載都確實觸發（不是提早 return 的假陽性一致）
   });
 });
 
