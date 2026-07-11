@@ -8,46 +8,54 @@
  * `ImpositionState`／`ImpositionResultsProps`／`ImpositionResults`，維持
  * `@/ui/ImpositionView` 這個既有公開路徑對呼叫端（App.tsx／測試）不變。
  *
- * 模尺寸來源（spec F1 硬規則）：一律用 `manufacturingBounds(result, piece)` 取得寬高餵給
- * `computeImposition`，**不得**使用 `result.bounds`／`piece.bounds`（那兩者依 pieces.ts
- * 的三向等式含尺寸標註線外擴，會讓拼版拼得比實際寬鬆——見 core/bounds.ts 檔頭 docblock、
- * `tests/imposition-anchor.test.ts` 的 12 模 vs 6 模實證）。
+ * 模尺寸來源（spec F1 硬規則，profile-spacing slice T4 更新呼叫路徑）：一律用
+ * `manufacturingPaths(result, piece)`（`core/profile.ts` 共用過濾函式）取得幾何集合後
+ * `segmentsBounds` 算寬高餵給 `computeImposition`，**不得**使用 `result.bounds`／
+ * `piece.bounds`（那兩者依 pieces.ts 的三向等式含尺寸標註線外擴，會讓拼版拼得比實際寬鬆
+ * ——見 core/bounds.ts 檔頭 docblock、`tests/imposition-anchor.test.ts` 的 12 模 vs 6 模
+ * 實證）。改用 `manufacturingPaths` 而非直接呼叫 `manufacturingBounds`（後者定義本身不動，
+ * 疊圖對齊／匯出檔名等其餘呼叫端照舊）是 spec F2b「呼叫鏈」要求的同源化：bounds 與下方
+ * ProfileStrides 現在從同一份幾何集合派生，防兩個過濾規則各自維護而未來漂移（v1 兩者
+ * 過濾結果恆相等，見 `core/profile.ts` `PROFILE_GEOMETRY_TYPES` docblock）。
  *
  * 件選擇與 `ImpositionState.pieceId` 的 fallback 生命週期（多片盒型換片／盒型切換／
  * `linerEnabled=false` 導致選中片消失時改選第一個有效片）是 App.tsx 的職責——
  * `computeImpositionView` 只負責「依目前 `state.pieceId` 解析對應的 piece」，不做防呆
  * fallback。但 `result.pieces` 存在且 `state.pieceId` 找不到對應片時（含 `pieceId===null`
  * 與 stale id 兩種情況，App.tsx 的 fallback effect 尚未來得及修正的過渡 render），
- * **不得**退成 `manufacturingBounds(result, undefined)` 的「全版」bounds——spec F6
+ * **不得**退成 `manufacturingPaths(result, undefined)` 的「全版」bounds——spec F6
  * 明定拼版沒有 `null＝全版` 語意（review Medium 1 fix round 1：舊實作曾經這樣退，是 spec
  * 違反，已改為 fail loud：兩卡「—」、不渲染排列、顯示整體錯誤「請選擇拼版的件」）。RTE
  * （`result.pieces===undefined`）不受影響，仍是「本來就沒有片可選」的合法穩態，`piece`
- * 恆為 `undefined`、`manufacturingBounds(result, undefined)` 取全版幾何是正確行為，不是
+ * 恆為 `undefined`、`manufacturingPaths(result, undefined)` 取全版幾何是正確行為，不是
  * 這裡說的過渡態。見下方 `computeImpositionView` 的 `stalePiece`。
  *
  * 輸入 domain 錯誤顯示（spec 輸入 domain 表）：`paperW`／`paperH`（僅自訂紙規時有對應輸入
  * 框，輸入框在 `ImpositionControls`，見 `ImpositionView.tsx`）／`gripper`／`gap` 四欄
- * 逐一標到各自輸入框旁；`pieceW`／`pieceH`（由 manufacturingBounds 自動導出，沒有可編輯
+ * 逐一標到各自輸入框旁；`pieceW`／`pieceH`（由 manufacturingPaths 自動導出，沒有可編輯
  * 輸入框）與 `result`（`reason:'internal'`，計算內部錯誤）統一走整體錯誤訊息——沒有輸入
  * 框可以標，也不該假裝有。stalePiece 與這組 domain 錯誤是正交的兩件事：domain 錯誤仍照
  * 原本欄位標紅字，stalePiece 只多加一個整體錯誤訊息、並讓兩卡與預覽變成不可用（見
  * `computeImpositionView` 的 `impositionUsable`）。
  *
- * 元件拆分（review Medium 2 fix round 1；T4 進一步拆檔，見上）：控制面板
+ * 元件拆分（review Medium 2 fix round 1；gate round 1 T4 進一步拆檔，見上）：控制面板
  * （`ImpositionControls`，定義在 `ImpositionView.tsx`）與結果／預覽（`ImpositionResults`，
  * 本檔）是兩個可獨立掛載的 export，供 App.tsx 依 spec「組裝」段一起掛進主區
  * （`ImpositionControls` 在上、`ImpositionResults` 在下，垂直堆疊）。兩者共用的計算
- * （`piece` 解析／`manufacturingBounds`／`computeImposition`／instance 排列）抽到本檔的
+ * （`piece` 解析／`manufacturingPaths`／`computeImposition`／instance 排列）抽到本檔的
  * `computeImpositionView(result, state)`——即使兩者實際上是主區裡的相鄰兄弟節點，仍保留
  * 成兩個獨立 export、各自呼叫一次純函式而非共享 React context／額外 state：拆分維持
  * 「元件只依賴 props」的簡單心智模型，計算本身夠廉價（instance 上限 500，見 fix round 1
- * High 修復），重複呼叫不是效能問題。
+ * High 修復；profile 計算另有 memoize，見 `getMemoizedProfileStrides` docblock），重複
+ * 呼叫不是效能問題。
  */
-import type { Bounds } from '@/core/geometry';
+import type { Bounds, Segment } from '@/core/geometry';
+import { segmentsBounds } from '@/core/geometry';
 import type { DielinePath, DielinePiece, GenerateResult } from '@/core/types';
-import { computeImposition, PAPER_PRESETS, MAX_PREVIEW_INSTANCES } from '@/core/imposition';
+import { computeImposition, PAPER_PRESETS, MAX_PREVIEW_INSTANCES, MIN_GAP_MM, MIN_DIMENSION_MM, MAX_DIMENSION_MM } from '@/core/imposition';
 import type { DirectionResult, ImpositionFieldError, ImpositionInput, SheetOrientation, WorkingSheet } from '@/core/imposition';
-import { manufacturingBounds } from '@/core/bounds';
+import { manufacturingPaths, computeProfileStrides } from '@/core/profile';
+import type { ProfileStrides } from '@/core/profile';
 import { LINE_STYLES } from '@/core/styles';
 import { segmentsToSvgD } from '@/core/path';
 import { directionInstances, previewPaths, sectionOffsets } from './impositionPreview';
@@ -82,8 +90,9 @@ export interface ImpositionResultsProps {
   state: ImpositionState;
 }
 
-const DISCLAIMER_TEXT =
-  '以單件外接矩形估算，僅計單層 L 形 90° 補排；未計遞迴塞角、異形咬合、共刀、絲向及加工限制，不可直接作生產拼版。';
+// spec F6 終裁 b（profile-spacing slice T4）：舊文案「外接矩形估算」不再準確——收縮排列下
+// 相鄰件是依輪廓間距靠齊，不是外接矩形；改用這段新措辭（spec 逐字）。
+const DISCLAIMER_TEXT = '以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 預覽 SVG 視覺常數（T3 全紙預覽重寫：紙張外框＋裁切中線＋每子紙咬口/可用區＋instances）
@@ -173,6 +182,17 @@ function directionCardText(direction: DirectionResult, sectionsCount: number, is
   const fillCount = (direction.bottomFill?.count ?? 0) + (direction.rightFill?.count ?? 0);
   const fillSuffix = fillCount > 0 ? ` ＋ 補 ${fillCount}` : '';
   return `${direction.cols} 列 × ${direction.rows} 行${fillSuffix} ＝ ${direction.count} 模`;
+}
+
+/**
+ * `spacingAxis` → 中文標示（spec F6「標示收縮向」，措辭實作定案，profile-spacing slice T4）：
+ * `'rows'`＝收縮發生在行距（`direction.rows` 那個維度的相鄰兩行變近，卡片文字裡對應
+ * 「N 行」那個數字的方向）；`'cols'`＝收縮發生在列距（對稱，對應「N 列」）。呼叫端只在
+ * `direction.spacingAxis !== null` 時才渲染這行（見 `DirectionCard`）——`null`（缺省或
+ * telescope 式零收益退化）沿用既有卡片「沒有就不顯示」慣例，與 `fillSuffix` 同一模式。
+ */
+function spacingAxisLabel(axis: NonNullable<DirectionResult['spacingAxis']>): string {
+  return axis === 'rows' ? '行距輪廓收縮' : '列距輪廓收縮';
 }
 
 /** 單一子紙的 SVG 內容：咬口淡色區＋可用區＋同一份 instances（同版複製，補排件已含在
@@ -282,7 +302,11 @@ function DirectionCard({
       ) : (
         <>
           <p className="text-base font-mono text-zinc-900">{directionCardText(direction, sectionsCount, isCut, isQuarter)}</p>
-          <p className="text-xs text-zinc-500">{`外接矩形利用率 ${(direction.utilization * 100).toFixed(2)}%`}</p>
+          {/* spec F6 終裁 b：移除利用率百分比（收縮排列下矩形互疊可逾 100%，指標失效，見
+              core `DirectionResult.utilization` docblock）——改顯主格點 footprint 尺寸；
+              spacingAxis 非 null 時另標收縮向（見 `spacingAxisLabel`）。 */}
+          <p className="text-xs text-zinc-500">{`主格點 footprint ${direction.usedW.toFixed(1)} × ${direction.usedH.toFixed(1)} mm`}</p>
+          {direction.spacingAxis && <p className="text-xs text-zinc-500">{spacingAxisLabel(direction.spacingAxis)}</p>}
         </>
       )}
 
@@ -347,6 +371,75 @@ function DirectionCard({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// profile 計算：前置驗證＋memoize（spec F2b 呼叫鏈／plan-review H2/M，profile-spacing
+// slice T4）
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * profile 前置驗證（plan-review H2）：gap 與 pieceW/H 必須先通過跟 `core/imposition.ts`
+ * `checkGap`/`checkDimension`「合法」分支等價的範圍檢查，才建立 `ProfileStrides`——鏡射
+ * 那兩個函式用的界常數（`MIN_GAP_MM`/`MIN_DIMENSION_MM`/`MAX_DIMENSION_MM`，三者皆已
+ * export），不是重新定義一套獨立標準；本檔不 import 那兩個函式本身（它們是
+ * `core/imposition.ts` 的模組內部函式，未 export——core 才是 domain 合法性的唯一權威，
+ * 這裡只是「值不值得先算 profile」的前哨判斷，真正的合法性判定仍在 `computeImposition`
+ * 內部完整跑一次）。
+ *
+ * 動機：`computeProfileStrides` 內部會用 gap/pieceW/H 做槽數（`Math.ceil`）／`Math.sqrt`／
+ * 鄰域迴圈次數計算——NaN／Infinity／超界輸入餵進去不會拋例外，但可能算出無意義的巨大槽數
+ * 或 NaN 結果（防禦不是本模組職責）。跳過建立 `ProfileStrides`、讓 `shrunk` 維持
+ * `undefined`，非法輸入照走 `computeImposition` 自己既有的 domain error 路徑——該路徑
+ * 本來就會擋下同一批不合法的 gap/pieceW/pieceH（`ImpositionInput.shrunk` 缺省語意本就是
+ * `undefined`＝該向用矩形 stride，跳過不改變任何既有 domain 錯誤的欄位/reason）。
+ *
+ * `checkGap`「below-min」分支的下界就是 `MIN_GAP_MM`（非正值必然 < MIN_GAP_MM，故單一
+ * 範圍檢查已涵蓋，不需要另外判斷 `>0`）；`checkDimension`「not-positive」同理已被
+ * `>= MIN_DIMENSION_MM`（0.01）涵蓋。`Number.isFinite` 必須先於範圍比較——`NaN` 參與
+ * `<`/`>` 恆為 `false`，範圍檢查會誤判為「通過」（與 core 兩個 check 函式的既有寫法同一
+ * 順序理由）。
+ */
+function isValidGapForProfile(gap: number): boolean {
+  return Number.isFinite(gap) && gap >= MIN_GAP_MM && gap <= MAX_DIMENSION_MM;
+}
+function isValidPieceDimForProfile(value: number): boolean {
+  return Number.isFinite(value) && value >= MIN_DIMENSION_MM && value <= MAX_DIMENSION_MM;
+}
+
+interface ProfileMemoEntry {
+  result: GenerateResult;
+  pieceId: string | null;
+  gap: number;
+  strides: ProfileStrides;
+}
+
+/** module-level 單槽快取——見 `getMemoizedProfileStrides` docblock。刻意不用 `useMemo`/
+ *  `useRef`：`computeImpositionView` 是普通函式，被 `ImpositionControls`／`ImpositionResults`
+ *  兩個獨立元件各自呼叫（不是同一元件內的兩次 render），沒有共享的 React hook 存放格可用；
+ *  單槽（不是以 pieceId 為 key 的 Map）足夠，因為同一次狀態更新內兩個呼叫端的
+ *  `(result,pieceId,gap)` 三元組恆相同，不需要記住「上一個 pieceId」以外的歷史。 */
+let profileMemo: ProfileMemoEntry | null = null;
+
+/**
+ * profile 計算 memoize（plan-review M「效能」）：`ImpositionControls`／`ImpositionResults`
+ * 各自呼叫一次 `computeImpositionView`（見下方 docblock「元件拆分」），同一次狀態更新內
+ * 兩者的 `(result,pieceId,gap)` 三元組恆相同——命中快取即回傳，不重跑
+ * `computeProfileStrides` 這個 O(K) 幾何計算（K 至多 4096 slots × 鄰域搜尋半徑）。
+ *
+ * key 刻意不含 `segments` 本身：`segments` 由 `(result,pieceId)` 唯一決定（見呼叫處
+ * `manufacturingPaths(result, piece)`），拿 `result`／`pieceId` 當 key 已足夠捕捉依賴，
+ * 不需要另外比較陣列內容（比較陣列相等本身就比重算貴）。`result` 用參照相等（`===`）——
+ * 專案慣例「ALWAYS create new objects, NEVER mutate」保證幾何變動必然伴隨新的 `result`
+ * 物件參照，同一個參照代表幾何沒變。
+ */
+function getMemoizedProfileStrides(result: GenerateResult, pieceId: string | null, gap: number, segments: Segment[]): ProfileStrides {
+  if (profileMemo && profileMemo.result === result && profileMemo.pieceId === pieceId && profileMemo.gap === gap) {
+    return profileMemo.strides;
+  }
+  const strides = computeProfileStrides(segments, gap);
+  profileMemo = { result, pieceId, gap, strides };
+  return strides;
+}
+
 /**
  * `ImpositionControls`／`ImpositionResults` 共用的純計算——把 `result`＋`state` 解析成兩邊
  * 渲染各自需要的衍生值。純函式、零 React 依賴以外的副作用，兩個元件各自呼叫一次（見檔頭
@@ -369,13 +462,25 @@ export function computeImpositionView(result: GenerateResult, state: ImpositionS
   const paperW = preset ? preset.w : state.customW;
   const paperH = preset ? preset.h : state.customH;
 
-  // spec F1 硬規則：一律製造 bounds，禁用 result.bounds／piece.bounds（見檔頭 docblock）。
-  // stalePiece 時 piece 為 undefined，manufacturingBounds 會退回全版幾何——這個 mb／
-  // pieceW／pieceH／imposition 仍照算（不因 stalePiece 而短路，維持函式單一路徑好推理），
+  // spec F1 硬規則：一律製造幾何，禁用 result.bounds／piece.bounds（見檔頭 docblock）。
+  // spec F2b 呼叫鏈：manufacturingPaths 是 bounds／profile／preview 三消費者的共用過濾
+  // 函式（core/profile.ts）——這裡取同一份 segments 餵 segmentsBounds（算 pieceW/H）與
+  // computeProfileStrides（算 shrunk），兩者同源，不是各自獨立呼叫兩套過濾規則。stalePiece
+  // 時 piece 為 undefined，manufacturingPaths 會退回全版幾何——這個 segments／pieceW／
+  // pieceH／shrunk／imposition 仍照算（不因 stalePiece 而短路，維持函式單一路徑好推理），
   // 但下面 impositionUsable 會擋掉所有消費這份「可能是錯 fallback 幾何」結果的渲染輸出。
-  const mb: Bounds = manufacturingBounds(result, piece);
+  const manufacturingSegments: Segment[] = manufacturingPaths(result, piece).flatMap((p) => p.segments);
+  const mb: Bounds = segmentsBounds(manufacturingSegments);
   const pieceW = mb.maxX - mb.minX;
   const pieceH = mb.maxY - mb.minY;
+
+  // profile 前置驗證（plan-review H2，見 isValidGapForProfile/isValidPieceDimForProfile
+  // docblock）：只有 gap 與 pieceW/H 都合法才建立 ProfileStrides 並嘗試 memoize；非法輸入
+  // shrunk 維持 undefined，照走 computeImposition 自己的 domain error 路徑。
+  const shrunk: ProfileStrides | undefined =
+    isValidGapForProfile(state.gap) && isValidPieceDimForProfile(pieceW) && isValidPieceDimForProfile(pieceH)
+      ? getMemoizedProfileStrides(result, state.pieceId, state.gap, manufacturingSegments)
+      : undefined;
 
   const input: ImpositionInput = {
     pieceW,
@@ -388,6 +493,7 @@ export function computeImpositionView(result: GenerateResult, state: ImpositionS
     allowRotate: state.allowRotate,
     gripper: state.gripper,
     gap: state.gap,
+    shrunk,
   };
   const imposition = computeImposition(input);
   const errors = imposition.ok ? [] : imposition.errors;

@@ -163,6 +163,11 @@ export interface DirectionResult {
   rightFill: StripFill | null;
   count: number;
   totalCount: number;
+  /** 外接矩形利用率（`count×pieceForCols×pieceForRows / (sheet.w×sheet.h)`）。**UI 已不
+   *  顯示此欄位**（spec F6 終裁 b，profile-spacing slice T4）：收縮排列下相鄰矩形本來就會
+   *  互疊，數值可逾 1（如 RTE 90°＝103.3%），拿它當「利用率」指標會誤導，UI 改顯示主格點
+   *  footprint（`usedW`/`usedH`）。欄位本身保留不動（計算照舊，供其他消費者／測試錨沿用，
+   *  見 `tests/imposition.test.ts`），最小 churn。 */
   utilization: number;
   spacingAxis: 'rows' | 'cols' | null;
   strideX: number;
