@@ -412,8 +412,23 @@ export function computeProfileEnvelope(segments: Segment[]): ProfileEnvelope {
  * 高估，stride 高估＝保守（spec F1）。鄰域搜尋半徑 `reach` 依「`dxMin≥gap` 即不參與」的
  * 事實 clamp 到 `ceil(gap/slotWidth)+1`，並進一步 clamp 到實際槽數（plan-review M：大 gap
  * 不做無意義迭代）。
+ *
+ * export 供測試直接鑑別（本檔測試新增的 `computeMinStride` 根因直測，見下方 F2 fix 說明）。
+ *
+ * **F2 review fix**：件完全無材料（如 `computeProfileStrides([], gap)`）時，所有槽的
+ * far／near 值皆為 ±Infinity，內層迴圈找不到任何一組「兩者皆有限」的槽對，`stride` 停在
+ * 迴圈外的初始值 `0`——違反 spec 名詞段「恆有 `gap ≤ strideY ≤ H+gap`」不變式（`0 < gap`
+ * 時即破例）。回傳前夾到至少 `gap`：對空幾何而言 `extent=0`，矩形上界退化為 `0+gap=gap`，
+ * 與這個 clamp 的下界剛好重合（語意＝零尺寸件的矩形退化，不是另立特例，見
+ * `tests/profile.test.ts` 空陣列測試）。
+ *
+ * 這個 clamp 對任何有材料的正常案例都是 no-op：`updateSlot` 保證同一槽的 min／max 恆同時
+ * 被賦值（見檔頭「槽邊界雙邊歸屬」說明），所以只要有一個槽有材料，該槽的 `i=j` 同槽項
+ * （`far[i]-near[i]+gap`，`far[i]≥near[i]` 恆成立因兩者皆由同一批 segment 貢獻的
+ * min/max）本身就 `≥gap`——迴圈本來就會算出 `≥gap` 的候選值，這個 clamp 不會覆蓋掉任何
+ * 正確算出的較大值。
  */
-function computeMinStride(far: number[], near: number[], gap: number, slotWidth: number): number {
+export function computeMinStride(far: number[], near: number[], gap: number, slotWidth: number): number {
   const n = far.length;
   const reach = Math.min(n, Math.ceil(gap / slotWidth) + 1);
   let stride = 0;
@@ -433,7 +448,7 @@ function computeMinStride(far: number[], near: number[], gap: number, slotWidth:
     }
   }
 
-  return stride;
+  return Math.max(gap, stride);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
