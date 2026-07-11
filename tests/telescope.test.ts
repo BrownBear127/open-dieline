@@ -163,9 +163,16 @@ const baseOpts: TrayOpts = {
   offsetY: 0,
 };
 
-// 生產上蓋（lid）：t=0.4、H=45、platform=0、panel 151(x)×206(y)。
+// lid 測試固定參數：t=0.4、H=45、platform=0、panel 151(x)×206(y)。
 // wallTopCompensation=0（B-06：上蓋左右壁的頂緣平齊特例移除，四面外壁恆＝壁高，模擬
 // index.ts buildLidPiece 對 generateTray 的真實呼叫方式，見該函式）。
+// ⚠ F3 review Fix（2026-07-11）：panelW=206 不是 P 實測值——P 實測 panelW=216
+// （fixtureRaw.lid.panel.corners_mm 四角互證：bottomLeft.y−topLeft.y=215.9988，見 F1/F2
+// review Fix report）。本檔 F1/F5/F6-B 絕大多數測試（含 S1 param-sweep「reservedSpan=
+// 187.204」一類註解）長期沿用這個 206 做結構/公式自洽驗證，非逐項對 P；改動會牽動數十處
+// 既有斷言（超出本 Low finding 範圍，未動）。需要驗證真正 production-P 尺寸時，用局部
+// override `{ ...lidOpts, panelW: 216 }`（見「production-P 版本」系列測試），不要改這個
+// 共用常數本身。
 const lidOpts: TrayOpts = {
   panelL: 151,
   panelW: 206,
@@ -955,7 +962,15 @@ describe('generateTray: F6-A 平台端內縮＋角撐周邊複合 relief 鏈（A
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('generateTray: F5 B 款舌根拓撲＋V relief（T0 座標表對算）', () => {
-  it('左右壁（longWall）分支 1：端段 crease 2 段各 45mm、halfcut 1 段 97.204mm（187.204−2×45）、無 V relief', () => {
+  it('左右壁（longWall）分支 1（一般參數化案例，非 P 實測 panelW——見下一條 production-P 版本）：端段 crease 2 段各 45mm、halfcut 1 段 97.204mm（187.204−2×45）、無 V relief', () => {
+    // F3 review Fix（2026-07-11）：本檔 lidOpts.panelW=206（見該常數定義處註解），但 P
+    // 實測 panelW=216（fixtureRaw.lid.panel.corners_mm：bottomLeft.y−topLeft.y=
+    // 413.1381−197.1393=215.9988，四角互證，見 F1/F2 review Fix report）——標題原稱
+    // 「T0 座標表對算」誤導成此為 production-P golden 值。本測試改標為一般參數化結構
+    // 驗證（驗證 bTongueBranch 分支 1 公式在 panelW=206 這組具體數字下的自洽性，不代表
+    // P 逐項對算）；真正 production-P（panelW=216）驗算見下一條。lidOpts 本身維持不變
+    // （206 被 F1/F6-B/F5 其餘測試全面沿用——若改動需重新推導數十處斷言，超出本 Low
+    // finding 範圍，見 lidOpts 定義處註解）。
     const result = generateTray(lidOpts);
     const crease = findTagged(result.paths, 'tongueFold', 'left', 'crease');
     expect(crease, '左壁應恰有 1 條端段 crease path').toHaveLength(1);
@@ -965,7 +980,28 @@ describe('generateTray: F5 B 款舌根拓撲＋V relief（T0 座標表對算）'
     const halfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
     expect(halfcut, '左壁應恰有 1 條 halfcut path').toHaveLength(1);
     const halfcutLen = (halfcut[0]!.segments as LineSeg[]).reduce((s, seg) => s + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1), 0);
-    expect(halfcutLen, 'halfcut＝reservedSpan−2×endLen＝187.204−90').toBeCloseTo(97.204, 6);
+    expect(halfcutLen, 'halfcut＝reservedSpan−2×endLen＝187.204−90（panelW=206 這組參數自身的公式自洽，非 P 對算）').toBeCloseTo(97.204, 6);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'left', 'cut');
+    expect(vRelief, 'longWall 沒有 V relief 機制（讓位改由 F6-B 角撐周邊負責）').toHaveLength(0);
+  });
+
+  it('左右壁（longWall）分支 1，production-P 版本（F3 review Fix，2026-07-11）：panelW 改用 P 實測 216（非 lidOpts 的 206），期望值獨立重導（不抄 review 數字）——halfcut 1 段 107.204mm（197.204−2×45）', () => {
+    // 獨立重導（不透過 tray.ts 常數表或 review 給的數字，純手算 spec 公式）：
+    //   perpHalf(longWall) = panelW/2 = 216/2 = 108
+    //   reservedSpan = 2×(perpHalf − B_TONGUE_RESERVED_LONGWALL) = 2×(108−9.398) = 197.204
+    //   threshold(分支 1) = 2×eNominal+10 = 2×45+10 = 100；197.204 ≥ 100 → 分支 1，端段不縮
+    //   halfcut = reservedSpan − 2×45 = 197.204 − 90 = 107.204
+    const result = generateTray({ ...lidOpts, panelW: 216 });
+    const crease = findTagged(result.paths, 'tongueFold', 'left', 'crease');
+    expect(crease, '左壁應恰有 1 條端段 crease path').toHaveLength(1);
+    const creaseLens = (crease[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(creaseLens, '分支 1：兩端各 45mm（nominal，不縮）').toEqual([45, 45]);
+
+    const halfcut = findTagged(result.paths, 'tongueFold', 'left', 'halfcut');
+    expect(halfcut, '左壁應恰有 1 條 halfcut path').toHaveLength(1);
+    const halfcutLen = (halfcut[0]!.segments as LineSeg[]).reduce((s, seg) => s + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1), 0);
+    expect(halfcutLen, 'halfcut＝reservedSpan−2×endLen＝197.204−90（獨立重導，panelW=216=P 實測）').toBeCloseTo(107.204, 6);
 
     const vRelief = findTagged(result.paths, 'tongueFold', 'left', 'cut');
     expect(vRelief, 'longWall 沒有 V relief 機制（讓位改由 F6-B 角撐周邊負責）').toHaveLength(0);
@@ -1025,15 +1061,33 @@ describe('generateTray: F5 B 款舌根拓撲＋V relief（T0 座標表對算）'
     expect(vRelief, '分支 3（無端段）恆省略 V relief').toHaveLength(0);
   });
 
-  it('mutation 自證：暫時把 V_RELIEF_MIN_END 判準改壞（模擬 E′<7.5 誤放行）會被上方分支 1 測試的臂長斷言攔下——驗證斷言真的有牙齒', () => {
-    // 這裡不修改 production 碼（會影響其他測試平行執行），改用「獨立重算 E′≥7.5 邊界」
-    // 交叉驗證同一結論：分支 1 的 shortWall E′=35 遠高於門檻 7.5，不是恰好卡在邊界上，
-    // 排除「門檻公式錯導致巧合通過」的疑慮。
-    const eNominal = 35;
-    const reservedSpan = 146;
-    const branch1Threshold = 2 * eNominal + 10;
-    expect(reservedSpan).toBeGreaterThanOrEqual(branch1Threshold);
-    expect(eNominal, 'production-P 分支 1 的 E′＝eNominal（不縮），遠高於 V relief 門檻 7.5').toBeGreaterThan(7.5);
+  it('F4 review Fix（2026-07-11）：V relief 可容納邊界 E′=7.5（真行為測試，直接斷言幾何是否生成）——E′ 恰為門檻時仍生成', () => {
+    // 舊「mutation 自證」測試只重算常數（eNominal=35≥7.5 恆真，不碰生成器），無法證明
+    // E′<7.5 真的會被攔下。這裡改構造 panelL 讓 shortWall 的 E′ 恰好落在門檻上，直接讀
+    // generateTray 輸出斷言 V relief 是否存在（真行為，非算式重言）。
+    // panelL=30 → perpHalf=15 → reservedSpan=2×(15−2.5)=25（<2×35+10=100，落分支 2，
+    // 不是分支 1，隔離「純測 V_RELIEF_MIN_END 門檻」不與分支 1/2 邊界混淆）→
+    // E′=(25−10)/2=7.5，條件 endLen>=V_RELIEF_MIN_END(7.5) 為真 → 應生成。
+    const result = generateTray({ ...lidOpts, panelL: 30 });
+    const crease = findTagged(result.paths, 'tongueFold', 'back', 'crease');
+    const creaseLens = (crease[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(creaseLens, 'E′=(25−10)/2=7.5（分支 2）').toEqual([7.5, 7.5]);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(vRelief, 'E′=7.5 恰為門檻（>=7.5 為真）→ V relief 應生成（真行為斷言，非算式重言）').toHaveLength(1);
+    expect((vRelief[0]!.segments as LineSeg[]).length, '4 段（2 個 V 形×2 條直線）').toBe(4);
+  });
+
+  it('F4 review Fix（2026-07-11）：V relief 可容納邊界 E′=7.4（略低於門檻，真行為測試）——E′<7.5 應省略', () => {
+    // panelL=29.8 → perpHalf=14.9 → reservedSpan=2×(14.9−2.5)=24.8（仍屬分支 2）→
+    // E′=(24.8−10)/2=7.4<7.5 → 應省略（真行為斷言：直接讀 generateTray 輸出，不重算常數）。
+    const result = generateTray({ ...lidOpts, panelL: 29.8 });
+    const crease = findTagged(result.paths, 'tongueFold', 'back', 'crease');
+    const creaseLens = (crease[0]!.segments as LineSeg[]).map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+    expect(creaseLens, 'E′=(24.8−10)/2=7.4（分支 2，端段仍存在，只是 V relief 依附的門檻沒過）').toEqual([7.4, 7.4]);
+
+    const vRelief = findTagged(result.paths, 'tongueFold', 'back', 'cut');
+    expect(vRelief, 'E′=7.4<7.5 → V relief 應省略（真行為斷言；門檻若誤放行本測試會抓到 4 段 vRelief cut）').toHaveLength(0);
   });
 });
 
@@ -1122,6 +1176,67 @@ describe('generateTray: F6-B B 款角撐周邊（T0 座標表對算）', () => {
     ]);
     const hit = flapPts.some((p) => Math.abs(p.x - periEnd.x) < 1e-6 && Math.abs(p.y - periEnd.y) < 1e-6);
     expect(hit, 'P6 應精確重合 tongueFlap 梯形的一個端點（觸而不穿，非假交叉）').toBe(true);
+  });
+
+  it('F2 review Fix（2026-07-11）：四角完整鏈鎖 P（±0.05mm，不透過 tray.ts 常數表）——上一條「P6 觸碰 tongueFlap」只驗兩者互相重合，兩者可一起偏離 P 仍全綠；本測試改直接比對 T0 fixture 原始 P-mm 座標（LINE161-165／180-184／121-125／141-145）', () => {
+    // fixtureRaw.lid.panel.corners_mm 為獨立 T0 量測（非本次補量），與本檔案透過
+    // bLongWallFlapRecess 反推的角落座標一致（topLeft=(174.371,197.1393)，見 F1 review
+    // Fix report 獨立重新量測過程）——用它算 translate，不依賴 tray.ts 的 halfL/halfW 以外
+    // 任何常數表。四個 chain 的第 6 段（P5→P6）即 F1 review 的爭議點，本測試逐段（含
+    // P6）鎖死，之後任何人再把 bPeripheryTailB 改回舊公式都會在此變紅。
+    const result = generateTray(lidOpts);
+    const halfL = lidOpts.panelL / 2;
+    const halfW = lidOpts.panelW / 2;
+    const T = 0.05; // spec §驗收條件容差分層：detour 尺寸 ±0.05
+
+    const cornersMm = fixtureRaw.lid.panel.corners_mm;
+    const periphery = fixtureRaw.lid.bGussetPeriphery;
+    type ChainEntry = (typeof periphery.topLeft_chain)[number];
+
+    const cases: Array<{ label: string; sx: 1 | -1; sy: 1 | -1; fixtureCorner: readonly [number, number]; chain: readonly ChainEntry[] }> = [
+      { label: 'left-front', sx: -1, sy: -1, fixtureCorner: cornersMm.topLeft as [number, number], chain: periphery.topLeft_chain },
+      { label: 'right-front', sx: 1, sy: -1, fixtureCorner: cornersMm.topRight as [number, number], chain: periphery.topRight_chain },
+      { label: 'left-back', sx: -1, sy: 1, fixtureCorner: cornersMm.bottomLeft as [number, number], chain: periphery.bottomLeft_chain },
+      { label: 'right-back', sx: 1, sy: 1, fixtureCorner: cornersMm.bottomRight as [number, number], chain: periphery.bottomRight_chain },
+    ];
+
+    for (const { label, sx, sy, fixtureCorner, chain } of cases) {
+      expect(chain, `${label} fixture 鏈應恰有 6 段（P0→P1→P2→(R2)→P3→P4→P5→P6）`).toHaveLength(6);
+      const translate = { x: sx * halfL - fixtureCorner[0], y: sy * halfW - fixtureCorner[1] };
+      const peri = findTagged(result.paths, 'bGussetPeriphery', label, 'cut');
+      expect(peri, `${label} 應恰有 1 條 bGussetPeriphery cut path`).toHaveLength(1);
+
+      for (const entry of chain) {
+        if (entry.kind === 'line') {
+          const p1 = entry.p1_mm!;
+          const p2 = entry.p2_mm!;
+          const x1 = p1[0]! + translate.x;
+          const y1 = p1[1]! + translate.y;
+          const x2 = p2[0]! + translate.x;
+          const y2 = p2[1]! + translate.y;
+          expectLine(peri, x1, y1, x2, y2, T, `${label}（fixture ${entry.gid}）`);
+        } else {
+          const p0 = entry.p0_mm!;
+          const p3 = entry.p3_mm!;
+          const e1 = { x: p0[0]! + translate.x, y: p0[1]! + translate.y };
+          const e2 = { x: p3[0]! + translate.x, y: p3[1]! + translate.y };
+          const arc = findArc(peri, entry.radius_mm!, e1, e2, T);
+          expect(arc, `${label}（fixture ${entry.gid} R${entry.radius_mm} 圓角）應存在對應 arc`).toBeDefined();
+        }
+      }
+
+      // 額外聚焦鏈"終點" P6：上面逐段迴圈已含此段，這裡再用獨立路徑（直接讀 generateTray
+      // 輸出的最後一個 segment，不透過 findTagged 的 tag 篩選以外任何邏輯）明確鎖 P6 座標，
+      // 避免「逐段比對剛好都能配對到某條線」的巧合掩蓋 P6 本身。
+      const p6Entry = chain[chain.length - 1]!;
+      if (p6Entry.kind !== 'line') throw new Error('P6 段（鏈終點）預期為 line');
+      const p6End = p6Entry.p2_mm!;
+      const p6World = { x: p6End[0]! + translate.x, y: p6End[1]! + translate.y };
+      const periLines = peri[0]!.segments as LineSeg[];
+      const lastSeg = periLines[periLines.length - 1]!;
+      expect(lastSeg.x2, `${label} P6.x（鏈終點，鎖 T0 fixture ${p6Entry.gid}）`).toBeCloseTo(p6World.x, 1);
+      expect(lastSeg.y2, `${label} P6.y（鏈終點，鎖 T0 fixture ${p6Entry.gid}）`).toBeCloseTo(p6World.y, 1);
+    }
   });
 
   it('無 NaN、bGussetPeriphery 與其餘 cut 幾何無自撞（lidOpts 及極端 innerWallReduction/height 皆驗）', () => {
@@ -1557,6 +1672,22 @@ describe('telescope: tongue-crease-shrunk／tongue-crease-omitted／relief-omitt
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'relief-omitted')!;
     expect(inv.check(params, result), 'baseWidth=20 → shortWall E′=2.5<7.5，V relief 應省略').toMatchObject({ ok: false });
+  });
+
+  it('F4 review Fix（2026-07-11）：relief-omitted warning 在 E′=7.5／7.45 兩個真邊界皆真行為驗證（不只 E′=2.5 這種遠低於門檻的案例）', () => {
+    // baseWidth=30＝schema 合法 min（不必構造界外值）：shortSpan=30，reservedSpan=
+    // 2×(15−2.5)=25，E′=(25−10)/2=7.5，恰為門檻——條件 endLen>=7.5 為真 → 不觸發警告。
+    const paramsAt = resolveParams(telescope, { basePlatformWidth: 0, baseWidth: 30 });
+    const resultAt = telescope.generate(paramsAt);
+    const invAt = telescope.invariants.find((i) => i.id === 'relief-omitted')!;
+    expect(invAt.check(paramsAt, resultAt), 'baseWidth=30（schema 合法 min）→ E′=7.5 恰為門檻，>=7.5 為真 → 不觸發').toMatchObject({ ok: true });
+
+    // baseWidth=29.9（略低於 schema min，界外值，同既有手法）：shortSpan=29.9，
+    // reservedSpan=2×(14.95−2.5)=24.9，E′=(24.9−10)/2=7.45<7.5 → 應觸發。
+    const paramsBelow = resolveParams(telescope, { basePlatformWidth: 0, baseWidth: 29.9 });
+    const resultBelow = telescope.generate(paramsBelow);
+    const invBelow = telescope.invariants.find((i) => i.id === 'relief-omitted')!;
+    expect(invBelow.check(paramsBelow, resultBelow), 'baseWidth=29.9 → E′=7.45<7.5 → 應觸發（與上面 7.5 案例僅差 0.1mm baseWidth，證明門檻本身有牙齒，非遠低於門檻才測得出來）').toMatchObject({ ok: false });
   });
 
   it('tongue-crease-omitted：構造 reservedSpan<10（界外值，同上手法）', () => {
