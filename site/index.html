@@ -66,9 +66,49 @@
   </div>
 </section>
 
-<!-- Act II: Task 5 -->
+<!-- ══ Act II · The instrument (A) ══ -->
+<section id="instrument">
+  <div class="copy reveal">
+    <p class="kicker mono">No. 01 — Generate · <b>live on this page</b></p>
+    <h2>Every box<br>begins <span class="flat">flat.</span></h2>
+    <p class="lede-a">Drag the three measures. The die drawing answers as you pull — <b>exact to the millimetre</b>, ready for any die-shop.</p>
+  </div>
+  <div class="bench reveal" style="--d:0.15s">
+    <div class="drawing">
+      <i class="rb" aria-hidden="true"></i>
+      <p class="plate-label mono">Plate Nº 04 — Tray, glued corners</p>
+      <svg id="die" viewBox="0 0 100 100" aria-label="Parametric tray dieline"></svg>
+      <div class="legend mono">
+        <span><i></i>Cut</span>
+        <span class="crease-key"><i></i>Crease</span>
+      </div>
+    </div>
+    <div class="console">
+      <div class="param">
+        <label class="mono" for="w">Width</label>
+        <output id="w-out">240<small>mm</small></output>
+        <input type="range" id="w" min="120" max="380" value="240">
+      </div>
+      <div class="param">
+        <label class="mono" for="d">Depth</label>
+        <output id="d-out">160<small>mm</small></output>
+        <input type="range" id="d" min="80" max="300" value="160">
+      </div>
+      <div class="param">
+        <label class="mono" for="h">Height</label>
+        <output id="h-out">60<small>mm</small></output>
+        <input type="range" id="h" min="20" max="140" value="60">
+      </div>
+    </div>
+    <div class="cta page">
+      <a class="button" href="https://open-dieline.vercel.app">Open the instrument →</a>
+      <span class="note mono">Desktop browser only — the tool needs a wide bench.</span>
+    </div>
+  </div>
+</section>
 
 <!-- Act III + footer: Task 6 -->
 
+<script src="js/site.js" defer></script>
 </body>
 </html>
