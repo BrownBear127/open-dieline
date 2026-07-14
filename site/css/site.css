@@ -1,0 +1,333 @@
+/* Konvolut dieline site — layout stylesheet.
+   Ported from the style bible (MOCK): Coding Projets/feature/2026/07/14-open-dieline-intro-site/mocks/slice-d-composite.html
+   Tokens (:root vars, .label/.mono/.page/.reveal/.rule-*) live in tokens.css — not repeated here. */
+
+/* ── self-hosted fonts (replaces MOCK's Google Fonts <link>) ── */
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-italic-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Familjen Grotesk";
+  src: url("../fonts/familjen.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/plex-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── global reset + body (MOCK: universal reset carried with body — both
+   are page-global, neither is a token; needed for #press/#instrument grid
+   padding math to match the style bible) ── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Fraunces", Georgia, serif;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ══ Act I — masthead (C) ══════════════ */
+#press .masthead { text-align: center; padding-top: 40px; }
+#press .folio {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-soft);
+  padding-bottom: 14px;
+}
+#press h1 {
+  font-size: clamp(64px, 9vw, 132px);
+  font-weight: 400;
+  font-variation-settings: "opsz" 144;
+  letter-spacing: 0.015em;
+  line-height: 1;
+  padding: 34px 0 26px;
+}
+#press h1 em { font-style: italic; font-weight: 340; }
+#press .dateline {
+  padding: 10px 0;
+  display: flex;
+  justify-content: center;
+  gap: 36px;
+  color: var(--ink-soft);
+}
+#press .dateline a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--ink); padding-bottom: 1px; }
+#press .lede { text-align: center; padding: 84px 0 68px; }
+#press .lede .kicker { color: var(--ink-soft); margin-bottom: 26px; }
+#press .lede h2 {
+  font-size: clamp(40px, 4.6vw, 68px);
+  font-weight: 380;
+  font-variation-settings: "opsz" 110;
+  line-height: 1.12;
+  max-width: 20ch;
+  margin: 0 auto;
+}
+#press .lede h2 em { font-style: italic; font-weight: 340; }
+#press .byline {
+  margin-top: 30px;
+  font-style: italic;
+  font-size: 19px;
+  font-variation-settings: "opsz" 18;
+  color: var(--ink-soft);
+}
+#press .byline b { font-weight: 550; font-style: normal; color: var(--ink); }
+#press .contents {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+}
+#press .toc { padding: 34px 34px 44px; border-right: 1px solid var(--hairline); }
+#press .toc:last-child { border-right: none; }
+#press .toc .no { font-variation-settings: "opsz" 60; font-style: italic; font-size: 15px; color: var(--ink-soft); display: block; margin-bottom: 20px; }
+#press .toc h3 { font-size: clamp(24px, 2.2vw, 32px); font-weight: 420; font-variation-settings: "opsz" 60; margin-bottom: 14px; }
+#press .toc p { font-size: 15.5px; line-height: 1.6; font-variation-settings: "opsz" 14; color: var(--ink-soft); max-width: 30ch; }
+#press .toc .label { display: inline-block; margin-top: 22px; color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
+
+/* ══ Act II — the instrument (A) ═══════ */
+#instrument {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(480px, 1.15fr);
+}
+#instrument .copy {
+  padding: 60px 48px 48px 48px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--ink);
+}
+#instrument .kicker { color: var(--ink-soft); margin-bottom: 38px; }
+#instrument .kicker b { color: var(--crease); font-weight: 500; }
+#instrument h2 {
+  font-size: clamp(56px, 5.8vw, 96px);
+  line-height: 0.98;
+  font-weight: 380;
+  font-variation-settings: "opsz" 144;
+  letter-spacing: -0.015em;
+}
+#instrument h2 .flat { font-style: italic; font-weight: 500; color: var(--cut); }
+#instrument .copy p.lede-a {
+  margin-top: auto;
+  padding-top: 44px;
+  max-width: 34ch;
+  font-size: 18.5px;
+  line-height: 1.5;
+  font-variation-settings: "opsz" 18;
+  color: var(--ink-soft);
+}
+#instrument .copy p.lede-a b { color: var(--ink); font-weight: 550; }
+#instrument .bench { display: flex; flex-direction: column; }
+#instrument .drawing {
+  flex: 1;
+  position: relative;
+  padding: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 480px;
+}
+#instrument .drawing::before, #instrument .drawing::after,
+#instrument .drawing .rb::before, #instrument .drawing .rb::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border-color: var(--ink);
+  border-style: solid;
+  border-width: 0;
+}
+#instrument .drawing::before { top: 16px; left: 16px; border-top-width: 1px; border-left-width: 1px; }
+#instrument .drawing::after  { top: 16px; right: 16px; border-top-width: 1px; border-right-width: 1px; }
+#instrument .drawing .rb::before { bottom: 16px; left: 16px; border-bottom-width: 1px; border-left-width: 1px; }
+#instrument .drawing .rb::after  { bottom: 16px; right: 16px; border-bottom-width: 1px; border-right-width: 1px; }
+#instrument .drawing svg { width: 100%; max-height: 50vh; overflow: visible; }
+#instrument .plate-label { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: var(--ink-soft); }
+#instrument .legend { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 24px; color: var(--ink-soft); }
+#instrument .legend i { display: inline-block; width: 26px; height: 0; border-top: 1.5px solid var(--cut); vertical-align: middle; margin-right: 7px; }
+#instrument .legend .crease-key i { border-top: 1.5px dashed var(--crease); }
+#instrument .console { border-top: 1px solid var(--ink); display: grid; grid-template-columns: repeat(3, 1fr); }
+#instrument .param { padding: 18px 24px 22px; border-right: 1px solid var(--hairline); }
+#instrument .param:last-child { border-right: none; }
+#instrument .param label { display: block; color: var(--ink-soft); margin-bottom: 6px; }
+#instrument .param output {
+  display: block;
+  font-family: "Fraunces", serif;
+  font-size: clamp(34px, 3.4vw, 50px);
+  font-weight: 340;
+  font-variation-settings: "opsz" 60;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  margin-bottom: 14px;
+}
+#instrument .param output small { font-size: 0.38em; font-style: italic; font-weight: 400; color: var(--ink-soft); margin-left: 2px; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: ew-resize; }
+input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--ink); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px; height: 13px;
+  margin-top: -6.5px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  transition: background 0.15s, transform 0.15s;
+}
+input[type="range"]::-webkit-slider-thumb:hover { background: var(--cut); border-color: var(--cut); transform: scale(1.15); }
+input[type="range"]::-moz-range-track { height: 1px; background: var(--ink); }
+input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 50%; }
+
+/* ══ Act III — the composing room (B, light) ══ */
+#case-room { padding-top: 72px; }
+#case-room .kicker { color: var(--ink-soft); margin-bottom: 30px; }
+#case-room .kicker b { color: var(--brass-deep); font-weight: 500; }
+#case-room .verse .line {
+  display: flex;
+  align-items: baseline;
+  gap: 4vw;
+  padding: 0.5vw 0 1.2vw;
+}
+#case-room .word {
+  font-size: clamp(76px, 10.5vw, 180px);
+  line-height: 0.92;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144, "SOFT" 0, "WONK" 0;
+  transition: font-variation-settings 0.45s cubic-bezier(0.2, 0.7, 0.2, 1), font-style 0.45s, color 0.3s;
+  cursor: default;
+}
+#case-room .word:hover {
+  font-style: italic;
+  font-variation-settings: "opsz" 144, "SOFT" 55, "WONK" 1;
+  color: var(--brass);
+}
+#case-room .line:nth-child(2) .word { margin-left: 12vw; font-weight: 480; }
+#case-room .line:nth-child(3) .word { margin-left: 4vw; font-style: italic; font-weight: 340; }
+#case-room .gloss { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+#case-room .tagline { display: flex; justify-content: space-between; align-items: baseline; gap: 40px; padding: 26px 0 34px; }
+#case-room .tagline .big {
+  font-size: clamp(19px, 1.7vw, 25px);
+  font-style: italic;
+  font-weight: 380;
+  font-variation-settings: "opsz" 20;
+  max-width: 44ch;
+  line-height: 1.45;
+}
+#case-room .tagline .big b { color: var(--brass); font-weight: 550; font-style: normal; }
+#case-room .tagline .mono { color: var(--ink-soft); }
+
+.strip {
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 9px 0;
+}
+.strip span {
+  display: inline-block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.35em;
+  color: var(--ink-soft);
+  animation: slide 38s linear infinite;
+}
+@keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+#case-room .case { padding: 64px 0 90px; }
+#case-room .case > .mono { color: var(--ink-soft); margin-bottom: 8px; }
+#case-room .case h3 {
+  font-size: clamp(30px, 3vw, 46px);
+  font-weight: 380;
+  font-style: italic;
+  font-variation-settings: "opsz" 60;
+  margin-bottom: 40px;
+}
+.case-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  border-top: 1px solid var(--hairline);
+  border-left: 1px solid var(--hairline);
+}
+.cell {
+  aspect-ratio: 1;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(26px, 3.2vw, 54px);
+  font-weight: 340;
+  font-variation-settings: "opsz" 144, "WONK" 0;
+  transition: font-variation-settings 0.4s, background 0.3s, color 0.3s, font-style 0.4s;
+  cursor: default;
+  position: relative;
+}
+.cell:hover {
+  background: var(--ink);
+  color: var(--paper);
+  font-style: italic;
+  font-variation-settings: "opsz" 144, "WONK" 1, "wght" 500;
+}
+.cell .mono { position: absolute; bottom: 6px; right: 8px; font-size: 8px; color: inherit; opacity: 0.45; }
+.cell.mark { color: var(--brass-deep); font-family: "IBM Plex Mono", monospace; font-size: clamp(14px, 1.4vw, 22px); letter-spacing: 0; }
+.cell.mark svg { width: 42%; height: 42%; }
+.cell.mark svg * { stroke: var(--brass); fill: none; stroke-width: 1.2; }
+.cell.mark:hover { color: var(--paper); }
+.cell.mark:hover svg * { stroke: var(--paper); }
+#case-room .colophon { margin-top: 36px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+
+footer {
+  padding: 18px 0 44px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-soft);
+}
+footer a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--ink); padding-bottom: 1px; }
+footer .links { display: flex; gap: 22px; }
+
+@media (max-width: 960px) {
+  #press .contents { grid-template-columns: 1fr; }
+  #press .toc { border-right: none; border-bottom: 1px solid var(--hairline); }
+  #instrument { grid-template-columns: 1fr; }
+  #instrument .copy { border-right: none; border-bottom: 1px solid var(--ink); }
+  .case-grid { grid-template-columns: repeat(4, 1fr); }
+  #case-room .gloss { display: none; }
+}
+
+/* ── station-group nav — lives on the folio line (new: not in MOCK) ── */
+.site-nav { display: flex; gap: 26px; }
+.site-nav a { color: var(--ink-soft); text-decoration: none; }
+.site-nav a:hover { color: var(--ink); }
+.site-nav a[aria-current="page"] { color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
+
+/* ── tool CTA (new: not in MOCK — Task 4 uses this) ── */
+.cta { display: flex; align-items: baseline; gap: 22px; padding: 26px 0 30px; }
+.cta a.button {
+  font-family: "Fraunces", Georgia, serif; font-size: 21px; font-style: italic; font-weight: 500;
+  color: var(--paper); background: var(--ink); text-decoration: none; padding: 12px 26px;
+  transition: background .2s;
+}
+.cta a.button:hover { background: var(--cut); }
+.cta .note { color: var(--ink-soft); }
+@media (max-width: 768px) { .cta { flex-direction: column; gap: 10px; } }
