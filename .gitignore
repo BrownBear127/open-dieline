@@ -1,6 +1,7 @@
 node_modules/
 dist/
 refs/
+.gate-dist
 *.ai
 *.eps
 .vercel
