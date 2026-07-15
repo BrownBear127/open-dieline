@@ -15,6 +15,7 @@ import { registerBox } from '@/core/registry';
 import { App } from '@/ui/App';
 import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { OVERLAY_STROKE } from '@/overlay/state';
+import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 
 // ── 測試專用 fake 盒型（review Medium 1 回歸 fixture）：兩片 pieces，非首位片刻意沿用
 // telescope 既有的 'lid' id——用來重現「換盒型只看舊 pieceId 是否仍存在於新盒型」的契約
@@ -380,7 +381,7 @@ describe('App：LayersState 跨模式／跨盒型組合旅程（final 迴歸 rev
     // 設計模式：關兩個生成圖層（generatedVisible）
     fireEvent.click(screen.getByLabelText('切割線'));
     fireEvent.click(screen.getByLabelText('尺寸標註'));
-    const cutSelector = 'svg path[stroke="#000000"]';
+    const cutSelector = `svg path[stroke="${DISPLAY_LINE_STYLES.cut.stroke}"]`;
     expect(document.querySelectorAll(cutSelector).length).toBe(0);
 
     // 進拼版：預覽照畫製造輪廓（spec F7——忽略設計圖層可見性，cut 在拼版預覽必須存在）、
