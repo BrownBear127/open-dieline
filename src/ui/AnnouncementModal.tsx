@@ -17,7 +17,10 @@
  * App.tsx 不需要知道 key 長怎樣，只需要初次掛載時知道「該不該預設開啟」
  * （`isAnnouncementDismissed()`，供 App.tsx 的 `useState` 惰性初始值使用）。
  */
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
+import type { ReactNode } from 'react';
+import pkg from '../../package.json';
+import { t } from '@/i18n/t';
 
 export const ANNOUNCEMENT_DISMISS_KEY = 'open-dieline-announcement-v2-dismissed';
 
@@ -46,6 +49,51 @@ function markAnnouncementDismissed(): void {
 export interface AnnouncementModalProps {
   open: boolean;
   onClose: () => void;
+}
+
+const ATTRIBUTION_LINKS = {
+  Konvolut: 'https://konvolut.art',
+  GitHub: 'https://github.com/BrownBear127/open-dieline',
+  Substack: 'https://konvolut.substack.com',
+} as const;
+
+const MODAL_NOTE_KEYS = [
+  'modal.note.1',
+  'modal.note.2',
+  'modal.note.3',
+  'modal.note.4',
+  'modal.note.5',
+] as const;
+
+type AttributionLabel = keyof typeof ATTRIBUTION_LINKS;
+
+function isAttributionLabel(value: string): value is AttributionLabel {
+  return value in ATTRIBUTION_LINKS;
+}
+
+function renderLineBreaks(copy: string): ReactNode {
+  return copy.split('<br>').map((line, index) => (
+    <Fragment key={`${index}-${line}`}>
+      {index > 0 && <br />}
+      {line}
+    </Fragment>
+  ));
+}
+
+function renderAttribution(copy: string): ReactNode {
+  return copy.split(/(Konvolut|GitHub|Substack)/).map((part, index) => {
+    if (!isAttributionLabel(part)) return part;
+    return (
+      <a
+        key={`${index}-${part}`}
+        href={ATTRIBUTION_LINKS[part]}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {part}
+      </a>
+    );
+  });
 }
 
 export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
@@ -78,84 +126,46 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="關於 open-dieline"
+        aria-label={t('modal.aria')}
         onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-[560px] max-h-[85vh] overflow-y-auto rounded-lg bg-white/95 shadow-2xl border border-zinc-200 p-6"
       >
         <button
           type="button"
           onClick={handleDismiss}
-          aria-label="關閉"
-          className="absolute right-4 top-4 text-xl leading-none text-zinc-400 hover:text-zinc-900 transition-colors"
+          aria-label={t('modal.close')}
+          className="btn label absolute right-4 top-4"
         >
           ×
         </button>
 
-        <div className="flex flex-col gap-4 pr-6 text-sm leading-relaxed text-zinc-700">
+        <div className="pr-6">
           <h2 className="text-lg font-bold tracking-wide text-zinc-900">
-            open-dieline{' '}
-            <span className="align-middle text-xs font-normal tracking-normal text-zinc-400">
-              v0.5.0 開發測試版
-            </span>
+            {t('modal.title')} <span className="mono">{t('modal.version', { version: pkg.version })}</span>
           </h2>
+        </div>
 
-          <p>
-            一個印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。
-            幾何規則以真實生產刀模逆向量測校準。
-          </p>
+        <div className="modal-body mt-4 flex flex-col gap-4 pr-6">
+          <p>{renderLineBreaks(t('modal.body.p1'))}</p>
 
-          <p>
-            目前為開發測試版，僅提供兩種盒型——反向插舌盒（RTE）與天地盒三件套（上蓋／下盒／平台式內襯），
-            更多盒型陸續開發中。
-          </p>
+          <p>{t('modal.body.p2')}</p>
 
-          <p>
-            本專案是{' '}
-            <a
-              href="https://konvolut.art"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
-            >
-              Konvolut
-            </a>{' '}
-            的一部分——關於書、紙、印刷與收藏的實踐。原始碼在{' '}
-            <a
-              href="https://github.com/BrownBear127/open-dieline"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
-            >
-              GitHub
-            </a>
-            ，文字刊於{' '}
-            <a
-              href="https://konvolut.substack.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
-            >
-              Substack
-            </a>
-            。
-          </p>
+          <p>{renderAttribution(t('modal.body.p3'))}</p>
 
-          <div className="flex flex-col gap-1.5 border-t border-zinc-200 pt-4 text-xs text-zinc-500">
-            <p className="font-bold uppercase tracking-wider text-zinc-400">使用注意</p>
-            <p>・產出的刀模僅供打樣與學習參考；量產前請務必實際打樣驗證（紙材、絲向、機台都會影響成品）</p>
-            <p>・紙厚補償係數以特定紙材（黑卡 0.4mm 級）的生產經驗校準，其他紙材請自行試摺調整</p>
-            <p>・所有計算與檔案處理皆在瀏覽器本地完成，匯入的刀模檔不會上傳到任何伺服器</p>
-            <p>・畫布拖曳與校準以滑鼠操作設計，建議使用桌面瀏覽器</p>
-            <p>・非商業使用授權（PolyForm Noncommercial 1.0.0）；商業使用及問題回報請聯繫：hello@konvolut.art</p>
+          <div className="flex flex-col gap-1.5 border-t pt-4">
+            <p className="label">{t('modal.notes.title')}</p>
+            {MODAL_NOTE_KEYS.map((key) => (
+              <p key={key}>{t(key)}</p>
+            ))}
           </div>
         </div>
 
         <button
           type="button"
           onClick={handleDismiss}
-          className="mt-6 w-full rounded-sm bg-zinc-900 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-zinc-700"
+          className="btn label mt-6 w-full"
         >
-          開始使用
+          {t('modal.begin')}
         </button>
       </div>
     </div>
