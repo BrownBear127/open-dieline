@@ -1,23 +1,34 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 每 probe：套變異→跑對應驗證→預期非零 exit→git 復原→驗證轉綠。
+// 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sh = (cmd, env = {}) => execSync(cmd, { cwd: root, stdio: 'pipe', env: { ...process.env, ...env } }).toString();
 const shFails = (cmd, env = {}) => { try { sh(cmd, env); return false; } catch { return true; } };
-const mutate = (rel, from, to) => {
+let originals = new Map();
+const remember = (rel) => {
   const p = path.join(root, rel);
+  if (!originals.has(p)) originals.set(p, readFileSync(p));
+  return p;
+};
+const mutate = (rel, from, to) => {
+  const p = remember(rel);
   const t = readFileSync(p, 'utf8');
   if (!t.includes(from)) throw new Error(`probe 前置失敗：${rel} 找不到 "${from}"`);
   writeFileSync(p, t.replace(from, to));
 };
-// index.html 進 revert 範圍——g6-external-url probe 改塞 index.html（見下方註記），
-// 原「git checkout -- src tests checks/canonical」涵蓋不到 repo root 的 index.html。
-const revert = () => sh('git checkout -- src tests checks/canonical index.html');
+const append = (rel, text) => {
+  const p = remember(rel);
+  writeFileSync(p, Buffer.concat([readFileSync(p), Buffer.from(text)]));
+};
+const revert = () => {
+  for (const [p, contents] of originals) writeFileSync(p, contents);
+  originals = new Map();
+};
 
 const PROBES = [
   // — G1 家族 —
@@ -46,7 +57,7 @@ const PROBES = [
     run: () => mutate('src/styles/vocab.css', 'letter-spacing: 0.015em;', 'letter-spacing: 0.015em;\n    letter-spacing: 0.5em;'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-late-override', gate: 'g2-vocab',
-    run: () => appendFileSync(path.join(root, 'src/index.css'), '\n.masthead .wordmark { font-weight: 900; }\n'),
+    run: () => append('src/index.css', '\n.masthead .wordmark { font-weight: 900; }\n'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   // — G3 家族（新違規＋允許值移位·I3）—
   { id: 'g3-new-utility', gate: 'g3-utility', run: () => mutate('src/ui/App.tsx', 'className="', 'className="text-red-500 '),
@@ -54,6 +65,10 @@ const PROBES = [
   // — G4 —
   { id: 'g4-display-import', gate: 'g4-export-isolation',
     run: () => mutate('src/export/svg.ts', "from '@/core/styles'", "from '@/core/styles';\nimport { DISPLAY_LINE_STYLES } from '@/core/displayStyles'"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  { id: 'g4-rename', gate: 'g4-export-isolation',
+    run: () => mutate('checks/gates/g4-forbidden.json',
+      '"forbidden": ["core/displayStyles", "i18n/", "ui/"]', '"forbidden": []'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   // — G5 —
   { id: 'g5-literal', gate: 'g5-forbidden-words', run: () => mutate('src/ui/App.tsx', 'export', "export const _x = 'open-source';\nexport"),
@@ -69,6 +84,12 @@ const PROBES = [
   // — A2 基線家族（拆層洩漏模擬：改匯出色必被基線抓）—
   { id: 'a2-export-color-leak', gate: 'baseline', run: () => mutate('src/core/styles.ts', "cut: { stroke: '#000000'", "cut: { stroke: '#C93A2B'"),
     check: () => shFails('npx vitest run tests/export/baseline.test.ts') },
+  { id: 'a2-ci-guard', gate: 'baseline', run: () => {},
+    check: () => shFails('npx vitest run tests/export/baseline.test.ts', { CI: '1', BASELINE_WRITE: '1' }) },
+  // — A15 copy inventory —
+  { id: 'a15-drift', gate: 'a15-copy',
+    run: () => mutate('src/i18n/dict.ts', "'chrome.wordmark': { en: 'Open *Dieline*'", "'chrome.wordmark': { en: 'Open *Dielines*'"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
 ];
 
 let allOk = true;
