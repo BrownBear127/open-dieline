@@ -1,0 +1,9 @@
+{
+  "name": "open-dieline-site-checks",
+  "private": true,
+  "type": "module",
+  "description": "Acceptance automation for the dieline.konvolut.art intro site (Task 7). Not part of the tool's own package graph.",
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}
