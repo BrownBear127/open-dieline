@@ -905,19 +905,19 @@ const invariants: BoxInvariant[] = [
       const baseLength = params.baseLength as number;
       const lidMarginX = params.lidMarginX as number;
       const lidMarginY = params.lidMarginY as number;
-      const checks: Array<[string, number, number, string[]]> = [
-        ['base.x（=baseWidth）', baseMeasured.x, baseWidth, ['baseWidth']],
-        ['base.y（=baseLength）', baseMeasured.y, baseLength, ['baseLength']],
-        ['lid.x（=baseWidth+2×lidMarginX）', lidMeasured.x, baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX']],
-        ['lid.y（=baseLength+2×lidMarginY）', lidMeasured.y, baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY']],
+      const checks: Array<[string, string, number, number, string[]]> = [
+        ['base.x（=baseWidth）', 'baseWidth', baseMeasured.x, baseWidth, ['baseWidth']],
+        ['base.y（=baseLength）', 'baseLength', baseMeasured.y, baseLength, ['baseLength']],
+        ['lid.x（=baseWidth+2×lidMarginX）', 'baseWidth+2×lidMarginX', lidMeasured.x, baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX']],
+        ['lid.y（=baseLength+2×lidMarginY）', 'baseLength+2×lidMarginY', lidMeasured.y, baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY']],
       ];
-      for (const [label, actual, expected, tags] of checks) {
+      for (const [zhLabel, enLabel, actual, expected, tags] of checks) {
         if (Math.abs(actual - expected) > tol) {
           return {
             ok: false,
             message: {
-              zh: `${label} 主面板實測 ${actual.toFixed(2)}mm 應為 ${expected.toFixed(2)}mm（pieces 身分可能對調或算錯）`,
-              en: `${label} main panel measures ${actual.toFixed(2)}mm; expected ${expected.toFixed(2)}mm. Piece identities may be swapped or miscalculated.`,
+              zh: `${zhLabel} 主面板實測 ${actual.toFixed(2)}mm 應為 ${expected.toFixed(2)}mm（pieces 身分可能對調或算錯）`,
+              en: `${enLabel} main panel measures ${actual.toFixed(2)}mm; expected ${expected.toFixed(2)}mm. Piece identities may be swapped or miscalculated.`,
             },
             tags,
           };
@@ -1023,20 +1023,20 @@ const invariants: BoxInvariant[] = [
       // FX4：baseLength/baseWidth/lidMarginX/lidMarginY 這些字串本身有效（同時是 index.ts
       // 自己蓋的 dimension path tag，見上方檔頭註解），但真正退化的幾何是插底舌本身，補上
       // 'tongueFlap'（tray.ts buildTongueFlap 的 tag）讓高亮同時點出實際自撞的那段輪廓。
-      const checks: Array<[string, number, string[], number]> = [
-        ['base 片左右壁的插底舌所在邊 baseLength', baseLength, ['baseLength', 'tongueFlap'], baseLongWallMin],
-        ['base 片前後壁的插底舌所在邊 baseWidth', baseWidth, ['baseWidth', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
-        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap'], lidLongWallMin],
-        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
+      const checks: Array<[string, string, number, string[], number]> = [
+        ['base 片左右壁的插底舌所在邊 baseLength', 'baseLength', baseLength, ['baseLength', 'tongueFlap'], baseLongWallMin],
+        ['base 片前後壁的插底舌所在邊 baseWidth', 'baseWidth', baseWidth, ['baseWidth', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
+        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', 'baseLength+2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap'], lidLongWallMin],
+        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', 'baseWidth+2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
       ];
-      for (const [label, edge, tags, minPerpHalf] of checks) {
+      for (const [zhLabel, enLabel, edge, tags, minPerpHalf] of checks) {
         if (edge / 2 < minPerpHalf) {
           const minEdge = 2 * minPerpHalf;
           return {
             ok: false,
             message: {
-              zh: `${label}＝${edge}mm 低於插底舌讓位所需的最小邊長 ${minEdge}mm，該側插底舌梯形已反轉自撞`,
-              en: `${label}=${edge}mm is below the minimum edge length of ${minEdge}mm required for the bottom-lock tongue relief; the tongue trapezoid on this side has reversed and self-intersected.`,
+              zh: `${zhLabel}＝${edge}mm 低於插底舌讓位所需的最小邊長 ${minEdge}mm，該側插底舌梯形已反轉自撞`,
+              en: `${enLabel}=${edge}mm is below the minimum edge length of ${minEdge}mm required for the bottom-lock tongue relief; the tongue trapezoid on this side has reversed and self-intersected.`,
             },
             tags,
           };

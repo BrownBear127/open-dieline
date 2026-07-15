@@ -1428,7 +1428,12 @@ describe('telescope: pieces 分組（linerEnabled 開關／pieces-identity 防�
       }),
     };
     const inv = telescope.invariants.find((i) => i.id === 'pieces-identity')!;
-    expect(inv.check(params, swapped)).toMatchObject({ ok: false });
+    const outcome = inv.check(params, swapped);
+    expect(outcome).toMatchObject({ ok: false });
+    if (!outcome.ok) {
+      expect(outcome.message.en).not.toMatch(/[一-鿿]/u);
+      expect(outcome.message.en).toMatch(/^baseWidth main panel measures /);
+    }
   });
 });
 
