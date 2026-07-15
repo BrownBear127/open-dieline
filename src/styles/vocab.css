@@ -1,0 +1,228 @@
+/* vocab.css — D 語彙（Phase 2）。來源=凍結 mock tool-chrome-mock.html（第四 canonical·
+   Spec §4-4）machine-copy；§A=站群語彙逐字（原始出處行號見各段註解）、§B=工具衍生件。
+   修改規則：verbatim-lock——改值必先改 canonical 再 machine-copy 回來。 */
+
+  /* ═══════════════════════════════════════════════════════════════
+     §A 凍結語彙 — 逐字抄自 canonical（來源標注於各段）
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* tokens — ks impl/assets/tokens.css :root（byte-parity 對象，逐字） */
+  /* 兩種小字聲部 — slice-d:29-42 / tokens.css .label .mono（逐字） */
+  /* range slider — slice-d:196-209（逐字；工具 console 的核心儀器件） */
+  input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: ew-resize; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--ink); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px;
+    margin-top: -6.5px;
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 50%;
+    transition: background 0.15s, transform 0.15s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { background: var(--cut); border-color: var(--cut); transform: scale(1.15); }
+  input[type="range"]::-moz-range-track { height: 1px; background: var(--ink); }
+  input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 50%; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     §B 工具 chrome 衍生件 — 本 mock 簽核後凍結為工具版 bible
+     （新 context＝app 側欄/工具列；語彙件逐字、尺寸為衍生值）
+     ═══════════════════════════════════════════════════════════════ */
+  /* — app 外框 — */
+  .app {
+    max-width: 1280px; margin: 0 auto; height: 88vh; min-height: 640px;
+    border: 1px solid var(--ink);
+    display: grid; grid-template-rows: auto auto 1fr auto;
+    background: var(--paper);
+  }
+
+  /* — masthead-lite：wordmark 列＋雙細線（rule-bd 語義，slice-d:61 的 3px double） — */
+  .masthead {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 18px 24px 14px;
+    border-bottom: 3px double var(--ink);
+  }
+  .masthead .wordmark {
+    font-size: 30px;                      /* 衍生：site h1=clamp(64,9vw,132)，app 直排經濟版 */
+    font-weight: 400;                     /* slice-d:73-80 h1（逐字：weight/opsz/tracking/lh） */
+    font-variation-settings: "opsz" 144;
+    letter-spacing: 0.015em;
+    line-height: 1;
+  }
+  .masthead .wordmark em { font-style: italic; font-weight: 340; }  /* slice-d:81 */
+  .masthead .meta { display: flex; gap: 22px; align-items: baseline; color: var(--ink-soft); }
+  .masthead .meta .lang b { color: var(--ink); font-weight: 500; }
+  .masthead .meta .lang span { cursor: default; }
+
+  /* — console 列：模式切換＋現況讀數 — */
+  .moderow {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .moderow .modes { display: flex; gap: 26px; align-items: center; }
+  .moderow .modes .k { color: var(--ink-soft); }
+  .mode {
+    display: inline-block; padding: 11px 2px 9px;
+    color: var(--ink-soft); cursor: default;
+    border-bottom: 2px solid transparent;
+  }
+  .mode.on { color: var(--ink); border-bottom-color: var(--cut); } /* 現行模式＝紅 cut 底線 */
+  .moderow .readout { color: var(--ink-soft); }
+  .moderow .readout b { color: var(--ink); font-weight: 500; }
+
+  /* — 主區：console 側欄 320px＋畫布 — */
+  .main { display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
+  .console {
+    border-right: 1px solid var(--ink);
+    overflow-y: auto; min-height: 0;
+    display: flex; flex-direction: column;
+  }
+  .sect { padding: 16px 20px 18px; border-bottom: 1px dashed var(--hairline); }
+  .sect-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  .sect-head .label { color: var(--ink); }
+  .sect-head .mono { color: var(--ink-soft); }
+
+  /* 盒型選擇：儀器式 select */
+  .boxsel { position: relative; }
+  .boxsel select {
+    width: 100%; appearance: none; -webkit-appearance: none;
+    background: transparent; border: 1px solid var(--ink); border-radius: 0;
+    padding: 10px 12px;
+    font-family: "Fraunces", serif; font-size: 17px; font-weight: 420;
+    font-variation-settings: "opsz" 60;
+    color: var(--ink); cursor: pointer;
+  }
+  .boxsel::after { content: "▾"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--ink-soft); pointer-events: none; }
+
+  /* 參數件：slice-d console .param 的直排版（label/output 語彙逐字，尺寸衍生） */
+  .param { padding: 10px 0 6px; }
+  .param + .param { border-top: 1px dashed var(--hairline); }
+  .param label { display: block; color: var(--ink-soft); margin-bottom: 4px; }   /* mono 掛 class */
+  .param output {
+    display: block;
+    font-family: "Fraunces", serif;        /* slice-d:185-194（逐字：family/weight/opsz/tabular） */
+    font-weight: 340;
+    font-variation-settings: "opsz" 60;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    font-size: 28px;                       /* 衍生：bible=clamp(34,3.4vw,50)，320px 側欄縮級 */
+    margin-bottom: 8px;
+  }
+  .param output small { font-size: 0.38em; font-style: italic; font-weight: 400; color: var(--ink-soft); margin-left: 2px; } /* slice-d:195 逐字 */
+
+  .group-collapsed { display: flex; justify-content: space-between; padding: 13px 20px; border-bottom: 1px dashed var(--hairline); color: var(--ink-soft); cursor: default; }
+  .group-collapsed .n { color: var(--ink-soft); }
+
+  /* 圖層件 */
+  .layer { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+  .layer .tick { width: 13px; height: 13px; border: 1px solid var(--ink); flex: none; position: relative; }
+  .layer .tick.on::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+  .layer .key { width: 26px; height: 0; border-top: 1.5px solid var(--cut); flex: none; }  /* slice-d:179 legend 逐字 */
+  .layer .key.crease { border-top-style: dashed; border-top-color: var(--crease); }         /* slice-d:180 */
+  .layer .key.halfcut { border-top-style: dotted; border-top-color: var(--brass); } /* D8：halfcut 顯示色=brass */
+  .layer .key.dim { border-top-width: 1px; border-top-color: var(--ink-soft); }
+  .layer .mono { color: var(--ink); }
+  .layer .mono s { color: var(--ink-soft); text-decoration: none; }
+
+  /* 按鈕：D 語彙新件（label 聲部＋ink 框，hover 反白）——簽核後凍結 */
+  .btn {
+    display: inline-block; padding: 9px 14px;
+    border: 1px solid var(--ink); background: transparent; border-radius: 0;
+    color: var(--ink); cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn.quiet { border-color: var(--hairline); color: var(--ink-soft); }
+  .btn.quiet:hover { border-color: var(--ink); background: transparent; color: var(--ink); }
+  .btn.tog.on { background: var(--ink); color: var(--paper); }
+
+  /* — 畫布 — */
+  .bench { position: relative; display: flex; flex-direction: column; min-height: 0; }
+  .warnbar {
+    display: flex; gap: 18px; align-items: center;
+    padding: 8px 24px;
+    border-bottom: 1px dashed var(--hairline);
+    color: var(--cut);
+  }
+  .warnbar .n { color: var(--ink-soft); }
+  .drawing { flex: 1; position: relative; padding: 36px; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
+  /* 四角量規 — slice-d:163-175（逐字：14px、1px、16px 內距） */
+  .drawing::before, .drawing::after,
+  .drawing .rb::before, .drawing .rb::after {
+    content: ""; position: absolute; width: 14px; height: 14px;
+    border-color: var(--ink); border-style: solid; border-width: 0;
+  }
+  .drawing::before { top: 16px; left: 16px; border-top-width: 1px; border-left-width: 1px; }
+  .drawing::after  { top: 16px; right: 16px; border-top-width: 1px; border-right-width: 1px; }
+  .drawing .rb::before { bottom: 16px; left: 16px; border-bottom-width: 1px; border-left-width: 1px; }
+  .drawing .rb::after  { bottom: 16px; right: 16px; border-bottom-width: 1px; border-right-width: 1px; }
+  .drawing svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; }
+  .plate-label { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: var(--ink-soft); }  /* slice-d:177 */
+  .legend { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 24px; color: var(--ink-soft); } /* slice-d:178-180 */
+  .legend i { display: inline-block; width: 26px; height: 0; border-top: 1.5px solid var(--cut); vertical-align: middle; margin-right: 7px; }
+  .legend .crease-key i { border-top: 1.5px dashed var(--crease); }
+  .zoom { position: absolute; bottom: 20px; right: 24px; color: var(--ink-soft); display: flex; gap: 14px; align-items: center; }
+  .zoom b { color: var(--ink); font-weight: 500; }
+  .zoom .zbtn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--hairline); border-radius: 0; background: transparent;
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; line-height: 1;
+    color: var(--ink); cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .zoom .zbtn:hover { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+  .zoom .fit { cursor: pointer; }
+
+  /* — plate·匯出列 — */
+  .platebar {
+    display: flex; justify-content: space-between; align-items: center; gap: 24px;
+    padding: 13px 24px;
+    border-top: 1px solid var(--ink);
+  }
+  .platebar .status { color: var(--ink-soft); display: flex; gap: 20px; flex-wrap: wrap; }
+  .platebar .status b { color: var(--ink); font-weight: 500; }
+  .platebar .acts { display: flex; gap: 10px; align-items: center; }
+  .platebar .compat { display: flex; gap: 8px; align-items: center; color: var(--ink-soft); margin-right: 8px; cursor: default; }
+  .platebar .compat .tick { width: 13px; height: 13px; border: 1px solid var(--ink-soft); }
+
+  /* — 拼版模式件 — */
+  .imp-toolbar { display: flex; border-bottom: 1px solid var(--ink); flex-wrap: wrap; }
+  .imp-group { padding: 12px 20px 14px; border-right: 1px solid var(--hairline); }
+  .imp-group:last-child { border-right: none; }
+  .imp-group .k { display: block; color: var(--ink-soft); margin-bottom: 8px; }
+  .imp-group .row { display: flex; gap: 6px; align-items: center; }
+  .imp-group .mono.val { color: var(--ink); }
+  .imp-results { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .imp-card { padding: 28px 32px 24px; border-right: 1px solid var(--hairline); display: flex; flex-direction: column; position: relative; min-height: 0; }
+  .imp-card:last-child { border-right: none; }
+  .imp-card .best { position: absolute; top: 20px; right: 24px; color: var(--brass-deep); }
+  .imp-card h4 { font-size: 22px; font-weight: 420; font-variation-settings: "opsz" 60; margin-bottom: 4px; }
+  .imp-card h4 em { font-style: italic; font-weight: 340; }
+  .imp-card .sub { color: var(--ink-soft); margin-bottom: 18px; }
+  .imp-card .sheet { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 8px 0 16px; overflow: hidden; }
+  .imp-card .sheet svg { height: 100%; max-width: 100%; max-height: 100%; }
+  .imp-stats { display: flex; border-top: 1px dashed var(--hairline); }
+  .imp-stats div { flex: 1; padding: 12px 0 2px; }
+  .imp-stats div + div { border-left: 1px dashed var(--hairline); padding-left: 18px; }
+  .imp-stats .k { display: block; color: var(--ink-soft); margin-bottom: 5px; }
+  .imp-stats .v {
+    font-family: "Fraunces", serif; font-size: 26px; font-weight: 340;
+    font-variation-settings: "opsz" 60; font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .imp-stats .v small { font-size: 0.42em; font-style: italic; font-weight: 400; color: var(--ink-soft); }
+
+  /* — zh 對照件：幾何全同 EN，只換字面與字型 — */
+  .zh .label, .zh .mono-cjk { font-family: "Noto Serif TC", serif; letter-spacing: 0.12em; text-transform: none; }
+  .zh .label { font-size: 11px; font-weight: 600; }
+  .zh-note p b { color: var(--ink); font-weight: 550; }
+
+/* ═══ @font-face manifest（font-gate REQUIRED_FACES 對象·family/file/weight/style 精確集） ═══ */
+@font-face { font-family: "Fraunces"; src: url("/fonts/fraunces-var.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Fraunces"; src: url("/fonts/fraunces-italic-var.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "Familjen Grotesk"; src: url("/fonts/familjen.woff2") format("woff2"); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex-mono.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex-mono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Serif TC"; src: url("/fonts/noto-serif-tc-subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+

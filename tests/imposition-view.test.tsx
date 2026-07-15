@@ -9,6 +9,7 @@ import * as profileCore from '@/core/profile';
 import { segmentsToSvgD } from '@/core/path';
 import { ImpositionView, ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
+import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 import { Z_NOTCH_SEGMENTS, Z_NOTCH_GAP, POSITIVE_FILL_INPUT, Z_NOTCH_ANCHOR_DEG0, Z_NOTCH_ANCHOR_DEG90 } from './fixtures/z-notch';
 
 // ── fixtures ─────────────────────────────────────────────────────────────
@@ -542,10 +543,12 @@ describe('ImpositionView — 線型 DOM 接線（review 測試縫 2）', () => {
     for (const group of instanceGroups) {
       const strokes = Array.from(group.querySelectorAll('path')).map((el) => el.getAttribute('stroke'));
       expect(strokes).toHaveLength(3); // cut+crease+halfcut，一個 instance 恰三條線
-      expect(strokes.slice().sort()).toEqual(['#000000', '#00FF00', '#FFFF00'].sort()); // cut/crease/halfcut
-      expect(strokes).not.toContain('#FF00FF'); // bleed
-      expect(strokes).not.toContain('#888888'); // annotation
-      expect(strokes).not.toContain('#3B82F6'); // dimension
+      expect(strokes.slice().sort()).toEqual(
+        [DISPLAY_LINE_STYLES.cut.stroke, DISPLAY_LINE_STYLES.crease.stroke, DISPLAY_LINE_STYLES.halfcut.stroke].sort(),
+      ); // cut/crease/halfcut
+      expect(strokes).not.toContain(DISPLAY_LINE_STYLES.bleed.stroke); // bleed
+      expect(strokes).not.toContain(DISPLAY_LINE_STYLES.annotation.stroke); // annotation
+      expect(strokes).not.toContain(DISPLAY_LINE_STYLES.dimension.stroke); // dimension
     }
   });
 
