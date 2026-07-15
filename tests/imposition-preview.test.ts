@@ -683,7 +683,7 @@ describe('previewPaths', () => {
       texts: [],
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
     };
-    const pieceA: DielinePiece = { id: 'a', label: { zh: 'A' }, pathIds: ['a-cut', 'a-dim'], textIds: [], bounds: result.bounds };
+    const pieceA: DielinePiece = { id: 'a', label: { zh: 'A', en: 'A' }, pathIds: ['a-cut', 'a-dim'], textIds: [], bounds: result.bounds };
     // a-dim 屬於片 A 但線型不在預覽三線型內、b-* 線型合格但不屬於片 A：兩種排除理由都要驗到。
     expect(previewPaths(result, pieceA).map((p) => p.id)).toEqual(['a-cut']);
   });
