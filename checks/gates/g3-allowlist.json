@@ -1,1 +1,3 @@
-[]
+[
+  { "file": "src/core/styles.ts", "pattern": "stroke: '#", "property": "stroke", "reason": "匯出層線型真相源（Spec §5 匯出不動·cut=#000000 行業慣例值）——非 UI 語彙違規" }
+]
