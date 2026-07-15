@@ -1931,14 +1931,14 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
       pieces: [
         {
           id: 'base',
-          label: { zh: '下盒' },
+          label: { zh: '下盒', en: 'Base' },
           pathIds: ['b-root-l', 'b-top-l', 'b-root-back', 'b-top-back'],
           textIds: [],
           bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },
         },
         {
           id: 'lid',
-          label: { zh: '上蓋' },
+          label: { zh: '上蓋', en: 'Lid' },
           pathIds: ['b-root-l', 'b-top-l', 'b-root-back', 'b-top-back'],
           textIds: [],
           bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },

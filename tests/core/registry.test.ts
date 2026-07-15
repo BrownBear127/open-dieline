@@ -11,9 +11,12 @@ type PartialParamDef = Partial<BoxParamDef> & Pick<BoxParamDef, 'key' | 'unit' |
 
 function fakeParam(p: PartialParamDef): BoxParamDef {
   return {
-    label: { zh: p.key },
-    group: { zh: '測試群組' },
-    description: { zh: '測試參數（fakeBox 佔位，內容與斷言無關）' },
+    label: { zh: p.key, en: p.key },
+    group: { id: 'test', zh: '測試群組', en: 'Test group' },
+    description: {
+      zh: '測試參數（fakeBox 佔位，內容與斷言無關）',
+      en: 'Synthetic parameter for fakeBox tests.',
+    },
     ...p,
   };
 }
@@ -22,8 +25,8 @@ function fakeBox(paramDefs: PartialParamDef[], id?: string): BoxModule {
   return {
     meta: {
       id: id ?? `fake-box-${fakeBoxCounter++}`,
-      name: { zh: '測試盒型' },
-      intro: { zh: '測試用盒型（fakeBox 佔位）' },
+      name: { zh: '測試盒型', en: 'Test box' },
+      intro: { zh: '測試用盒型（fakeBox 佔位）', en: 'Synthetic box for fakeBox tests.' },
       topology: 'linear',
     },
     params: paramDefs.map(fakeParam),
@@ -157,7 +160,7 @@ describe('registerBox：插件參數定義驗證（Slice 2 地基防撞）', () 
 
   it('unit=enum default 不在 options 值域時擲錯', () => {
     const mod = fakeBox(
-      [{ key: 'color', unit: 'enum', default: 'blue', options: [{ value: 'red', label: { zh: '紅' } }] }],
+      [{ key: 'color', unit: 'enum', default: 'blue', options: [{ value: 'red', label: { zh: '紅', en: 'Red' } }] }],
       'bad-enum-default-mismatch',
     );
     expect(() => registerBox(mod)).toThrow(/blue/);
@@ -195,7 +198,7 @@ describe('registerBox：插件參數定義驗證（Slice 2 地基防撞）', () 
           key: 'color',
           unit: 'enum',
           default: 'red',
-          options: [{ value: 'red', label: { zh: '紅' } }],
+          options: [{ value: 'red', label: { zh: '紅', en: 'Red' } }],
           derivedDefault: () => 1,
         },
       ],
@@ -215,8 +218,8 @@ describe('registerBox：插件參數定義驗證（Slice 2 地基防撞）', () 
           unit: 'enum',
           default: 'red',
           options: [
-            { value: 'red', label: { zh: '紅' } },
-            { value: 'blue', label: { zh: '藍' } },
+            { value: 'red', label: { zh: '紅', en: 'Red' } },
+            { value: 'blue', label: { zh: '藍', en: 'Blue' } },
           ],
         },
         { key: 'derived', unit: 'mm', default: 0, derivedDefault: (p) => (p.W as number) * 2 },

@@ -53,8 +53,8 @@ const MULTI_PIECE_RESULT: GenerateResult = {
   texts: [],
   bounds: { minX: 0, maxX: 20, minY: 0, maxY: 15 },
   pieces: [
-    { id: 'piece-a', label: { zh: '下盒' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 } },
-    { id: 'piece-b', label: { zh: '上蓋' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 0, maxX: 15, minY: 0, maxY: 15 } },
+    { id: 'piece-a', label: { zh: '下盒', en: 'Base' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 } },
+    { id: 'piece-b', label: { zh: '上蓋', en: 'Lid' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 0, maxX: 15, minY: 0, maxY: 15 } },
   ] satisfies DielinePiece[],
 };
 
@@ -92,8 +92,8 @@ const MULTI_PIECE_LINE_FILTER_RESULT: GenerateResult = {
   texts: [],
   bounds: { minX: 0, maxX: 110, minY: 0, maxY: 110 },
   pieces: [
-    { id: 'piece-a', label: { zh: 'A' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 } },
-    { id: 'piece-b', label: { zh: 'B' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 100, maxX: 110, minY: 100, maxY: 110 } },
+    { id: 'piece-a', label: { zh: 'A', en: 'A' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 } },
+    { id: 'piece-b', label: { zh: 'B', en: 'B' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 100, maxX: 110, minY: 100, maxY: 110 } },
   ] satisfies DielinePiece[],
 };
 
@@ -105,7 +105,7 @@ const PIECE_BOUNDS_DIVERGENT_RESULT: GenerateResult = {
   texts: [],
   bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 },
   pieces: [
-    { id: 'piece-a', label: { zh: '下盒' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: -100, maxX: 100, minY: -100, maxY: 100 } },
+    { id: 'piece-a', label: { zh: '下盒', en: 'Base' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: -100, maxX: 100, minY: -100, maxY: 100 } },
   ] satisfies DielinePiece[],
 };
 
@@ -165,8 +165,8 @@ const MEMO_TEST_MULTI_RESULT: GenerateResult = {
   texts: [],
   bounds: { minX: 0, maxX: 20, minY: 0, maxY: 15 },
   pieces: [
-    { id: 'piece-a', label: { zh: 'A' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 } },
-    { id: 'piece-b', label: { zh: 'B' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 0, maxX: 15, minY: 0, maxY: 15 } },
+    { id: 'piece-a', label: { zh: 'A', en: 'A' }, pathIds: ['a-cut'], textIds: [], bounds: { minX: 0, maxX: 20, minY: 0, maxY: 10 } },
+    { id: 'piece-b', label: { zh: 'B', en: 'B' }, pathIds: ['b-cut'], textIds: [], bounds: { minX: 0, maxX: 15, minY: 0, maxY: 15 } },
   ] satisfies DielinePiece[],
 };
 

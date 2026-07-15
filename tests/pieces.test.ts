@@ -17,7 +17,7 @@ function makeText(id: string, x: number, y: number): DielineText {
 }
 
 function makePiece(id: string, pathIds: string[], textIds: string[], bounds: Bounds): DielinePiece {
-  return { id, label: { zh: id }, pathIds, textIds, bounds };
+  return { id, label: { zh: id, en: id }, pathIds, textIds, bounds };
 }
 
 /**
