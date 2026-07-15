@@ -40,10 +40,13 @@
 }
 @font-face {
   /* zh/index.html only (M3 Task 3) — EN page never references "Noto Serif TC" in any rule,
-     so it never triggers a download regardless of this @font-face being visible to it too. */
+     so it never triggers a download regardless of this @font-face being visible to it too.
+     M3 Task 5 perf fix: static 400-only instance (was 200-900 variable, 126,180B->46,400B) —
+     see fonts/subset.sh + 開發紀錄. font-weight:400 declared exact (not a range) so
+     font-synthesis:weight faux-bolds the zh page's <b> (550); not a content change. */
   font-family: "Noto Serif TC";
   src: url("../fonts/noto-serif-tc-subset.woff2") format("woff2");
-  font-weight: 200 900;
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
