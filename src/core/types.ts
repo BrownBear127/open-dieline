@@ -8,8 +8,11 @@
 
 import type { Segment, Bounds } from '@/core/geometry';
 
-/** 多語文字欄位；v1 只填 zh（en 保留供未來擴充，見 spec D10）。 */
-export type LocalizedText = { zh: string; en?: string };
+/** 會顯示在 UI 的雙語文字欄位；兩種語言都必須完整提供。 */
+export type LocalizedText = { zh: string; en: string };
+
+/** 僅供維護者閱讀、不進 UI 的說明文字。 */
+export type MaintainerText = { zh: string };
 
 /** 線型分類——styles.ts 的 LINE_STYLES 以此為 key，是畫布與匯出唯一共享的樣式映射。 */
 export type LineType = 'cut' | 'crease' | 'halfcut' | 'bleed' | 'annotation' | 'dimension';
@@ -81,7 +84,7 @@ export interface BoxParamDef {
   min?: number;
   max?: number;
   step?: number;
-  group: LocalizedText;
+  group: LocalizedText & { id: string };
   description: LocalizedText; // 教育說明：此參數在盒型結構上的意義（一級公民）
   highlightTags?: string[];
   derivedDefault?: (params: ResolvedParams) => number;
@@ -90,7 +93,7 @@ export interface BoxParamDef {
 /** 幾何不變式：測試（CI）與 UI runtime 警告共用同一份 check 邏輯。 */
 export interface BoxInvariant {
   id: string;
-  description: LocalizedText; // 也是教材：這條幾何規則為什麼存在
+  description: MaintainerText;
   check: (
     params: ResolvedParams,
     result: GenerateResult,
