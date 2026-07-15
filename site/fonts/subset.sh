@@ -9,3 +9,19 @@ uvx --from fonttools pyftsubset "$SRC/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf" 
 uvx --from fonttools pyftsubset "$SRC/FamiljenGrotesk[wght].ttf"                "${common[@]}" --output-file="$OUT/familjen.woff2"
 uvx --from fonttools pyftsubset "$SRC/IBMPlexMono-Regular.ttf"                  "${common[@]}" --output-file="$OUT/plex-mono.woff2"
 uvx --from fonttools pyftsubset "$SRC/IBMPlexMono-Medium.ttf"                   "${common[@]}" --output-file="$OUT/plex-mono-500.woff2"
+
+# ── Noto Serif TC subset for /zh/ (M3 Task 3) ──
+# Source: https://github.com/google/fonts/raw/main/ofl/notoseriftc/NotoSerifTC%5Bwght%5D.ttf
+# (16.8MB variable TTF, wght axis only — same URL used by the konvolut-site /zh/ subset).
+# Char set = every unique non-space char in site/zh/index.html's rendered text (tags/scripts/
+# styles stripped, HTML entities unescaped) = 248 chars (Latin + digits + punctuation + Hanzi,
+# same full-set convention as the konvolut-site subset — Latin glyphs are needed because the
+# body font stack lists Noto Serif TC before Fraunces, so any un-tagged Latin/digit/punctuation
+# character inside zh body copy is drawn from this subset first).
+#   python3 -c "... strip tags, html.unescape, sorted(set(non-space chars)) ..." > /tmp/zh-chars.txt
+uvx --from fonttools pyftsubset /tmp/NotoSerifTC.ttf \
+  --text-file=/tmp/zh-chars.txt --flavor=woff2 --layout-features='*' \
+  --output-file="$OUT/noto-serif-tc-subset.woff2"
+# Result: 126,180 bytes (123KB) — fvar wght axis retained (no static instancing needed, far
+# under the 700KB/page budget). Glyph spot-check (10 chars incl. 攤/摺/鉛/毫): all present via
+# fontTools cmap lookup.
