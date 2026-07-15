@@ -2,21 +2,26 @@
  * pieces 完整性驗證（spec §3.3）——天地盒等多片盒型輸出的結構檢查。
  *
  * 只在 `result.pieces` 有值時生效（單片盒型如 RTE 不受約束）。這是內部/測試用的結構驗證
- * helper（回傳純 message 字串，非 UI 用的 LocalizedText）——供天地盒 BoxModule 的
- * pieces-identity 不變式與具名槽位對帳測試共用。
- * 純 TS 模組，不 import React 或任何 UI。
+ * helper（回傳純資料型的 LocalizedText）——供天地盒 BoxModule 的 pieces-identity 不變式與
+ * 具名槽位對帳測試共用。雙語字面在此與動態參數一起產生，UI 只依當前語言選取欄位；本核心
+ * 模組不依賴 i18n runtime，也不讓 UI 反向解析中文訊息。
+ * 純 TS 模組，不 import React、i18n 或任何 UI。
  */
 
 import type { Bounds } from '@/core/geometry';
 import { segmentsBounds } from '@/core/geometry';
-import type { DielinePiece, GenerateResult } from '@/core/types';
+import type { DielinePiece, GenerateResult, LocalizedText } from '@/core/types';
 
 // 浮點比較容差——這裡比較的兩側恆為同一組座標數字的不同推導路徑（如 piece.bounds 欄位 vs
 // 由其成員 segments/texts 重新算出的 bounds），理論上應完全相等，容差只吸收浮點運算噪音，
 // 不是像 RTE 不變式那種吸收生產公差的 0.01mm 級容差。
 const EPS = 1e-6;
 
-type CheckResult = { ok: true } | { ok: false; message: string };
+type CheckResult = { ok: true } | { ok: false; message: LocalizedText };
+
+function invalid(zh: string, en: string): CheckResult {
+  return { ok: false, message: { zh, en } };
+}
 
 /** 多個 Bounds 的聯集包絡；空陣列回傳 {0,0,0,0}（與 geometry.ts 的 segmentsBounds 同慣例）。 */
 function unionBounds(list: Bounds[]): Bounds {
@@ -63,7 +68,10 @@ function checkUniqueIds(pieces: DielinePiece[]): CheckResult {
   const seen = new Set<string>();
   for (const piece of pieces) {
     if (seen.has(piece.id)) {
-      return { ok: false, message: `duplicate-piece-id: 片 id「${piece.id}」重複出現` };
+      return invalid(
+        `duplicate-piece-id: 片 id「${piece.id}」重複出現`,
+        `duplicate-piece-id: piece id “${piece.id}” appears more than once`,
+      );
     }
     seen.add(piece.id);
   }
@@ -74,7 +82,10 @@ function checkUniqueIds(pieces: DielinePiece[]): CheckResult {
 function checkNonEmpty(pieces: DielinePiece[]): CheckResult {
   for (const piece of pieces) {
     if (piece.pathIds.length === 0 && piece.textIds.length === 0) {
-      return { ok: false, message: `empty-piece: 片「${piece.id}」沒有任何 path/text 成員` };
+      return invalid(
+        `empty-piece: 片「${piece.id}」沒有任何 path/text 成員`,
+        `empty-piece: piece “${piece.id}” has no path/text members`,
+      );
     }
   }
   return { ok: true };
@@ -99,14 +110,17 @@ function checkAssignment(
   for (const piece of pieces) {
     for (const id of pick(piece)) {
       if (!allIdSet.has(id)) {
-        return { ok: false, message: `unknown-${kind}-id: 片「${piece.id}」引用了不存在的 ${kind} id「${id}」` };
+        return invalid(
+          `unknown-${kind}-id: 片「${piece.id}」引用了不存在的 ${kind} id「${id}」`,
+          `unknown-${kind}-id: piece “${piece.id}” references nonexistent ${kind} id “${id}”`,
+        );
       }
       const owner = assignedTo.get(id);
       if (owner !== undefined && owner !== piece.id) {
-        return {
-          ok: false,
-          message: `double-assigned-${kind}: ${kind} id「${id}」同時被「${owner}」與「${piece.id}」兩片認領`,
-        };
+        return invalid(
+          `double-assigned-${kind}: ${kind} id「${id}」同時被「${owner}」與「${piece.id}」兩片認領`,
+          `double-assigned-${kind}: ${kind} id “${id}” is assigned to both “${owner}” and “${piece.id}”`,
+        );
       }
       assignedTo.set(id, piece.id);
     }
@@ -114,7 +128,10 @@ function checkAssignment(
 
   for (const id of allIds) {
     if (!assignedTo.has(id)) {
-      return { ok: false, message: `unassigned-${kind}: ${kind} id「${id}」未被任何片認領` };
+      return invalid(
+        `unassigned-${kind}: ${kind} id「${id}」未被任何片認領`,
+        `unassigned-${kind}: ${kind} id “${id}” is not assigned to any piece`,
+      );
     }
   }
 
@@ -140,7 +157,10 @@ function checkPieceBoundsCoverMembers(pieces: DielinePiece[], result: GenerateRe
   for (const piece of pieces) {
     const memberBounds = pieceMemberBounds(piece, result);
     if (!boundsCovers(piece.bounds, memberBounds)) {
-      return { ok: false, message: `piece-bounds-mismatch: 片「${piece.id}」的 bounds 未涵蓋其成員的實際範圍` };
+      return invalid(
+        `piece-bounds-mismatch: 片「${piece.id}」的 bounds 未涵蓋其成員的實際範圍`,
+        `piece-bounds-mismatch: bounds for piece “${piece.id}” do not cover the actual extent of its members`,
+      );
     }
   }
   return { ok: true };
@@ -153,7 +173,10 @@ function checkNoOverlap(pieces: DielinePiece[]): CheckResult {
       const a = pieces[i]!;
       const b = pieces[j]!;
       if (boundsOverlap(a.bounds, b.bounds)) {
-        return { ok: false, message: `overlapping-pieces: 片「${a.id}」與「${b.id}」的 bounds 重疊` };
+        return invalid(
+          `overlapping-pieces: 片「${a.id}」與「${b.id}」的 bounds 重疊`,
+          `overlapping-pieces: bounds for pieces “${a.id}” and “${b.id}” overlap`,
+        );
       }
     }
   }
@@ -164,7 +187,10 @@ function checkNoOverlap(pieces: DielinePiece[]): CheckResult {
 function checkResultBoundsMatchesHull(pieces: DielinePiece[], resultBounds: Bounds): CheckResult {
   const hull = unionBounds(pieces.map((p) => p.bounds));
   if (!boundsEqual(hull, resultBounds)) {
-    return { ok: false, message: 'result-bounds-mismatch: GenerateResult.bounds 與全片 bounds 聯集包絡不一致' };
+    return invalid(
+      'result-bounds-mismatch: GenerateResult.bounds 與全片 bounds 聯集包絡不一致',
+      'result-bounds-mismatch: GenerateResult.bounds does not match the union hull of all piece bounds',
+    );
   }
   return { ok: true };
 }
@@ -182,10 +208,10 @@ function checkResultBoundsMatchesHull(pieces: DielinePiece[], resultBounds: Boun
 function checkResultBoundsMatchesGeometry(result: GenerateResult): CheckResult {
   const geometryHull = segmentsBounds(result.paths.flatMap((p) => p.segments));
   if (!boundsEqual(geometryHull, result.bounds)) {
-    return {
-      ok: false,
-      message: 'geometry-hull-mismatch: GenerateResult.bounds 與全幾何包絡不一致（宣告的 bounds 跟實際幾何脫節）',
-    };
+    return invalid(
+      'geometry-hull-mismatch: GenerateResult.bounds 與全幾何包絡不一致（宣告的 bounds 跟實際幾何脫節）',
+      'geometry-hull-mismatch: GenerateResult.bounds does not match the full geometry hull; declared bounds are detached from the actual geometry',
+    );
   }
   return { ok: true };
 }
@@ -199,7 +225,7 @@ function checkResultBoundsMatchesGeometry(result: GenerateResult): CheckResult {
  * `result.pieces` 為 `undefined` 時視為單片盒型（如 RTE），直接視為合法，不做任何檢查
  * （RTE 的 bounds 含 ±20mm 畫布邊距、刻意大於幾何包絡——單片盒型不受三向等式約束）。
  */
-export function validatePieces(result: GenerateResult): { ok: true } | { ok: false; message: string } {
+export function validatePieces(result: GenerateResult): CheckResult {
   const { pieces } = result;
   if (pieces === undefined) {
     return { ok: true };

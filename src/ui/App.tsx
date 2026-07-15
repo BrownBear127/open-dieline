@@ -229,6 +229,7 @@ export function App() {
     dimensionParams.length >= 3 ? dimensionParams : mod.params.filter((param) => param.unit === 'mm')
   ).slice(0, 3);
   const readoutDimensions = readoutParams.map((param) => String(values[param.key])).join(' × ');
+  const plateNumber = boxes.findIndex((box) => box.meta.id === mod.meta.id) + 1;
 
   return (
     <div className="app">
@@ -365,6 +366,9 @@ export function App() {
           {appMode === 'design' ? (
             <Canvas
               result={result}
+              plateNumber={plateNumber}
+              boxName={mod.meta.name}
+              invariantCount={mod.invariants.length}
               highlightTags={highlightTags}
               invariantWarnings={invariantWarnings}
               activePiece={activePiece}

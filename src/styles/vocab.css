@@ -178,6 +178,23 @@
     color: var(--cut);
   }
   .warnbar .n { color: var(--ink-soft); }
+  /* M1 T7 裁決：mock 無校準提示條，以 warnbar 的 mono 儀器列幾何衍生。 */
+  .calibrate-bar {
+    display: flex; gap: 18px; align-items: center;
+    padding: 8px 24px;
+    border-bottom: 1px dashed var(--hairline);
+    color: var(--ink);
+  }
+  .calibrate-bar form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .calibrate-bar input {
+    width: 88px; padding: 4px 6px;
+    border: 1px solid var(--hairline); border-radius: 0;
+    background: transparent; color: var(--ink);
+    font: inherit; text-align: right;
+  }
+  .calibrate-bar input:focus { outline: 1px solid var(--cut); outline-offset: 1px; }
+  .calibrate-bar .btn { padding: 5px 9px; }
+  .calibrate-bar .error { color: var(--cut); }
   .drawing { flex: 1; position: relative; padding: 36px; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
   /* 四角量規 — slice-d:163-175（逐字：14px、1px、16px 內距） */
   .drawing::before, .drawing::after,

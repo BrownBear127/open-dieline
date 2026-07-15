@@ -831,7 +831,7 @@ const invariants: BoxInvariant[] = [
     },
     check(_params, result) {
       const v = validatePieces(result);
-      if (!v.ok) return { ok: false, message: { zh: v.message, en: v.message } };
+      if (!v.ok) return v;
       return { ok: true };
     },
   },

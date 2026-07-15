@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Bounds } from '@/core/geometry';
 import type { DielinePath, DielineText, DielinePiece, GenerateResult } from '@/core/types';
 import { validatePieces, scopeResultToPiece } from '@/core/pieces';
@@ -36,16 +37,23 @@ function legalResult(): GenerateResult {
   return { paths, texts, pieces, bounds: { minX: 0, maxX: 50, minY: 0, maxY: 10 } };
 }
 
-/** 斷言 validatePieces 判定不通過，且 message 含指定關鍵詞（各 violation 案例共用的斷言邏輯）。 */
+/** 斷言 validatePieces 判定不通過，且雙語訊息都保留指定 error-code 前綴。 */
 function expectViolation(result: GenerateResult, keyword: string): void {
   const check = validatePieces(result);
   expect(check.ok, `應偵測到 ${keyword} violation`).toBe(false);
   if (!check.ok) {
-    expect(check.message).toContain(keyword);
+    expect(check.message.zh).toContain(keyword);
+    expect(check.message.en).toContain(keyword);
+    expect(check.message.en).not.toMatch(/[\u3400-\u9fff]/u);
   }
 }
 
 describe('validatePieces', () => {
+  it('核心 pieces validator 不依賴 i18n runtime', () => {
+    const source = readFileSync('src/core/pieces.ts', 'utf8');
+    expect(source).not.toMatch(/from ['"]@\/i18n\//);
+  });
+
   it('pieces === undefined 時直接視為合法（單片盒型如 RTE 不受影響）', () => {
     const result: GenerateResult = {
       paths: [makePath('p1', 0, 0, 10, 10)],
