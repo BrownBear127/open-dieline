@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import type { BoxModule, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
+import type { BoxModule, BoxParamDef, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
 import { registerBox, _clearRegistry, resolveParams } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
 import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 import { App } from '@/ui/App';
+import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
@@ -27,6 +28,12 @@ import { parseDxf } from '../export/dxf-helpers';
 
 const WORDMARK_TEXT = t('chrome.wordmark').replaceAll('*', '');
 
+function paramLabel(box: BoxModule, key: string): string {
+  const param = box.params.find((candidate) => candidate.key === key);
+  if (param === undefined) throw new Error(`Missing test parameter: ${box.meta.id}.${key}`);
+  return param.label.en;
+}
+
 // ── 測試專用 harness：Slice 3 gate round 1 T2 起，ExportBar 的 includeDimensions props 退役
 // （匯出恆全量，見 plan「匯出恆全量」裁決）——這個 harness 本身不再需要管理任何額外 state，
 // 純粹是為了讓下面既有測試維持同一種呼叫寫法（<ExportBarHarness boxId=... values=... .../>），
@@ -47,25 +54,29 @@ function ExportBarHarness({
 
 // ── 測試專用 fake 盒型 1：不變式恆失敗，驗證警告條渲染（spec Step 1 第二案例指定的手法）──
 const failingBox: BoxModule = {
-  meta: { id: 'test-fail-box', name: { zh: '測試失敗盒' }, intro: { zh: '' }, topology: 'linear' },
+  meta: { id: 'test-fail-box', name: { zh: '測試失敗盒', en: 'Failing test box' }, intro: { zh: '', en: '' }, topology: 'linear' },
   params: [
     {
       key: 'x',
-      label: { zh: 'X 值' },
+      label: { zh: 'X 值', en: 'X value' },
       unit: 'mm',
       default: 10,
       min: 0,
       max: 100,
       step: 1,
-      group: { zh: '測試群組' },
-      description: { zh: '測試參數' },
+      group: { id: 'test', zh: '測試群組', en: 'Test group' },
+      description: { zh: '測試參數', en: 'Test parameter' },
     },
   ],
   invariants: [
     {
       id: 'always-fail',
       description: { zh: '測試用：永遠回報失敗，驗證 App 的警告條渲染路徑' },
-      check: () => ({ ok: false, message: { zh: '測試不變式故意失敗：這是警告條文字' }, tags: ['x'] }),
+      check: () => ({
+        ok: false,
+        message: { zh: '測試不變式故意失敗：這是警告條文字', en: 'Intentional test warning.' },
+        tags: ['x'],
+      }),
     },
   ],
   generate: () => ({
@@ -77,29 +88,29 @@ const failingBox: BoxModule = {
 
 // ── 測試專用 fake 盒型 2：D → lid 的 derivedDefault cascade，驗證未覆寫欄位隨上游即時重算顯示 ──
 const cascadeBox: BoxModule = {
-  meta: { id: 'test-cascade-box', name: { zh: '測試級聯盒' }, intro: { zh: '' }, topology: 'linear' },
+  meta: { id: 'test-cascade-box', name: { zh: '測試級聯盒', en: 'Cascade test box' }, intro: { zh: '', en: '' }, topology: 'linear' },
   params: [
     {
       key: 'D',
-      label: { zh: '深度 (D)' },
+      label: { zh: '深度 (D)', en: 'Depth (D)' },
       unit: 'mm',
       default: 100,
       min: 0,
       max: 500,
       step: 1,
-      group: { zh: '尺寸' },
-      description: { zh: '測試參數' },
+      group: { id: 'dimensions', zh: '尺寸', en: 'Dimensions' },
+      description: { zh: '測試參數', en: 'Test parameter' },
     },
     {
       key: 'lid',
-      label: { zh: '蓋高 (lid)' },
+      label: { zh: '蓋高 (lid)', en: 'Lid height (lid)' },
       unit: 'mm',
       default: 0,
       min: 0,
       max: 500,
       step: 1,
-      group: { zh: '尺寸' },
-      description: { zh: '未覆寫時＝D×0.4，測試 derivedDefault cascade 顯示' },
+      group: { id: 'dimensions', zh: '尺寸', en: 'Dimensions' },
+      description: { zh: '未覆寫時＝D×0.4，測試 derivedDefault cascade 顯示', en: 'Derived default equals D × 0.4.' },
       derivedDefault: (p) => (p.D as number) * 0.4,
     },
   ],
@@ -115,18 +126,18 @@ const cascadeBox: BoxModule = {
 // 幾何刻意寫死常數（不吃 params），讓片內容/bounds 是可預期的固定值，方便斷言過濾邊界
 // （片A：一條水平線＋一個文字標註；片B：一條垂直線、無文字）。
 const piecesBox: BoxModule = {
-  meta: { id: 'test-pieces-box', name: { zh: '測試多片盒' }, intro: { zh: '' }, topology: 'nested' },
+  meta: { id: 'test-pieces-box', name: { zh: '測試多片盒', en: 'Pieces test box' }, intro: { zh: '', en: '' }, topology: 'nested' },
   params: [
     {
       key: 'x',
-      label: { zh: 'X 值' },
+      label: { zh: 'X 值', en: 'X value' },
       unit: 'mm',
       default: 10,
       min: 0,
       max: 100,
       step: 1,
-      group: { zh: '測試群組' },
-      description: { zh: '測試參數：本盒型幾何寫死常數，這個參數只用來讓盒型有至少一個宣告，generate() 不消費它' },
+      group: { id: 'test', zh: '測試群組', en: 'Test group' },
+      description: { zh: '測試參數：本盒型幾何寫死常數，這個參數只用來讓盒型有至少一個宣告，generate() 不消費它', en: 'Synthetic parameter unused by the fixed test geometry.' },
     },
   ],
   invariants: [],
@@ -138,8 +149,8 @@ const piecesBox: BoxModule = {
     texts: [{ id: 'a-t0', x: 5, y: 5, text: 'A標註' }],
     bounds: { minX: 0, maxX: 10, minY: 0, maxY: 30 },
     pieces: [
-      { id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
-      { id: 'piece-b', label: { zh: '片B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
+      { id: 'piece-a', label: { zh: '片A', en: 'Piece A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
+      { id: 'piece-b', label: { zh: '片B', en: 'Piece B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
     ],
   }),
 };
@@ -151,18 +162,18 @@ const piecesBox: BoxModule = {
 // x∈[0,20]、y∈[0,10]；宣告的 bounds 依三向等式含 dimension 外擴到 x∈[-30,50]、y∈[-30,40]
 // （寬 80×高 70，若修前行為直接用 bounds 會得到這組偏大很多的數字）。
 const dimBoundsBox: BoxModule = {
-  meta: { id: 'test-dim-bounds-box', name: { zh: '測試標註外擴盒' }, intro: { zh: '' }, topology: 'linear' },
+  meta: { id: 'test-dim-bounds-box', name: { zh: '測試標註外擴盒', en: 'Dimension-bounds test box' }, intro: { zh: '', en: '' }, topology: 'linear' },
   params: [
     {
       key: 'x',
-      label: { zh: 'X 值' },
+      label: { zh: 'X 值', en: 'X value' },
       unit: 'mm',
       default: 10,
       min: 0,
       max: 100,
       step: 1,
-      group: { zh: '測試群組' },
-      description: { zh: '測試參數：本盒型幾何寫死常數，generate() 不消費它' },
+      group: { id: 'test', zh: '測試群組', en: 'Test group' },
+      description: { zh: '測試參數：本盒型幾何寫死常數，generate() 不消費它', en: 'Synthetic parameter unused by the fixed test geometry.' },
     },
   ],
   invariants: [],
@@ -190,18 +201,18 @@ const dimBoundsBox: BoxModule = {
 // result.texts，不能只看 result.paths（v1 現實中標註線與文字成對出現、這個組合本身不可達，
 // 這裡純粹證明 generatedHasContent 的邏輯本身正確，不依賴巧合）。
 const textsOnlyBox: BoxModule = {
-  meta: { id: 'test-texts-only-box', name: { zh: '測試純文字標註盒' }, intro: { zh: '' }, topology: 'linear' },
+  meta: { id: 'test-texts-only-box', name: { zh: '測試純文字標註盒', en: 'Text-only test box' }, intro: { zh: '', en: '' }, topology: 'linear' },
   params: [
     {
       key: 'x',
-      label: { zh: 'X 值' },
+      label: { zh: 'X 值', en: 'X value' },
       unit: 'mm',
       default: 10,
       min: 0,
       max: 100,
       step: 1,
-      group: { zh: '測試群組' },
-      description: { zh: '測試參數：本盒型幾何寫死常數，generate() 不消費它' },
+      group: { id: 'test', zh: '測試群組', en: 'Test group' },
+      description: { zh: '測試參數：本盒型幾何寫死常數，generate() 不消費它', en: 'Synthetic parameter unused by the fixed test geometry.' },
     },
   ],
   invariants: [],
@@ -237,13 +248,111 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe('M1 T5 console sidebar and parameter panel', () => {
+  it('uses the console vocabulary structure, dictionary copy, and English box-style names', () => {
+    const { container } = render(<App />);
+    const console = container.querySelector('aside.console');
+    expect(console).not.toBeNull();
+
+    const boxSection = console!.querySelector(':scope > .sect');
+    expect(boxSection).not.toBeNull();
+    const boxSelect = within(boxSection as HTMLElement).getByLabelText(t('console.boxStyle')) as HTMLSelectElement;
+    expect(boxSelect.closest('.boxsel')).not.toBeNull();
+    expect(within(boxSection as HTMLElement).getByText(t('console.styles.count', { n: boxSelect.options.length }))).toBeInTheDocument();
+    expect(Array.from(boxSelect.options, (option) => option.text)).toContain(reverseTuckEnd.meta.name.en);
+    expect(Array.from(boxSelect.options, (option) => option.text)).toContain(telescope.meta.name.en);
+  });
+
+  it('groups strictly by group.id, numbers sections through the dictionary, and preserves control behavior', () => {
+    const params: BoxParamDef[] = [
+      {
+        key: 'first',
+        label: { en: 'First value', zh: '共用群組第一值' },
+        unit: 'mm',
+        default: 10,
+        min: 0,
+        max: 100,
+        step: 1,
+        group: { id: 'alpha', en: 'Alpha', zh: '共用字面' },
+        description: { en: 'First synthetic parameter.', zh: '第一個測試參數。' },
+      },
+      {
+        key: 'second',
+        label: { en: 'Second value', zh: '另一群組字面第二值' },
+        unit: 'deg',
+        default: 20,
+        min: 0,
+        max: 90,
+        step: 1,
+        group: { id: 'alpha', en: 'Alpha', zh: '另一群組字面' },
+        description: { en: 'Second synthetic parameter.', zh: '第二個測試參數。' },
+      },
+      {
+        key: 'choice',
+        label: { en: 'Choice', zh: '選項' },
+        unit: 'enum',
+        default: 'one',
+        options: [{ value: 'one', label: { en: 'One', zh: '一' } }],
+        group: { id: 'beta', en: 'Beta', zh: '共用字面' },
+        description: { en: 'Synthetic enum parameter.', zh: '測試選單參數。' },
+      },
+      {
+        key: 'enabled',
+        label: { en: 'Enabled', zh: '啟用' },
+        unit: 'bool',
+        default: true,
+        group: { id: 'beta', en: 'Beta', zh: '共用字面' },
+        description: { en: 'Synthetic boolean parameter.', zh: '測試布林參數。' },
+      },
+    ];
+    const onChange = vi.fn();
+    const onResetOne = vi.fn();
+    const { container } = render(
+      <ParamPanel
+        params={params}
+        values={{ first: 10, second: 20, choice: 'one', enabled: true }}
+        overriddenKeys={new Set(['first'])}
+        onChange={onChange}
+        onResetOne={onResetOne}
+        onHighlight={vi.fn()}
+      />,
+    );
+
+    const sections = Array.from(container.querySelectorAll('.sect'));
+    expect(sections).toHaveLength(2);
+    expect(within(sections[0] as HTMLElement).getByText('Alpha')).toBeInTheDocument();
+    expect(within(sections[0] as HTMLElement).getByText(t('console.group.no', { nn: '01' }))).toBeInTheDocument();
+    expect(within(sections[1] as HTMLElement).getByText('Beta')).toBeInTheDocument();
+    expect(within(sections[1] as HTMLElement).getByText(t('console.group.no', { nn: '02' }))).toBeInTheDocument();
+
+    const numberInput = screen.getByLabelText(params[0]!.label.en) as HTMLInputElement;
+    expect(numberInput.type).toBe('number');
+    fireEvent.change(numberInput, { target: { value: '12' } });
+    expect(onChange).toHaveBeenCalledWith('first', 12);
+
+    const enumSelect = screen.getByLabelText(params[2]!.label.en);
+    expect(enumSelect.closest('.boxsel.param-select')).not.toBeNull();
+    const checkbox = screen.getByLabelText(params[3]!.label.en);
+    expect(checkbox).toHaveClass('tick');
+    expect(checkbox).not.toHaveClass('accent-blue-600');
+
+    const reset = screen.getByRole('button', {
+      name: t('param.reset.aria', { label: params[0]!.label.en }),
+    });
+    expect(reset).toHaveAttribute('title', t('param.reset.title'));
+    expect(reset).toHaveTextContent(t('param.reset.glyph'));
+    fireEvent.click(reset);
+    expect(onResetOne).toHaveBeenCalledWith('first');
+  });
+});
+
 describe('App 冒煙測試', () => {
   it('起站→選 RTE→調 L→畫布 path 數不變且幾何改變', async () => {
     render(<App />);
     expect(await screen.findByRole('heading', { name: WORDMARK_TEXT })).toBeInTheDocument();
     const before = document.querySelectorAll('svg path').length;
     const dBefore = Array.from(document.querySelectorAll('svg path')).map((el) => el.getAttribute('d'));
-    const input = screen.getByLabelText(/長.*L/);
+    const input = screen.getByLabelText(paramLabel(reverseTuckEnd, 'L'));
     fireEvent.change(input, { target: { value: '80' } });
     expect(document.querySelectorAll('svg path').length).toBe(before); // path 數不因 L 改變
     const dAfter = Array.from(document.querySelectorAll('svg path')).map((el) => el.getAttribute('d'));
@@ -252,20 +361,20 @@ describe('App 冒煙測試', () => {
 
   it('不變式 not-ok 顯示警告條（fake registry entry 注入必敗 invariant）', async () => {
     render(<App />);
-    const select = screen.getByLabelText(/盒型/);
+    const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'test-fail-box' } });
     expect(await screen.findByText('測試不變式故意失敗：這是警告條文字')).toBeInTheDocument();
   });
 
   it('derivedDefault：未覆寫欄位隨上游參數即時重算顯示（顯示值＝生成值，spec §3.3）', async () => {
     render(<App />);
-    const select = screen.getByLabelText(/盒型/);
+    const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'test-cascade-box' } });
 
-    const lidInput = (await screen.findByLabelText(/蓋高.*lid/i)) as HTMLInputElement;
+    const lidInput = (await screen.findByLabelText(paramLabel(cascadeBox, 'lid'))) as HTMLInputElement;
     expect(Number(lidInput.value)).toBeCloseTo(100 * 0.4); // D 預設 100 → lid 顯示 40（未覆寫）
 
-    const dInput = screen.getByLabelText(/深度.*D/) as HTMLInputElement;
+    const dInput = screen.getByLabelText(paramLabel(cascadeBox, 'D')) as HTMLInputElement;
     fireEvent.change(dInput, { target: { value: '200' } });
 
     expect(Number(lidInput.value)).toBeCloseTo(200 * 0.4); // lid 仍未覆寫，隨 D 即時重算為 80
@@ -276,8 +385,8 @@ describe('App 冒煙測試', () => {
   // tuckClearance」這組真實生產參數的 cascade 釘成回歸測試，跟上面用假盒型驗證泛用機制互補）。
   it('RTE 真實案例：調整紙厚→插舌內縮顯示值跟動；手動覆寫插舌內縮後，紙厚變動不再洗掉覆寫值', async () => {
     render(<App />);
-    const thicknessInput = screen.getByLabelText(/紙厚/) as HTMLInputElement;
-    const tuckClearanceInput = screen.getByLabelText(/插舌內縮/) as HTMLInputElement;
+    const thicknessInput = screen.getByLabelText(paramLabel(reverseTuckEnd, 'thickness')) as HTMLInputElement;
+    const tuckClearanceInput = screen.getByLabelText(paramLabel(reverseTuckEnd, 'tuckClearance')) as HTMLInputElement;
 
     expect(Number(thicknessInput.value)).toBeCloseTo(0.3); // RTE 預設紙厚
     expect(Number(tuckClearanceInput.value)).toBeCloseTo(0.8); // derivedDefault = 0.5 + thickness，未覆寫
@@ -294,12 +403,14 @@ describe('App 冒煙測試', () => {
 
   it('覆寫參數後顯示「↺」重設鈕，點擊後恢復未覆寫的顯示值', async () => {
     render(<App />);
-    const input = screen.getByLabelText(/長.*L/) as HTMLInputElement;
+    const input = screen.getByLabelText(paramLabel(reverseTuckEnd, 'L')) as HTMLInputElement;
     expect(input.value).toBe('55'); // RTE 預設 L=55
     fireEvent.change(input, { target: { value: '80' } });
     expect(input.value).toBe('80');
 
-    const resetBtn = await screen.findByRole('button', { name: /重設.*長度/ });
+    const resetBtn = await screen.findByRole('button', {
+      name: t('param.reset.aria', { label: paramLabel(reverseTuckEnd, 'L') }),
+    });
     fireEvent.click(resetBtn);
     expect(input.value).toBe('55'); // 恢復預設
   });
@@ -364,16 +475,16 @@ describe('LayersPanel：生成圖層四列恆定顯示（cut/crease/halfcut/dime
 
   it('telescope（tray.ts 舌摺線中段有 halfcut）：halfcut 列 enabled，非恆定 disabled', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'telescope' } });
-    await screen.findByLabelText(/下盒長度/);
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'telescope' } });
+    await screen.findByLabelText(paramLabel(telescope, 'baseLength'));
 
     expect(screen.getByLabelText('半刀')).not.toBeDisabled();
   });
 
   it('F3：盒型有 texts 但無任何 dimension/annotation path 時，「尺寸標註」列仍 enabled（disabled 判斷需同時看 result.texts，非只看 result.paths；review finding，2026-07-09）', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-texts-only-box' } });
-    await screen.findByLabelText(/X 值/);
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-texts-only-box' } });
+    await screen.findByLabelText(paramLabel(textsOnlyBox, 'x'));
 
     expect(screen.getByLabelText('尺寸標註')).not.toBeDisabled();
   });
@@ -400,7 +511,7 @@ describe('Canvas 高亮疊加', () => {
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
     };
     const { container } = render(
-      <Canvas result={result} highlightTags={null} invariantWarnings={[{ message: { zh: '警告' }, tags: ['x'] }]} />,
+      <Canvas result={result} highlightTags={null} invariantWarnings={[{ message: { zh: '警告', en: 'Warning' }, tags: ['x'] }]} />,
     );
     expect(container.querySelectorAll('path[stroke="#FF6B00"]').length).toBe(1); // 沒有 hover，純由警告 tags 觸發高亮
   });
@@ -414,7 +525,7 @@ describe('Canvas 高亮疊加', () => {
     const { rerender, queryByText } = render(<Canvas result={result} highlightTags={null} invariantWarnings={[]} />);
     expect(queryByText(/警告/)).not.toBeInTheDocument();
 
-    rerender(<Canvas result={result} highlightTags={null} invariantWarnings={[{ message: { zh: '幾何超出範圍警告' } }]} />);
+    rerender(<Canvas result={result} highlightTags={null} invariantWarnings={[{ message: { zh: '幾何超出範圍警告', en: 'Geometry out-of-bounds warning' } }]} />);
     expect(queryByText('幾何超出範圍警告')).toBeInTheDocument();
   });
 });
@@ -644,7 +755,7 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
     // 預設盒型是 RTE：pieces undefined，不該出現任何切換按鈕。
     expect(screen.queryByRole('button', { name: '全版' })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
 
     expect(await screen.findByRole('button', { name: '全版' })).toBeInTheDocument();
     const buttons = screen.getAllByRole('button', { name: /^(全版|片A|片B)$/ });
@@ -653,7 +764,7 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
 
   it('點選單片按鈕後，畫布只渲染該片的 paths/texts（依 pathIds/textIds 集合過濾，非猜測 index）', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
     await screen.findByRole('button', { name: '全版' });
 
     // 全版：2 條 path（a-p0/b-p0）＋ 1 個 text（屬於片A 的 a-t0）。
@@ -675,7 +786,7 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
 
   it('單片視圖 viewBox 用該片 bounds 外加邊距；全版視圖仍是 result.bounds 原值、不加邊距', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
     await screen.findByRole('button', { name: '全版' });
 
     const svg = document.querySelector('svg')!;
@@ -689,14 +800,14 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
 
   it('切換盒型時視圖重置回全版：選片後切走再切回，不殘留舊 pieceId（規格點 6）', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
     await screen.findByRole('button', { name: '全版' });
 
     fireEvent.click(screen.getByRole('button', { name: '片A' }));
     expect(screen.getByRole('button', { name: '片A' })).toHaveAttribute('aria-pressed', 'true');
 
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'rte' } });
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'test-pieces-box' } });
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'rte' } });
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
 
     await screen.findByRole('button', { name: '全版' });
     expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true'); // 重置回全版
@@ -727,8 +838,8 @@ describe('ExportBar：pieces 存在時的「匯出目前視圖」（全版＋單
     texts: [{ id: 'a-t0', x: 5, y: 5, text: 'A標註' }],
     bounds: { minX: 0, maxX: 10, minY: 0, maxY: 30 },
     pieces: [
-      { id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
-      { id: 'piece-b', label: { zh: '片B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
+      { id: 'piece-a', label: { zh: '片A', en: 'Piece A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
+      { id: 'piece-b', label: { zh: '片B', en: 'Piece B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
     ],
   };
   const values = { x: 10 };
@@ -796,7 +907,7 @@ describe('ExportBar：pieces 存在時的「匯出目前視圖」（全版＋單
       pieces: [
         {
           id: 'piece-x',
-          label: { zh: '片X' },
+          label: { zh: '片X', en: 'Piece X' },
           pathIds: ['cut-0', 'dim-0'],
           textIds: [],
           bounds: { minX: -5, maxX: 15, minY: -8, maxY: 30 },
@@ -938,8 +1049,8 @@ describe('ExportBar：下載 DXF（Slice 3 Task 2，接 export/dxf.ts 的 toDxfD
       texts: [{ id: 'a-t0', x: 5, y: 5, text: 'A標註' }],
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 30 },
       pieces: [
-        { id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
-        { id: 'piece-b', label: { zh: '片B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
+        { id: 'piece-a', label: { zh: '片A', en: 'Piece A' }, pathIds: ['a-p0'], textIds: ['a-t0'], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } },
+        { id: 'piece-b', label: { zh: '片B', en: 'Piece B' }, pathIds: ['b-p0'], textIds: [], bounds: { minX: 0, maxX: 0, minY: 20, maxY: 30 } },
       ],
     };
     const pieceA = piecesResult.pieces![0]!;
@@ -982,7 +1093,7 @@ describe('ExportBar：下載 DXF（Slice 3 Task 2，接 export/dxf.ts 的 toDxfD
       paths: [{ id: 'a-p0', type: 'cut', segments: [{ kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 }] }],
       texts: [],
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 },
-      pieces: [{ id: 'piece-a', label: { zh: '片A' }, pathIds: ['a-p0'], textIds: [], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } }],
+      pieces: [{ id: 'piece-a', label: { zh: '片A', en: 'Piece A' }, pathIds: ['a-p0'], textIds: [], bounds: { minX: 0, maxX: 10, minY: 0, maxY: 5 } }],
     };
     render(<ExportBarHarness boxId="test-pieces-box" values={{}} result={piecesResult} />);
     expect(screen.getByRole('button', { name: '匯出目前視圖' })).toBeInTheDocument();
@@ -997,18 +1108,21 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
   // 用「新 mod ＋ 舊 overrides」呼叫 resolveParams 而擲錯的 bug（render-phase reset
   // 要下一輪才生效，這一輪本身需要 guard，見 useParams.ts 內對應註解）。
   const tinyBox: BoxModule = {
-    meta: { id: 'test-tiny-box', name: { zh: '測試極簡盒' }, intro: { zh: '' }, topology: 'linear' },
+    meta: { id: 'test-tiny-box', name: { zh: '測試極簡盒', en: 'Tiny test box' }, intro: { zh: '', en: '' }, topology: 'linear' },
     params: [
       {
         key: 'x',
-        label: { zh: 'X 值' },
+        label: { zh: 'X 值', en: 'X value' },
         unit: 'mm',
         default: 1,
         min: 0,
         max: 100,
         step: 1,
-        group: { zh: '測試群組' },
-        description: { zh: '測試參數：故意只宣告 x，不含 L/W/D，用來踩到「切盒後 overrides 殘留」分支' },
+        group: { id: 'test', zh: '測試群組', en: 'Test group' },
+        description: {
+          zh: '測試參數：故意只宣告 x，不含 L/W/D，用來踩到「切盒後 overrides 殘留」分支',
+          en: 'Synthetic x-only parameter for stale override coverage.',
+        },
       },
     ],
     invariants: [],
@@ -1049,15 +1163,15 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 
   it('改 override 後切換盒型不 crash：新盒型正常渲染其自身參數', async () => {
     render(<App />);
-    const input = screen.getByLabelText(/長.*L/) as HTMLInputElement;
+    const input = screen.getByLabelText(paramLabel(reverseTuckEnd, 'L')) as HTMLInputElement;
     fireEvent.change(input, { target: { value: '80' } }); // 製造 RTE 的殘留 override {L: 80}
 
-    const select = screen.getByLabelText(/盒型/);
+    const select = screen.getByLabelText(t('console.boxStyle'));
     expect(() => {
       fireEvent.change(select, { target: { value: 'test-tiny-box' } });
     }).not.toThrow();
 
-    expect(await screen.findByLabelText(/X 值/)).toBeInTheDocument();
+    expect(await screen.findByLabelText(paramLabel(tinyBox, 'x'))).toBeInTheDocument();
   });
 
   // ── Slice 2 Task 6 規格點 5：Slice 1 這條切盒 guard 只用過假盒型（tinyBox）驗證過，這裡
@@ -1066,14 +1180,14 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
   // 不需要額外 registerBox()。
   it('RTE↔telescope 真雙盒雙向切換不 crash，天地盒的視圖切換按鈕正確渲染（首次雙盒實戰）', async () => {
     render(<App />);
-    expect(screen.getByLabelText(/長.*L/)).toBeInTheDocument(); // 起始為 RTE
+    expect(screen.getByLabelText(paramLabel(reverseTuckEnd, 'L'))).toBeInTheDocument(); // 起始為 RTE
 
-    const select = screen.getByLabelText(/盒型/);
+    const select = screen.getByLabelText(t('console.boxStyle'));
     expect(() => {
       fireEvent.change(select, { target: { value: 'telescope' } });
     }).not.toThrow();
 
-    expect(await screen.findByLabelText(/下盒長度/)).toBeInTheDocument(); // telescope 專屬參數出現
+    expect(await screen.findByLabelText(paramLabel(telescope, 'baseLength'))).toBeInTheDocument(); // telescope 專屬參數出現
     // telescope 預設 linerEnabled=true → pieces=[base,lid,liner]，切換按鈕依序：全版/下盒/上蓋/內襯
     const switchButtons = screen.getAllByRole('button', { name: /^(全版|下盒|上蓋|內襯)$/ });
     expect(switchButtons.map((b) => b.textContent)).toEqual(['全版', '下盒', '上蓋', '內襯']);
@@ -1081,13 +1195,13 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     expect(() => {
       fireEvent.change(select, { target: { value: 'rte' } });
     }).not.toThrow();
-    expect(await screen.findByLabelText(/長.*L/)).toBeInTheDocument(); // 切回 RTE，參數面板正確重置
+    expect(await screen.findByLabelText(paramLabel(reverseTuckEnd, 'L'))).toBeInTheDocument(); // 切回 RTE，參數面板正確重置
     expect(screen.queryByRole('button', { name: '全版' })).not.toBeInTheDocument(); // RTE 無切換按鈕
   });
 
   it('天地盒選定單片後切走再切回，視圖重置回全版（不殘留舊 pieceId，規格點 6 真盒版）', async () => {
     render(<App />);
-    const select = screen.getByLabelText(/盒型/);
+    const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'telescope' } });
     await screen.findByRole('button', { name: '內襯' });
 
@@ -1112,14 +1226,14 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 
   it('FX5：選內襯單片後關閉 linerEnabled（fallback 全版），重新打開後不應無點擊自動跳回內襯視圖（selectedPieceId 復活 snap-back 回歸）', async () => {
     render(<App />);
-    const select = screen.getByLabelText(/盒型/);
+    const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'telescope' } });
     await screen.findByRole('button', { name: '內襯' });
 
     fireEvent.click(screen.getByRole('button', { name: '內襯' }));
     expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'true');
 
-    const linerCheckbox = screen.getByLabelText(/內襯墊片/) as HTMLInputElement;
+    const linerCheckbox = screen.getByLabelText(paramLabel(telescope, 'linerEnabled')) as HTMLInputElement;
     expect(linerCheckbox.checked).toBe(true);
 
     fireEvent.click(linerCheckbox); // 關閉 linerEnabled → 'liner' 片消失，fallback 回全版
@@ -1149,8 +1263,8 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 describe('telescope 不變式警告 tags 對應真實幾何（FX4，Canvas 高亮命中而非 no-op）', () => {
   it('gusset-b-fits 觸發時，畫布應出現至少一個高亮 path（修前 tags=[platformKey] 對不到任何 path，高亮是無聲的 no-op）', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'telescope' } });
-    const lidHeightInput = (await screen.findByLabelText(/上蓋壁高/)) as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'telescope' } });
+    const lidHeightInput = (await screen.findByLabelText(paramLabel(telescope, 'lidHeight'))) as HTMLInputElement;
     expect(document.querySelectorAll('path[stroke="#FF6B00"]').length, '尚未觸發警告前不應有高亮').toBe(0);
 
     // lidPlatformWidth 預設 0（薄壁角撐），H=15 低於 minStyleBHeight(thickness=0.3) 門檻
@@ -1309,7 +1423,7 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
 
     // 側欄的長度輸入框與畫布 path 不受 modal 掛載影響（jsdom 無真實 layout/hit-test，
     // fireEvent 直接對節點派送事件，modal 是否視覺蓋住不影響底層元素可查詢/可互動）。
-    const input = screen.getByLabelText(/長.*L/) as HTMLInputElement;
+    const input = screen.getByLabelText(paramLabel(reverseTuckEnd, 'L')) as HTMLInputElement;
     const before = document.querySelectorAll('svg path').length;
     fireEvent.change(input, { target: { value: '80' } });
     expect(document.querySelectorAll('svg path').length).toBe(before);
@@ -1462,8 +1576,8 @@ describe('LayersPanel：疊圖匯入/顯示/透明度/校準/重新置中（Slic
     render(<App />);
     await importOverlay(); // 在 RTE 上匯入，自動置中於 RTE 的 manufacturingBounds
 
-    fireEvent.change(screen.getByLabelText(/盒型/), { target: { value: 'telescope' } });
-    await screen.findByLabelText(/下盒長度/);
+    fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'telescope' } });
+    await screen.findByLabelText(paramLabel(telescope, 'baseLength'));
 
     // 疊圖跨盒型保留（spec 明文裁決），此時 offset 仍是 RTE 置中值，尚未跟著新盒型重算。
     expect(document.querySelector(`path[stroke="${OVERLAY_STROKE}"]`)).toBeInTheDocument();
