@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open Dieline — dielines set like type</title>
+<meta name="description" content="Production-ready packaging dielines, drawn in your browser. Free for noncommercial use — an independent press for packaging, kept by Konvolut.">
+<link rel="canonical" href="https://dieline.konvolut.art/">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Open Dieline — dielines set like type">
+<meta property="og:description" content="Production-ready packaging dielines, drawn in your browser. Free for noncommercial use — an independent press for packaging, kept by Konvolut.">
+<meta property="og:image" content="https://dieline.konvolut.art/assets/og-dieline.png">
+<meta property="og:type" content="website">
+<link rel="preload" href="fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/fraunces-italic-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/site.css">
+<script>document.documentElement.classList.add('js-ready')</script>
+</head>
+<body>
+
+<!-- ══ Act I · The press (C) ══ -->
+<section id="press">
+  <div class="page">
+    <header class="masthead">
+      <div class="folio label reveal rule-b">
+        <nav class="site-nav label" aria-label="Konvolut sites">
+          <a href="https://konvolut.art">Katalog</a>
+          <a href="https://konvolut.substack.com">Journal</a>
+          <a href="/" aria-current="page">Open Dieline</a>
+        </nav>
+        <span>Free for noncommercial use</span>
+      </div>
+      <h1 class="reveal" style="--d:0.1s">Open <em>Dieline</em></h1>
+      <div class="dateline label reveal rule-t rule-bd" style="--d:0.2s">
+        <span>Est. MMXXVI</span><span>·</span>
+        <span>An independent press for packaging</span><span>·</span>
+        <span>By <a href="https://konvolut.art">Konvolut</a></span>
+      </div>
+    </header>
+
+    <div class="lede">
+      <p class="kicker label reveal" style="--d:0.25s">In this edition</p>
+      <h2 class="reveal" style="--d:0.35s">The quiet craft of the <em>dieline</em> — drawn flat, folded true.</h2>
+      <p class="byline reveal" style="--d:0.45s">Production-ready cutting layouts for a growing catalogue of boxes, composed in your browser — <b>no account, no upload, no ink spilled.</b></p>
+    </div>
+
+    <div class="contents reveal rule-t" style="--d:0.2s">
+      <div class="toc">
+        <span class="no">No. 01</span>
+        <h3>Generate</h3>
+        <p>Three measurements in, a die-ready drawing out. Cut lines in red, creases in blue — the way the trade has always read them.</p>
+        <span class="label">Begin a dieline</span>
+      </div>
+      <div class="toc">
+        <span class="no">No. 02</span>
+        <h3>Inspect</h3>
+        <p>Every panel, flap and allowance is layered and labelled. Check the geometry the way a compositor checks a forme.</p>
+        <span class="label">Read the plates</span>
+      </div>
+      <div class="toc">
+        <span class="no">No. 03</span>
+        <h3>Export</h3>
+        <p>SVG and DXF, dimensioned in millimetres, accepted by any die-shop. What leaves the press is yours entirely.</p>
+        <span class="label">Take the files</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Act II · The instrument (A) ══ -->
+<section id="instrument">
+  <div class="copy reveal">
+    <p class="kicker mono">No. 01 — Generate · <b>live on this page</b></p>
+    <h2>Every box<br>begins <span class="flat">flat.</span></h2>
+    <p class="lede-a">Drag the three measures. The die drawing answers as you pull — <b>exact to the millimetre</b>, ready for any die-shop.</p>
+  </div>
+  <div class="bench reveal" style="--d:0.15s">
+    <div class="drawing">
+      <i class="rb" aria-hidden="true"></i>
+      <p class="plate-label mono">Plate Nº 04 — Tray, glued corners</p>
+      <svg id="die" viewBox="0 0 100 100" aria-label="Parametric tray dieline"></svg>
+      <div class="legend mono">
+        <span><i></i>Cut</span>
+        <span class="crease-key"><i></i>Crease</span>
+      </div>
+    </div>
+    <div class="console">
+      <div class="param">
+        <label class="mono" for="w">Width</label>
+        <output id="w-out">240<small>mm</small></output>
+        <input type="range" id="w" min="120" max="380" value="240">
+      </div>
+      <div class="param">
+        <label class="mono" for="d">Depth</label>
+        <output id="d-out">160<small>mm</small></output>
+        <input type="range" id="d" min="80" max="300" value="160">
+      </div>
+      <div class="param">
+        <label class="mono" for="h">Height</label>
+        <output id="h-out">60<small>mm</small></output>
+        <input type="range" id="h" min="20" max="140" value="60">
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="cta page">
+  <a class="button" href="https://open-dieline.vercel.app">Open the instrument →</a>
+  <span class="note mono">Desktop browser only — the tool needs a wide bench.</span>
+</div>
+
+<!-- ══ Act III · The composing room (B, light) ══ -->
+<section id="case-room">
+  <div class="page">
+    <p class="kicker mono reveal">From the composing room · <b>an independent press</b></p>
+
+    <div class="verse">
+      <div class="line reveal rule-dash"><span class="word">Set,</span><span class="gloss">01 — choose a box style</span></div>
+      <div class="line reveal rule-dash" style="--d:0.15s"><span class="word">cut,</span><span class="gloss">02 — red lines, through the board</span></div>
+      <div class="line reveal rule-dash" style="--d:0.3s"><span class="word">fold.</span><span class="gloss">03 — blue lines, into shape</span></div>
+    </div>
+
+    <div class="tagline reveal" style="--d:0.4s">
+      <p class="big">Movable type gave every letter its metal body. <b>Open Dieline</b> gives every box its flat one — drawn to the millimetre, yours to press.</p>
+      <span class="mono">SVG / DXF → any die-shop</span>
+    </div>
+  </div>
+
+  <div class="strip" aria-hidden="true">
+    <span>— · — · — ✕ — · — · — CUT — · — · — ✕ — · — · — CREASE — · — · — ✕ — · — · — PLATE Nº 04 — · — · — ✕ — · — · — 240×160×60 — · — · — ✕ — · — · — CUT — · — · — ✕ — · — · — CREASE — · — · — ✕ — · — · — PLATE Nº 04 — · — · — ✕ — · — · — 240×160×60 — · — · — ✕ —&nbsp;</span>
+  </div>
+
+  <div class="page">
+    <div class="case reveal">
+      <p class="mono">Appendix</p>
+      <h3>The case — every sort in its place</h3>
+      <div class="case-grid">
+        <div class="cell">O<span class="mono">a1</span></div>
+        <div class="cell">p<span class="mono">a2</span></div>
+        <div class="cell mark"><svg viewBox="0 0 20 20"><path d="M10 2 v16 M2 10 h16"/><circle cx="10" cy="10" r="5"/></svg></div>
+        <div class="cell">e<span class="mono">a4</span></div>
+        <div class="cell">n<span class="mono">a5</span></div>
+        <div class="cell mark">0421</div>
+        <div class="cell">D<span class="mono">a7</span></div>
+        <div class="cell">i<span class="mono">a8</span></div>
+        <div class="cell mark">⟨90°⟩</div>
+        <div class="cell">e<span class="mono">b2</span></div>
+        <div class="cell">l<span class="mono">b3</span></div>
+        <div class="cell mark"><svg viewBox="0 0 20 20"><path d="M2 14 h16" stroke-dasharray="3 2"/><path d="M2 8 h16"/></svg></div>
+        <div class="cell">i<span class="mono">b5</span></div>
+        <div class="cell">n<span class="mono">b6</span></div>
+        <div class="cell mark">mm</div>
+        <div class="cell">e<span class="mono">b8</span></div>
+      </div>
+      <div class="colophon mono">
+        <span>Reverse Tuck End · Telescope (lid, base, platform liner) · a growing catalogue</span>
+        <span>Composed MMXXVI · by Konvolut · no cloud, no account</span>
+      </div>
+    </div>
+  </div>
+
+  <section class="page">
+    <div class="tagline rule-t">
+      <p class="big">Every line of this press is open to read. <b>Free for noncommercial use</b> —
+         for commercial licensing, write to hello@konvolut.art.</p>
+      <span class="mono">source-available · <a href="https://github.com/BrownBear127/open-dieline">github.com/BrownBear127/open-dieline</a></span>
+    </div>
+  </section>
+</section>
+
+<footer class="rule-td page">
+  <span class="label">Open Dieline — an independent press for packaging, kept by Konvolut</span>
+  <span class="links label">
+    <a href="https://github.com/BrownBear127/open-dieline">GitHub</a>
+    <a href="https://konvolut.art">Konvolut.art</a>
+    <a href="https://konvolut.substack.com">Substack</a>
+    <a href="https://konvolut.art/policies">Policies</a>
+  </span>
+</footer>
+
+<script src="js/site.js" defer></script>
+</body>
+</html>
