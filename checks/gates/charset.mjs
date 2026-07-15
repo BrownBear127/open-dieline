@@ -27,7 +27,10 @@ export function collectCharset(root) {
     for (const m of readFileSync(f, 'utf8').matchAll(/content:\s*(['"])((?:(?!\1).)*)\1/g)) add(m[2]);
   }
   const all = [...chars].filter((c) => c !== '\n' && c !== '\\');
-  const cjk = all.filter((c) => /[　-鿿豈-﫿＀-￯「」（）]/.test(c)).sort().join('');
+  // Enclosed Alphanumerics（①-⓿，含①②③）併入 cjk 桶：T8 發現這些字元只有
+  // Noto Serif TC 有 glyph、六 latin face 全無——歸 latin 桶會讓 pyftsubset 靜默漏字
+  // （2026-07-16 法蘭裁決，見 checks/fonts/feasibility-report.md §4）。
+  const cjk = all.filter((c) => /[　-鿿豈-﫿＀-￯「」（）①-⓿]/.test(c)).sort().join('');
   const latin = all.filter((c) => !cjk.includes(c)).sort().join('');
   return { latin, cjk };
 }
