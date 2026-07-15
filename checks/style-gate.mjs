@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = path.join(root, '.gate-dist');
 const needBuild = !process.env.GATE_SKIP_BUILD; // probe 針對純 source gate 時可跳過 build 提速
 
-const GATES = ['g1-parity', 'g2-vocab', 'g3-utility', 'g4-export-isolation', 'g5-forbidden-words', 'g6-external-urls'];
+const GATES = ['g1-parity', 'g2-vocab', 'g3-utility', 'g4-export-isolation', 'g5-forbidden-words', 'g6-external-urls', 'charset'];
 const only = process.env.GATE_ONLY ? process.env.GATE_ONLY.split(',') : null;
 
 if (needBuild) {
