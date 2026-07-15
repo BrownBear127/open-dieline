@@ -331,3 +331,13 @@ footer .links { display: flex; gap: 22px; }
 .cta a.button:hover { background: var(--cut); }
 .cta .note { color: var(--ink-soft); }
 @media (max-width: 768px) { .cta { flex-direction: column; gap: 10px; } }
+
+/* ── mobile overflow fixes (not in MOCK — MOCK was desktop-verified only) ── */
+@media (max-width: 768px) {
+  .page { padding: 0 24px; }
+  #press .folio { flex-direction: column; gap: 10px; }
+  #press .dateline { flex-wrap: wrap; gap: 8px 14px; }
+  #case-room .tagline { flex-direction: column; align-items: flex-start; gap: 12px; }
+  footer { flex-direction: column; gap: 12px; }
+  footer .links { flex-wrap: wrap; gap: 10px 18px; }
+}
