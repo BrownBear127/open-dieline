@@ -7,8 +7,10 @@ import path from 'node:path';
 function stripComments(css) { return css.replace(/\/\*[\s\S]*?\*\//g, ''); }
 
 /** 陽春 CSS 解析：頂層 rule 的 selector→[{prop,value}]。@media 等 at-rule 內層遞迴展開，
- *  selector 前綴 `@media …|`（G2 只要求「同 scope 同 selector」不重複宣告）。 */
-export function parseDeclarations(cssText, scope = '') {
+ *  selector 前綴 `@media …|`（G2 只要求「同 scope 同 selector」不重複宣告）。
+ *  `seen`：同一 header 文字的出現次序計數器（見下方無巢狀 at-rule 分支的消歧說明），
+ *  頂層呼叫端不用傳，遞迴自己接力共用同一個 Map。 */
+export function parseDeclarations(cssText, scope = '', seen = new Map()) {
   const out = [];
   const css = stripComments(cssText);
   let i = 0;
@@ -20,7 +22,7 @@ export function parseDeclarations(cssText, scope = '') {
     while (j < css.length && depth > 0) { if (css[j] === '{') depth++; if (css[j] === '}') depth--; j++; }
     const body = css.slice(brace + 1, j - 1);
     if (header.startsWith('@') && body.includes('{')) {
-      out.push(...parseDeclarations(body, `${scope}${header}|`));
+      out.push(...parseDeclarations(body, `${scope}${header}|`, seen));
     } else if (!header.startsWith('@')) {
       for (const decl of body.split(';')) {
         const k = decl.indexOf(':');
@@ -28,11 +30,22 @@ export function parseDeclarations(cssText, scope = '') {
         out.push({ selector: scope + header.replace(/\s+/g, ' '), prop: decl.slice(0, k).trim(), value: decl.slice(k + 1).trim() });
       }
     } else {
-      // @font-face / @keyframes 等無巢狀 selector 的 at-rule：以 header 當 selector 保留
+      // @font-face 等無巢狀 selector 的 at-rule：header 文字本身可合法重複出現多次（vocab.css
+      // T9 起有六顆 @font-face）。若直接用 `scope + header` 當 selector，六個區塊的宣告會被
+      // 塞進同一個 key，讓比對器把彼此當成「同 selector 重複宣告」互相誤判值漂移。用出現次序
+      // 加尾碼消歧（`#0`/`#1`/…）——只在「build 不重排同 header 的相對順序」時安全：CSS 規則
+      // 順序本身有 cascade 語意，bundler 不會重排（`--minify false` 下逐字驗證過六顆 @font-face
+      // 在來源與建置產物裡的相對順序與內容一致，2026-07-16）。manifest（vocab.css 單獨呼叫）與
+      // built（建置產物單獨呼叫）各自從自己的計數器從 0 開始數，只要兩邊同 header 的相對順序
+      // 一致，序號就能正確配對。
+      const key = scope + header;
+      const n = seen.get(key) ?? 0;
+      seen.set(key, n + 1);
+      const uniqueSelector = `${key}#${n}`;
       for (const decl of body.split(';')) {
         const k = decl.indexOf(':');
         if (k === -1) continue;
-        out.push({ selector: scope + header, prop: decl.slice(0, k).trim(), value: decl.slice(k + 1).trim() });
+        out.push({ selector: uniqueSelector, prop: decl.slice(0, k).trim(), value: decl.slice(k + 1).trim() });
       }
     }
     i = j;

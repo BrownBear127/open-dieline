@@ -1,6 +1,6 @@
 // checks/style-gate.mjs — G1-G6 runner；G2/G6 需 build 產物（跑一次 vite build）
 import { execSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,4 +33,13 @@ for (const name of GATES) {
   if (errs.length) { failed = true; console.error(`[${name}] FAIL\n  - ${errs.join('\n  - ')}`); }
   else console.log(`[${name}] OK`);
 }
+
+// font-gate（py）＋A8 bytes 預算（值=T8 checkpoint 裁定 346,076B，Spec §6.3）
+const BUDGET_BYTES = 346076;
+execSync(`uvx --from "fonttools[woff]" python3 checks/font-gate.py`, { cwd: root, stdio: 'inherit' });
+const totalBytes = readdirSync(path.join(root, 'public/fonts')).filter((f) => f.endsWith('.woff2'))
+  .reduce((s, f) => s + statSync(path.join(root, 'public/fonts', f)).size, 0);
+if (totalBytes > BUDGET_BYTES) { console.error(`[A8] FAIL fonts ${totalBytes}B > 預算 ${BUDGET_BYTES}B`); process.exit(1); }
+console.log(`[A8] OK fonts ${totalBytes}B ≤ ${BUDGET_BYTES}B`);
+
 process.exit(failed ? 1 : 0);

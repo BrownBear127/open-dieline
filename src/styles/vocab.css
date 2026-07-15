@@ -218,3 +218,11 @@
   .zh .label { font-size: 11px; font-weight: 600; }
   .zh-note p b { color: var(--ink); font-weight: 550; }
 
+/* ═══ @font-face manifest（font-gate REQUIRED_FACES 對象·family/file/weight/style 精確集） ═══ */
+@font-face { font-family: "Fraunces"; src: url("/fonts/fraunces-var.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Fraunces"; src: url("/fonts/fraunces-italic-var.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "Familjen Grotesk"; src: url("/fonts/familjen.woff2") format("woff2"); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex-mono.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex-mono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Serif TC"; src: url("/fonts/noto-serif-tc-subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
