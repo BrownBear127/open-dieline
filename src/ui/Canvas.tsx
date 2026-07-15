@@ -42,9 +42,16 @@ import { segmentsToSvgD } from '@/core/path';
 import { OVERLAY_STROKE, calibrateScale, findNearestOverlaySegment } from '@/overlay/state';
 import { initialLayersState, layerKeyForLineType, updateOverlayLayer } from '@/overlay/layers';
 import type { LayersState } from '@/overlay/layers';
+import { t } from '@/i18n/t';
 
 export interface CanvasProps {
   result: GenerateResult;
+  /** 盒型在 registry 中的一級序號；畫布圖面標固定補成兩位數。 */
+  plateNumber: number;
+  /** 全版視圖的圖面標內容；M1 固定顯示英文欄位。 */
+  boxName: LocalizedText;
+  /** 目前盒型的不變式總數，用於警告條 pass/fail 讀數。 */
+  invariantCount: number;
   highlightTags: string[] | null;
   invariantWarnings: { message: LocalizedText; tags?: string[] }[];
   /**
@@ -155,14 +162,11 @@ function expandBounds(b: Bounds, padding: number): Bounds {
   return { minX: b.minX - padding, maxX: b.maxX + padding, minY: b.minY - padding, maxY: b.maxY + padding };
 }
 
-/** 視圖切換按鈕樣式：選定＝黑底白字（比照「下載 SVG」等主行動按鈕的強調色），未選定＝白底 zinc 邊框（比照 Fit/縮放按鈕）。 */
-function switcherButtonClass(isActive: boolean): string {
-  const base = 'px-2 py-1 border text-xs shadow-sm transition-colors';
-  return isActive ? `${base} bg-black border-black text-white` : `${base} bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50`;
-}
-
 export function Canvas({
   result,
+  plateNumber,
+  boxName,
+  invariantCount,
   highlightTags,
   invariantWarnings,
   activePiece,
@@ -446,7 +450,7 @@ export function Canvas({
     if (!selectedLayer || !selectedLayer.visible || pickedSegmentIndex === null) return;
     const value = Number(calibrationInput);
     if (!(value > 0)) {
-      setCalibrationError('請輸入大於 0 的數字');
+      setCalibrationError(t('canvas.calibrate.invalid'));
       return;
     }
     const seg = selectedLayer.segments[pickedSegmentIndex];
@@ -471,27 +475,33 @@ export function Canvas({
   // （見 core/types.ts 的 bounds-cover 不變式），隱藏某個生成圖層不應該連帶讓視窗跟著縮放/位移。
   const visiblePaths = pieceScopedPaths.filter((p) => layers.generatedVisible[layerKeyForLineType(p.type)]);
   const visibleTexts = layers.generatedVisible.dimensions ? pieceScopedTexts : [];
+  const plateContent = activePiece ? `${activePiece.label.en} view` : boxName.en;
+  const plateLabel = t('canvas.plateLabel', {
+    nn: String(plateNumber).padStart(2, '0'),
+    content: plateContent,
+  });
+  const passedInvariantCount = invariantCount - invariantWarnings.length;
 
   return (
-    <div className="relative flex-1 h-full bg-white overflow-hidden">
+    <section className="bench flex-1 h-full">
       {invariantWarnings.length > 0 && (
-        <div className="absolute top-0 left-0 right-0 z-20 bg-red-50 text-red-700 text-sm px-4 py-2 space-y-0.5 border-b border-red-300">
+        <div className="warnbar mono">
+          <span className="n">
+            {t('canvas.checks', { p: passedInvariantCount, f: invariantWarnings.length })}
+          </span>
           {invariantWarnings.map((w, i) => (
-            <div key={i}>{w.message.zh}</div>
+            <span key={i}>{w.message.en}</span>
           ))}
         </div>
       )}
 
-      {/* 校準模式提示條（T5）：z-30 高於上面的不變式警告條（z-20）——校準是使用者主動進入的
-          互動模式，視覺優先權蓋過被動的背景幾何警告，兩者同時出現的機率低且 brief 未特別
-          規範，此處採最簡單的固定 z-index 分層，不做動態疊放位移計算。 */}
       {calibrating && (
-        <div className="absolute top-0 left-0 right-0 z-30 bg-blue-50 text-blue-800 text-sm px-4 py-2 border-b border-blue-300 flex items-center gap-3">
+        <div className="calibrate-bar mono">
           {pickedSegmentIndex === null ? (
-            <span>點選 overlay 上一段已知長度的線（Esc 取消校準）</span>
+            <span>{t('canvas.calibrate.hint')}</span>
           ) : (
-            <form onSubmit={handleCalibrationConfirm} className="flex items-center gap-2 flex-wrap">
-              <label htmlFor="calibration-mm-input">該線段實際長度：</label>
+            <form onSubmit={handleCalibrationConfirm}>
+              <label htmlFor="calibration-mm-input">{t('canvas.calibrate.lengthLabel')}</label>
               <input
                 id="calibration-mm-input"
                 type="number"
@@ -502,68 +512,16 @@ export function Canvas({
                   setCalibrationInput(e.target.value);
                   setCalibrationError(null);
                 }}
-                className="w-24 border border-blue-300 rounded-sm px-1.5 py-0.5 text-right font-mono focus:outline-none focus:border-blue-600"
               />
-              <span>mm</span>
-              <button type="submit" className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-sm hover:bg-blue-700 transition-colors">
-                確認
+              <span>{t('canvas.calibrate.unit')}</span>
+              <button type="submit" className="btn label">
+                {t('canvas.calibrate.confirm')}
               </button>
-              {calibrationError && <span className="text-red-600">{calibrationError}</span>}
+              {calibrationError && <span className="error">{calibrationError}</span>}
             </form>
           )}
         </div>
       )}
-
-      {result.pieces !== undefined && (
-        <div className="absolute top-4 left-4 z-10 flex items-center gap-1 opacity-90 hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            aria-pressed={activePiece === undefined}
-            onClick={() => onSelectPiece?.(null)}
-            className={switcherButtonClass(activePiece === undefined)}
-          >
-            全版
-          </button>
-          {result.pieces.map((piece) => (
-            <button
-              key={piece.id}
-              type="button"
-              aria-pressed={activePiece?.id === piece.id}
-              onClick={() => onSelectPiece?.(piece.id)}
-              className={switcherButtonClass(activePiece?.id === piece.id)}
-            >
-              {piece.label.zh}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={() => setScale((s) => Math.max(MIN_SCALE, s * 0.9))}
-          className="px-2 py-1 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-sm text-xs"
-        >
-          －
-        </button>
-        <div className="px-2 py-1 bg-white border-y border-zinc-200 text-xs font-mono text-zinc-600 min-w-[48px] text-center">
-          {Math.round(scale * 100)}%
-        </div>
-        <button
-          type="button"
-          onClick={() => setScale((s) => Math.min(MAX_SCALE, s * 1.1))}
-          className="px-2 py-1 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-sm text-xs"
-        >
-          ＋
-        </button>
-        <button
-          type="button"
-          onClick={handleFit}
-          className="ml-1 px-2 py-1 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-sm text-xs"
-        >
-          Fit
-        </button>
-      </div>
 
       <div
         ref={containerRef}
@@ -571,7 +529,7 @@ export function Canvas({
         // 互動本身不停用，見 CALIBRATION_THRESHOLD_MM 註解）＞可拖曳選中層時 move（跟預設
         // pan 的 grab/grabbing 區分開，提示「這裡拖的是選中疊圖層，不是畫布本身」）＞其餘
         // 情況維持既有 pan 的 grab/grabbing。
-        className={`w-full h-full flex items-center justify-center select-none ${
+        className={`drawing select-none ${
           calibrating ? 'cursor-crosshair' : canDragOverlay ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'
         }`}
         onWheel={handleWheel}
@@ -580,17 +538,80 @@ export function Canvas({
         onMouseLeave={handleMouseLeave}
         onMouseMove={handleMouseMove}
       >
-        <svg
-          width={viewW}
-          height={viewH}
-          viewBox={`${minX} ${minY} ${viewW} ${viewH}`}
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-            transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-          }}
-          className="overflow-visible"
-          onClick={handleCalibrationClick}
-        >
+        <i className="rb" aria-hidden="true" />
+        <p className="plate-label mono">{plateLabel}</p>
+
+        {result.pieces !== undefined && (
+          <div className="absolute top-4 left-4 z-10 flex items-center gap-1">
+            <button
+              type="button"
+              aria-pressed={activePiece === undefined}
+              onClick={() => onSelectPiece?.(null)}
+              className={`btn label tog${activePiece === undefined ? ' on' : ''}`}
+            >
+              {t('canvas.view.fullSet')}
+            </button>
+            {result.pieces.map((piece) => (
+              <button
+                key={piece.id}
+                type="button"
+                aria-pressed={activePiece?.id === piece.id}
+                onClick={() => onSelectPiece?.(piece.id)}
+                className={`btn label tog${activePiece?.id === piece.id ? ' on' : ''}`}
+              >
+                {piece.label.en}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="legend mono">
+          <span>
+            <i />
+            {t('canvas.legend.cut')}
+          </span>
+          <span className="crease-key">
+            <i />
+            {t('canvas.legend.crease')}
+          </span>
+        </div>
+
+        <div className="zoom mono">
+          <button
+            type="button"
+            onClick={() => setScale((s) => Math.max(MIN_SCALE, s * 0.9))}
+            className="zbtn"
+          >
+            {t('canvas.zoom.out')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setScale((s) => Math.min(MAX_SCALE, s * 1.1))}
+            className="zbtn"
+          >
+            {t('canvas.zoom.in')}
+          </button>
+          <button
+            type="button"
+            onClick={handleFit}
+            className="fit"
+          >
+            {t('canvas.zoom.fit')}
+          </button>
+          <b>{Math.round(scale * 100)}%</b>
+        </div>
+
+        <div className="shrink-0" style={{ width: viewW, height: viewH }}>
+          <svg
+            width={viewW}
+            height={viewH}
+            viewBox={`${minX} ${minY} ${viewW} ${viewH}`}
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+            }}
+            onClick={handleCalibrationClick}
+          >
           {visiblePaths.map((p) => {
             const style = DISPLAY_LINE_STYLES[p.type];
             const highlighted = isHighlighted(p.tags);
@@ -670,8 +691,9 @@ export function Canvas({
                 </g>
               );
             })}
-        </svg>
+          </svg>
+        </div>
       </div>
-    </div>
+    </section>
   );
 }

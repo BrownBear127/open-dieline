@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { BoxModule, BoxParamDef, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
@@ -27,6 +28,11 @@ import { t } from '../helpers/i18n';
 import { parseDxf } from '../export/dxf-helpers';
 
 const WORDMARK_TEXT = t('chrome.wordmark').replaceAll('*', '');
+const DEFAULT_CANVAS_CHROME = {
+  plateNumber: 1,
+  boxName: reverseTuckEnd.meta.name,
+  invariantCount: 0,
+} as const;
 
 function paramLabel(box: BoxModule, key: string): string {
   const param = box.params.find((candidate) => candidate.key === key);
@@ -363,7 +369,9 @@ describe('App 冒煙測試', () => {
     render(<App />);
     const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'test-fail-box' } });
-    expect(await screen.findByText('測試不變式故意失敗：這是警告條文字')).toBeInTheDocument();
+    const warning = await screen.findByText('Intentional test warning.');
+    expect(warning.closest('.warnbar')).not.toBeNull();
+    expect(screen.getByText(t('canvas.checks', { p: 0, f: 1 }))).toBeInTheDocument();
   });
 
   it('derivedDefault：未覆寫欄位隨上游參數即時重算顯示（顯示值＝生成值，spec §3.3）', async () => {
@@ -548,6 +556,38 @@ describe('LayersPanel：生成圖層四列恆定顯示（cut/crease/halfcut/dime
   });
 });
 
+describe('M1 T7 Canvas chrome', () => {
+  it('renders bench/drawing, registration marks, English plate label, legend, and zoom vocabulary', () => {
+    const { container } = render(<App />);
+    const drawing = container.querySelector('.bench > .drawing');
+    expect(drawing).not.toBeNull();
+    expect(drawing!.querySelector(':scope > .rb')).toBeInTheDocument();
+    expect(drawing!.querySelector('.plate-label')).toHaveTextContent(
+      t('canvas.plateLabel', { nn: '01', content: reverseTuckEnd.meta.name.en }),
+    );
+
+    const legend = drawing!.querySelector('.legend') as HTMLElement;
+    expect(within(legend).getByText(t('canvas.legend.cut'))).toBeInTheDocument();
+    expect(within(legend).getByText(t('canvas.legend.crease'))).toBeInTheDocument();
+    expect(legend.querySelector('.crease-key i')).toBeInTheDocument();
+
+    const zoom = drawing!.querySelector('.zoom') as HTMLElement;
+    expect(within(zoom).getByRole('button', { name: t('canvas.zoom.out') })).toHaveClass('zbtn');
+    expect(within(zoom).getByRole('button', { name: t('canvas.zoom.in') })).toHaveClass('zbtn');
+    expect(within(zoom).getByRole('button', { name: t('canvas.zoom.fit') })).toHaveClass('fit');
+    expect(zoom.querySelector('b')).toHaveTextContent('100%');
+  });
+
+  it('locks A10 zoom click expressions and scale bounds to the pre-reskin source contract', () => {
+    const source = readFileSync('src/ui/Canvas.tsx', 'utf8');
+    expect(source).toContain('const MIN_SCALE = 0.05;');
+    expect(source).toContain('const MAX_SCALE = 10;');
+    expect(source).toContain('onClick={() => setScale((s) => Math.max(MIN_SCALE, s * 0.9))}');
+    expect(source).toContain('onClick={() => setScale((s) => Math.min(MAX_SCALE, s * 1.1))}');
+    expect(source).toContain('onClick={handleFit}');
+  });
+});
+
 describe('Canvas 高亮疊加', () => {
   it('highlightTags 命中的 path 疊加亮色描邊（#FF6B00），未命中的不受影響', () => {
     const result = {
@@ -558,7 +598,9 @@ describe('Canvas 高亮疊加', () => {
       texts: [],
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
     };
-    const { container } = render(<Canvas result={result} highlightTags={['L']} invariantWarnings={[]} />);
+    const { container } = render(
+      <Canvas {...DEFAULT_CANVAS_CHROME} result={result} highlightTags={['L']} invariantWarnings={[]} />,
+    );
     expect(container.querySelectorAll('path[stroke="#FF6B00"]').length).toBe(1); // 只有 tag=L 的 path 疊加高亮
   });
 
@@ -569,22 +611,40 @@ describe('Canvas 高亮疊加', () => {
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
     };
     const { container } = render(
-      <Canvas result={result} highlightTags={null} invariantWarnings={[{ message: { zh: '警告', en: 'Warning' }, tags: ['x'] }]} />,
+      <Canvas
+        {...DEFAULT_CANVAS_CHROME}
+        invariantCount={1}
+        result={result}
+        highlightTags={null}
+        invariantWarnings={[{ message: { zh: '警告', en: 'Warning' }, tags: ['x'] }]}
+      />,
     );
     expect(container.querySelectorAll('path[stroke="#FF6B00"]').length).toBe(1); // 沒有 hover，純由警告 tags 觸發高亮
   });
 
-  it('無警告時不顯示警告條；有警告時顯示 message.zh', () => {
+  it('無警告時不顯示警告條；有警告時顯示 checks 讀數與 message.en', () => {
     const result = {
       paths: [{ id: 'p-0', type: 'cut' as const, segments: [{ kind: 'line' as const, x1: 0, y1: 0, x2: 10, y2: 0 }] }],
       texts: [],
       bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
     };
-    const { rerender, queryByText } = render(<Canvas result={result} highlightTags={null} invariantWarnings={[]} />);
-    expect(queryByText(/警告/)).not.toBeInTheDocument();
+    const { rerender, queryByText } = render(
+      <Canvas {...DEFAULT_CANVAS_CHROME} result={result} highlightTags={null} invariantWarnings={[]} />,
+    );
+    expect(queryByText(/Geometry out-of-bounds warning/)).not.toBeInTheDocument();
 
-    rerender(<Canvas result={result} highlightTags={null} invariantWarnings={[{ message: { zh: '幾何超出範圍警告', en: 'Geometry out-of-bounds warning' } }]} />);
-    expect(queryByText('幾何超出範圍警告')).toBeInTheDocument();
+    rerender(
+      <Canvas
+        {...DEFAULT_CANVAS_CHROME}
+        invariantCount={1}
+        result={result}
+        highlightTags={null}
+        invariantWarnings={[{ message: { zh: '幾何超出範圍警告', en: 'Geometry out-of-bounds warning' } }]}
+      />,
+    );
+    expect(queryByText(t('canvas.checks', { p: 0, f: 1 }))).toBeInTheDocument();
+    expect(queryByText('Geometry out-of-bounds warning')).toBeInTheDocument();
+    expect(queryByText('幾何超出範圍警告')).not.toBeInTheDocument();
   });
 });
 
@@ -612,8 +672,19 @@ describe('Canvas：多片盒型初始縮放 130%（T7 gate 反饋修 3）', () =
     expect(telescopeResult.pieces, 'sanity：telescope 應為多片盒型').toBeDefined();
     expect(rteResult.pieces, 'sanity：RTE 應為單片盒型').toBeUndefined();
 
-    const { container: rteContainer } = render(<Canvas result={rteResult} highlightTags={null} invariantWarnings={[]} />);
-    const { container: telescopeContainer } = render(<Canvas result={telescopeResult} highlightTags={null} invariantWarnings={[]} />);
+    const { container: rteContainer } = render(
+      <Canvas {...DEFAULT_CANVAS_CHROME} result={rteResult} highlightTags={null} invariantWarnings={[]} />,
+    );
+    const { container: telescopeContainer } = render(
+      <Canvas
+        plateNumber={2}
+        boxName={telescope.meta.name}
+        invariantCount={telescope.invariants.length}
+        result={telescopeResult}
+        highlightTags={null}
+        invariantWarnings={[]}
+      />,
+    );
 
     // mount 的 auto-fit 走 setTimeout(100ms)；等到 scale 從初始值 1 變動後再讀值。
     await waitFor(() => expect(readScale(rteContainer.querySelector('svg')!)).not.toBe(1));
@@ -811,33 +882,36 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
     render(<App />);
     await screen.findByRole('heading', { name: WORDMARK_TEXT });
     // 預設盒型是 RTE：pieces undefined，不該出現任何切換按鈕。
-    expect(screen.queryByRole('button', { name: '全版' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: t('canvas.view.fullSet') })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
 
-    expect(await screen.findByRole('button', { name: '全版' })).toBeInTheDocument();
-    const buttons = screen.getAllByRole('button', { name: /^(全版|片A|片B)$/ });
-    expect(buttons.map((b) => b.textContent)).toEqual(['全版', '片A', '片B']); // 全版固定第一，其後照 pieces 陣列序
+    expect(await screen.findByRole('button', { name: t('canvas.view.fullSet') })).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button', { name: /^(Full set|Piece A|Piece B)$/ });
+    expect(buttons.map((b) => b.textContent)).toEqual([t('canvas.view.fullSet'), 'Piece A', 'Piece B']);
+    for (const button of buttons) expect(button).toHaveClass('btn', 'label', 'tog');
+    expect(buttons[0]).toHaveClass('on');
   });
 
   it('點選單片按鈕後，畫布只渲染該片的 paths/texts（依 pathIds/textIds 集合過濾，非猜測 index）', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
-    await screen.findByRole('button', { name: '全版' });
+    await screen.findByRole('button', { name: t('canvas.view.fullSet') });
 
     // 全版：2 條 path（a-p0/b-p0）＋ 1 個 text（屬於片A 的 a-t0）。
     expect(document.querySelectorAll('svg path').length).toBe(2);
     expect(screen.getByText('A標註')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '片A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Piece A' }));
     expect(document.querySelectorAll('svg path').length).toBe(1); // 只剩 a-p0
     expect(screen.getByText('A標註')).toBeInTheDocument(); // a-t0 屬於片A，仍在
+    expect(document.querySelector('.plate-label')).toHaveTextContent('Piece A view');
 
-    fireEvent.click(screen.getByRole('button', { name: '片B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Piece B' }));
     expect(document.querySelectorAll('svg path').length).toBe(1); // 只剩 b-p0
     expect(screen.queryByText('A標註')).not.toBeInTheDocument(); // a-t0 屬於片A 不屬於片B，應消失
 
-    fireEvent.click(screen.getByRole('button', { name: '全版' }));
+    fireEvent.click(screen.getByRole('button', { name: t('canvas.view.fullSet') }));
     expect(document.querySelectorAll('svg path').length).toBe(2); // 切回全版，恢復兩片內容
     expect(screen.getByText('A標註')).toBeInTheDocument();
   });
@@ -845,12 +919,12 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
   it('單片視圖 viewBox 用該片 bounds 外加邊距；全版視圖仍是 result.bounds 原值、不加邊距', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
-    await screen.findByRole('button', { name: '全版' });
+    await screen.findByRole('button', { name: t('canvas.view.fullSet') });
 
     const svg = document.querySelector('svg')!;
     expect(svg.getAttribute('viewBox')).toBe('0 0 10 30'); // 全版：result.bounds 原值，無邊距
 
-    fireEvent.click(screen.getByRole('button', { name: '片A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Piece A' }));
     // 片A bounds={minX:0,maxX:10,minY:0,maxY:5}，PIECE_VIEW_PADDING=20 外擴：
     // viewBox = "-20 -20 50 45"（width=10+2*20=50, height=5+2*20=45）
     expect(svg.getAttribute('viewBox')).toBe('-20 -20 50 45');
@@ -859,17 +933,17 @@ describe('Canvas：pieces 全版／單片視圖切換（Slice 2 Task 6，spec §
   it('切換盒型時視圖重置回全版：選片後切走再切回，不殘留舊 pieceId（規格點 6）', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
-    await screen.findByRole('button', { name: '全版' });
+    await screen.findByRole('button', { name: t('canvas.view.fullSet') });
 
-    fireEvent.click(screen.getByRole('button', { name: '片A' }));
-    expect(screen.getByRole('button', { name: '片A' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Piece A' }));
+    expect(screen.getByRole('button', { name: 'Piece A' })).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'rte' } });
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'test-pieces-box' } });
 
-    await screen.findByRole('button', { name: '全版' });
-    expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true'); // 重置回全版
-    expect(screen.getByRole('button', { name: '片A' })).toHaveAttribute('aria-pressed', 'false');
+    await screen.findByRole('button', { name: t('canvas.view.fullSet') });
+    expect(screen.getByRole('button', { name: t('canvas.view.fullSet') })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Piece A' })).toHaveAttribute('aria-pressed', 'false');
     expect(document.querySelectorAll('svg path').length).toBe(2); // 全版內容，非殘留片A 的過濾內容
   });
 });
@@ -1246,31 +1320,30 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     }).not.toThrow();
 
     expect(await screen.findByLabelText(paramLabel(telescope, 'baseLength'))).toBeInTheDocument(); // telescope 專屬參數出現
-    // telescope 預設 linerEnabled=true → pieces=[base,lid,liner]，切換按鈕依序：全版/下盒/上蓋/內襯
-    const switchButtons = screen.getAllByRole('button', { name: /^(全版|下盒|上蓋|內襯)$/ });
-    expect(switchButtons.map((b) => b.textContent)).toEqual(['全版', '下盒', '上蓋', '內襯']);
+    const switchButtons = screen.getAllByRole('button', { name: /^(Full set|Base|Lid|Liner)$/ });
+    expect(switchButtons.map((b) => b.textContent)).toEqual([t('canvas.view.fullSet'), 'Base', 'Lid', 'Liner']);
 
     expect(() => {
       fireEvent.change(select, { target: { value: 'rte' } });
     }).not.toThrow();
     expect(await screen.findByLabelText(paramLabel(reverseTuckEnd, 'L'))).toBeInTheDocument(); // 切回 RTE，參數面板正確重置
-    expect(screen.queryByRole('button', { name: '全版' })).not.toBeInTheDocument(); // RTE 無切換按鈕
+    expect(screen.queryByRole('button', { name: t('canvas.view.fullSet') })).not.toBeInTheDocument();
   });
 
   it('天地盒選定單片後切走再切回，視圖重置回全版（不殘留舊 pieceId，規格點 6 真盒版）', async () => {
     render(<App />);
     const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'telescope' } });
-    await screen.findByRole('button', { name: '內襯' });
+    await screen.findByRole('button', { name: 'Liner' });
 
-    fireEvent.click(screen.getByRole('button', { name: '內襯' }));
-    expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Liner' }));
+    expect(screen.getByRole('button', { name: 'Liner' })).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.change(select, { target: { value: 'rte' } });
     fireEvent.change(select, { target: { value: 'telescope' } });
 
-    expect(await screen.findByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'false');
+    expect(await screen.findByRole('button', { name: t('canvas.view.fullSet') })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Liner' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   // ── FX5（whole-branch review 修復）：selectedPieceId 復活 snap-back ──
@@ -1286,26 +1359,26 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     render(<App />);
     const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'telescope' } });
-    await screen.findByRole('button', { name: '內襯' });
+    await screen.findByRole('button', { name: 'Liner' });
 
-    fireEvent.click(screen.getByRole('button', { name: '內襯' }));
-    expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Liner' }));
+    expect(screen.getByRole('button', { name: 'Liner' })).toHaveAttribute('aria-pressed', 'true');
 
     const linerCheckbox = screen.getByLabelText(paramLabel(telescope, 'linerEnabled')) as HTMLInputElement;
     expect(linerCheckbox.checked).toBe(true);
 
     fireEvent.click(linerCheckbox); // 關閉 linerEnabled → 'liner' 片消失，fallback 回全版
-    await waitFor(() => expect(screen.queryByRole('button', { name: '內襯' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Liner' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: t('canvas.view.fullSet') })).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(linerCheckbox); // 重新打開 linerEnabled → 'liner' 片重新出現
-    await screen.findByRole('button', { name: '內襯' });
+    await screen.findByRole('button', { name: 'Liner' });
 
     // 核心斷言（修前會失敗）：沒有任何點擊「內襯」按鈕的動作，selectedPieceId 這顆 state
     // 若沒被清成 null，'liner' 片一旦重新出現就會立刻復活成單片視圖——必須停留在全版。
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '全版' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('button', { name: '內襯' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: t('canvas.view.fullSet') })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Liner' })).toHaveAttribute('aria-pressed', 'false');
     });
   });
 });
@@ -1330,7 +1403,7 @@ describe('telescope 不變式警告 tags 對應真實幾何（FX4，Canvas 高�
     // 既有測試「lidHeight 剛好低於門檻...」同一組態）。
     fireEvent.change(lidHeightInput, { target: { value: '15' } });
 
-    await screen.findByText(/讓位槽幾何已擠壓變形/); // 先確認警告條真的出現
+    await screen.findByText(/relief geometry has compressed and deformed/); // 先確認英文警告條真的出現
     expect(
       document.querySelectorAll('path[stroke="#FF6B00"]').length,
       "gusset-b-fits 警告觸發後應有真實 path 被高亮（tags=['gusset'] 命中 tray.ts 的角撐 path）",
@@ -1899,11 +1972,11 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     await importOverlay();
 
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    expect(await screen.findByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(await screen.findByText(t('canvas.calibrate.hint'))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: t('overlay.calibrate.exit') })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate.exit') }));
-    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
+    expect(screen.queryByText(t('canvas.calibrate.hint'))).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: t('overlay.calibrate') })).toBeInTheDocument();
   });
 
@@ -1911,17 +1984,17 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     render(<App />);
     const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     clickFixtureLineMidpoint(offset);
 
-    const mmInput = await screen.findByLabelText(/該線段實際長度/);
+    const mmInput = await screen.findByLabelText(t('canvas.calibrate.lengthLabel'));
     fireEvent.change(mmInput, { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    fireEvent.click(screen.getByRole('button', { name: t('canvas.calibrate.confirm') }));
 
     await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
-    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument(); // 模式已退出
-    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
+    expect(screen.queryByText(t('canvas.calibrate.hint'))).not.toBeInTheDocument(); // 模式已退出
+    expect(screen.queryByLabelText(t('canvas.calibrate.lengthLabel'))).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: t('overlay.calibrate') })).toBeInTheDocument(); // 鈕字回「校準」
   });
 
@@ -1929,7 +2002,7 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     render(<App />);
     const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     fireEvent.click(screen.getByLabelText(t('overlay.show'))); // 校準模式中途隱藏疊圖（checkbox 不因 calibrating 而 disabled）
 
@@ -1937,32 +2010,32 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
 
     // 修前：hit-test 沒 gate visible，仍會命中線段、跳出行內輸入表單。修後：不命中，
     // 提示條停在「請點選」狀態，沒有任何段被選中。
-    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
-    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(t('canvas.calibrate.lengthLabel'))).not.toBeInTheDocument();
+    expect(screen.getByText(t('canvas.calibrate.hint'))).toBeInTheDocument();
   });
 
   it('F1：pan 拖曳放開不誤觸校準點選（mousedown 遠處→mousemove→mouseup/click 落在線段 hit-test 容差內）', async () => {
     render(<App />);
     const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     dragThenClickFixtureLineMidpoint(offset);
 
     // 沒有任何段被選中：行內輸入表單未出現，提示條仍是「請點選」而非顯示已選段。
-    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
-    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(t('canvas.calibrate.lengthLabel'))).not.toBeInTheDocument();
+    expect(screen.getByText(t('canvas.calibrate.hint'))).toBeInTheDocument();
   });
 
   it('F1 對照組：無位移的 mousedown→mouseup→click（同座標）仍正常選中線段，既有點選行為不迴歸', async () => {
     render(<App />);
     const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     clickFixtureLineMidpointViaFullSequence(offset);
 
-    expect(await screen.findByLabelText(/該線段實際長度/)).toBeInTheDocument(); // 有選中線段，表單出現
+    expect(await screen.findByLabelText(t('canvas.calibrate.lengthLabel'))).toBeInTheDocument(); // 有選中線段，表單出現
   });
 
   it('Esc 退出校準模式：scale 不變（未套用任何校準結果）', async () => {
@@ -1971,11 +2044,11 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     const before = readOverlayScale();
 
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
+    expect(screen.queryByText(t('canvas.calibrate.hint'))).not.toBeInTheDocument();
     expect(readOverlayScale()).toBeCloseTo(before, 6);
     expect(screen.getByRole('button', { name: t('overlay.calibrate') })).toBeInTheDocument();
   });
@@ -1984,20 +2057,20 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     render(<App />);
     const offset = await importOverlay();
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
     clickFixtureLineMidpoint(offset);
 
-    const mmInput = await screen.findByLabelText(/該線段實際長度/);
+    const mmInput = await screen.findByLabelText(t('canvas.calibrate.lengthLabel'));
     fireEvent.change(mmInput, { target: { value: '0' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    fireEvent.click(screen.getByRole('button', { name: t('canvas.calibrate.confirm') }));
 
-    expect(await screen.findByText(/請輸入大於 0 的數字/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/該線段實際長度/)).toBeInTheDocument(); // 未退出校準模式
+    expect(await screen.findByText(t('canvas.calibrate.invalid'))).toBeInTheDocument();
+    expect(screen.getByLabelText(t('canvas.calibrate.lengthLabel'))).toBeInTheDocument(); // 未退出校準模式
 
     fireEvent.change(mmInput, { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    fireEvent.click(screen.getByRole('button', { name: t('canvas.calibrate.confirm') }));
     await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
-    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
+    expect(screen.queryByText(t('canvas.calibrate.hint'))).not.toBeInTheDocument();
   });
 
   it('校準中途切換選中層——pickedSegmentIndex 須清除，須重新點選新層才能確認，不會把 scale 寫進切換前的舊層（review finding F1，雙軌審查 2026-07-09，與本檔既有的拖曳 guard F1 是不同回合的不同 finding，僅巧合同名）', async () => {
@@ -2030,25 +2103,25 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     // f1-b 是選中層，啟動校準（作用於 b）
     const rowB = screen.getByText('f1-b').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
     fireEvent.click(within(rowB).getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     // 點選 b 的線段中點（raw 線段 x2=60，中點 rawHalfX=30）→ 出現行內輸入框
     clickMidpoint(groupOf(1), 30);
-    expect(await screen.findByLabelText(/該線段實際長度/)).toBeInTheDocument();
+    expect(await screen.findByLabelText(t('canvas.calibrate.lengthLabel'))).toBeInTheDocument();
 
     // 校準中途切選 f1-a（點列名，LayersPanel 未鎖定這個互動——這正是 F1 finding 的成因）
     fireEvent.click(screen.getByText('f1-a'));
 
     // 斷言：輸入框消失（pickedSegmentIndex 已清）＋確認流程不可達；校準模式本身沒有退出
-    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '確認' })).not.toBeInTheDocument();
-    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(t('canvas.calibrate.lengthLabel'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: t('canvas.calibrate.confirm') })).not.toBeInTheDocument();
+    expect(screen.getByText(t('canvas.calibrate.hint'))).toBeInTheDocument();
 
     // 重新點選 a 的線段（raw 線段 x2=40，中點 rawHalfX=20）→ 確認後 scale 寫進 a
     clickMidpoint(groupOf(0), 20);
-    const mmInput2 = await screen.findByLabelText(/該線段實際長度/);
+    const mmInput2 = await screen.findByLabelText(t('canvas.calibrate.lengthLabel'));
     fireEvent.change(mmInput2, { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    fireEvent.click(screen.getByRole('button', { name: t('canvas.calibrate.confirm') }));
 
     // scale 寫進 a（100/40=2.5）且值正確；b 的 scale 全程不變（從未被確認過）
     await waitFor(() => expect(readTransform(groupOf(0)).scale).toBeCloseTo(2.5, 6));
@@ -2059,17 +2132,17 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     render(<App />);
     const offset = await importOverlay(); // 匯入即自動選中
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
     clickFixtureLineMidpoint(offset); // 選段開表單——驗證「取消選中」在表單已開的更深狀態下依然生效
-    await screen.findByLabelText(/該線段實際長度/);
+    await screen.findByLabelText(t('canvas.calibrate.lengthLabel'));
 
     fireEvent.click(screen.getByText('calib')); // 點選中層的列名＝取消選中（'calib.svg' 去副檔名後顯示 'calib'）
 
     // 修前：calibrating 沒關，提示條仍顯示（只看 calibrating，見 Canvas.tsx JSX），但
     // selectedLayer 已是 undefined——點畫布因 handleCalibrationClick 的 `!selectedLayer`
     // early return 沒有任何反應，使用者只能按 Esc 逃出。修後：提示條／表單整條消失。
-    expect(screen.queryByText(/點選 overlay 上一段已知長度的線/)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
+    expect(screen.queryByText(t('canvas.calibrate.hint'))).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(t('canvas.calibrate.lengthLabel'))).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: t('overlay.calibrate') })).toBeInTheDocument(); // 鈕字回「校準」（非「取消校準」）
   });
 
@@ -2089,13 +2162,13 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
 
     const rowB = screen.getByText('ff1-b').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
     fireEvent.click(within(rowB).getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     fireEvent.click(screen.getByText('ff1-a')); // 切到「另一層」（非取消選中）
 
     // 校準模式維持開啟：提示條仍在（換層後 pickedSegmentIndex 歸零回到「請點選」，這是既有
     // T2 F1 行為，FF1 的修法不應波及這條路徑）；且對象確實換成 ff1-a（該列鈕字變「取消校準」）。
-    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(screen.getByText(t('canvas.calibrate.hint'))).toBeInTheDocument();
     const rowA = screen.getByText('ff1-a').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
     expect(within(rowA).getByRole('button', { name: t('overlay.calibrate.exit') })).toBeInTheDocument();
   });
@@ -2106,18 +2179,18 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
     const scaleBefore = readOverlayScale();
 
     fireEvent.click(screen.getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
     clickFixtureLineMidpoint(offset);
-    const mmInput = await screen.findByLabelText(/該線段實際長度/);
+    const mmInput = await screen.findByLabelText(t('canvas.calibrate.lengthLabel'));
     fireEvent.change(mmInput, { target: { value: '100' } }); // 表單已開、已輸入待確認
 
     fireEvent.click(screen.getByLabelText(t('overlay.show'))); // 表單開著時隱藏選中層
 
     // 表單即刻消失（回到「請點選」提示；calibrating 本身不因此關閉——跟 FF1 的取消選中是不同
     // 語意）；確認鈕不可達，剛剛輸入的 100 無從送出。
-    expect(screen.queryByLabelText(/該線段實際長度/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '確認' })).not.toBeInTheDocument();
-    expect(screen.getByText(/點選 overlay 上一段已知長度的線/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(t('canvas.calibrate.lengthLabel'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: t('canvas.calibrate.confirm') })).not.toBeInTheDocument();
+    expect(screen.getByText(t('canvas.calibrate.hint'))).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText(t('overlay.show'))); // 重新顯示
 
@@ -2126,9 +2199,9 @@ describe('LayersPanel＋Canvas：點選校準（Slice 3 Task 5 語意延續，�
 
     // 重新點選同一段，走完整流程仍可正常完成校準。
     clickFixtureLineMidpoint(offset);
-    const mmInput2 = await screen.findByLabelText(/該線段實際長度/);
+    const mmInput2 = await screen.findByLabelText(t('canvas.calibrate.lengthLabel'));
     fireEvent.change(mmInput2, { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認' }));
+    fireEvent.click(screen.getByRole('button', { name: t('canvas.calibrate.confirm') }));
     await waitFor(() => expect(readOverlayScale()).toBeCloseTo(2.5, 6));
   });
 
@@ -2262,7 +2335,7 @@ describe('Canvas：選中 overlay 層的畫布拖曳（Slice 3 gate round 1 T3�
     // 沿用「校準中途切換選中層」describe 既有的 `within(row)` 寫法。
     const rowB = screen.getByText('t3-b').closest('[data-testid^="overlay-layer-"]') as HTMLElement;
     fireEvent.click(within(rowB).getByRole('button', { name: t('overlay.calibrate') }));
-    await screen.findByText(/點選 overlay 上一段已知長度的線/);
+    await screen.findByText(t('canvas.calibrate.hint'));
 
     const before = readOverlayTransform(overlayGroupAt(1));
     const svg = document.querySelector('svg')!;
