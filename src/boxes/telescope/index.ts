@@ -54,206 +54,223 @@ const EPS = 1e-6;
 const params: BoxParamDef[] = [
   {
     key: 'baseLength',
-    label: { zh: '下盒長度' },
+    label: { zh: '下盒長度', en: 'Base length' },
     unit: 'mm',
     default: 179,
     min: 30,
     max: 600,
     step: 0.5,
-    group: { zh: '尺寸與材質' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
     description: {
       zh: '下盒主面板長邊尺寸（製造尺寸，與生產刀模直接對帳）；同時決定上蓋面板長邊（＋2×上蓋放大量）與內襯墊片底面長邊的套合基準（內襯現在錨定下盒內淨，見 linerFitGap）。',
+      en: 'Base main-panel long-side manufacturing dimension, for direct comparison with the production dieline; also sets the lid-panel long side (+ 2× lid oversize) and the fit reference for the liner-pad long side. The liner is anchored to the base inside dimensions; see linerFitGap.',
     },
     highlightTags: ['baseLength'],
   },
   {
     key: 'baseWidth',
-    label: { zh: '下盒寬度' },
+    label: { zh: '下盒寬度', en: 'Base width' },
     unit: 'mm',
     default: 124,
     min: 30,
     max: 600,
     step: 0.5,
-    group: { zh: '尺寸與材質' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
     description: {
       zh: '下盒主面板短邊尺寸；同時決定上蓋面板短邊（＋2×上蓋放大量）與內襯墊片底面短邊的套合基準。',
+      en: 'Base main-panel short-side dimension; also sets the lid-panel short side (+ 2× lid oversize) and the fit reference for the liner-pad short side.',
     },
     highlightTags: ['baseWidth'],
   },
   {
     key: 'baseHeight',
-    label: { zh: '下盒壁高' },
+    label: { zh: '下盒壁高', en: 'Base wall height' },
     unit: 'mm',
     default: 60,
     min: 10,
     max: 200,
     step: 0.5,
-    group: { zh: '尺寸與材質' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
     description: {
       zh: '下盒後摺壁的名義全高；先摺壁（左右壁）另再減一個壁頂平齊補償量（wallTopCompensation）做「頂緣平齊」修正，讓四片牆摺起後頂緣切齊（Slice 5 F3 解耦：此修正原讀紙厚，現改讀獨立參數）。內襯墊片的腳架深度（linerFlapDepth）不得超過此值，否則內襯會頂出盒口（見 liner-flap-fits 警告）。',
+      en: 'Nominal full height of the base second-fold walls; the first-fold left and right walls are reduced by wallTopCompensation so all four top edges finish flush. As of Slice 5 F3, this correction reads an independent parameter rather than board caliper. Liner leg depth (linerFlapDepth) must not exceed this value or the liner will project above the box opening; see the liner-flap-fits warning.',
     },
     highlightTags: ['baseHeight'],
   },
   {
     key: 'lidMarginX',
-    label: { zh: '上蓋放大量（短向）' },
+    label: { zh: '上蓋放大量（短向）', en: 'Lid oversize (short axis)' },
     unit: 'mm',
     default: 13.5,
     min: 5,
     max: 60,
     step: 0.5,
-    group: { zh: '套合' },
+    group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
       zh: '上蓋面板短向（對應 baseWidth／x 向先摺壁）相對下盒的等邊放大量——決定上蓋短向能套住下盒多深。Slice 5 F1：原單一 lidMargin 拆兩軸，取消 y 向測試豁免後兩軸皆為可獨立覆蓋的一般參數（無 derivedDefault）。（2026-07-09 T7 gate 重定義：內襯不再錨定上蓋，此參數與內襯幾何無關——見 linerFlapDepth。）',
+      en: 'Equal per-side lid oversize on the short axis, corresponding to baseWidth and the x-axis first-fold walls; determines the lid-to-base fit on the short axis. Slice 5 F1 split the former lidMargin into two independently overridable axes with no derivedDefault and removed the y-axis test exemption. Since the 2026-07-09 T7 gate redefinition, the liner is no longer anchored to the lid, so this parameter does not affect liner geometry; see linerFlapDepth.',
     },
     highlightTags: ['lidMarginX'],
   },
   {
     key: 'lidMarginY',
-    label: { zh: '上蓋放大量（長向）' },
+    label: { zh: '上蓋放大量（長向）', en: 'Lid oversize (long axis)' },
     unit: 'mm',
     default: 18.5,
     min: 5,
     max: 60,
     step: 0.5,
-    group: { zh: '套合' },
+    group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
       zh: '上蓋面板長向（對應 baseLength／y 向後摺壁）相對下盒的等邊放大量。與 lidMarginX 各自獨立（Slice 5 F1：生產刀模長短向放大量本不相等 13.5≠18.5，拆分後才能逐線復刻；取消 y 向測試豁免）。',
+      en: 'Equal per-side lid oversize on the long axis, corresponding to baseLength and the y-axis second-fold walls. Independent of lidMarginX: Slice 5 F1 separated the unequal production-dieline oversizes (13.5≠18.5) for line-by-line reproduction and removed the y-axis test exemption.',
     },
     highlightTags: ['lidMarginY'],
   },
   {
     key: 'lidHeight',
-    label: { zh: '上蓋壁高' },
+    label: { zh: '上蓋壁高', en: 'Lid wall height' },
     unit: 'mm',
     default: 45,
     min: 10,
     max: 200,
     step: 0.5,
-    group: { zh: '尺寸與材質' },
-    description: { zh: '上蓋後摺壁的名義全高；B-06（Slice 5 F3）：上蓋左右壁的頂緣平齊特例已移除，四面外壁恆等高（不吃 wallTopCompensation，不再有「−1 個紙厚」修正）。' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
+    description: {
+      zh: '上蓋後摺壁的名義全高；B-06（Slice 5 F3）：上蓋左右壁的頂緣平齊特例已移除，四面外壁恆等高（不吃 wallTopCompensation，不再有「−1 個紙厚」修正）。',
+      en: 'Nominal full height of the lid second-fold walls. Under B-06 (Slice 5 F3), the flush-top exception for the left and right lid walls has been removed: all four outer walls remain equal in height, do not use wallTopCompensation, and no longer receive the −1 board-caliper correction.',
+    },
     highlightTags: ['lidHeight'],
   },
   {
     key: 'basePlatformWidth',
-    label: { zh: '下盒壁頂平台寬' },
+    label: { zh: '下盒壁頂平台寬', en: 'Base platform width' },
     unit: 'mm',
     default: 5,
     min: 0,
     max: 15,
     step: 0.5,
-    group: { zh: '壁款' },
+    group: { id: 'wallStyle', zh: '壁款', en: 'Wall style' },
     description: {
       zh: '下盒壁頂平台寬度；設 0＝薄壁單線反折（配弧形讓位角撐），大於 0＝厚壁平台（配 45° 斜角撐）。角撐款式跟隨這個值自動切換，不是獨立開關。',
+      en: 'Base wall-top platform width; 0 produces a thin-wall single-line return fold with curved relief gussets, while a value above 0 produces a thick-wall platform with 45° mitred gussets. Gusset style follows this value automatically and is not a separate control.',
     },
     highlightTags: ['wallTop'],
   },
   {
     key: 'lidPlatformWidth',
-    label: { zh: '上蓋壁頂平台寬' },
+    label: { zh: '上蓋壁頂平台寬', en: 'Lid platform width' },
     unit: 'mm',
     default: 0,
     min: 0,
     max: 15,
     step: 0.5,
-    group: { zh: '壁款' },
+    group: { id: 'wallStyle', zh: '壁款', en: 'Wall style' },
     description: {
       zh: '上蓋壁頂平台寬度（生產品為薄壁單線反折，預設 0）。設 0 且壁高偏低時，薄壁角撐的讓位槽會擠壓變形，見 gusset-b-fits 警告。',
+      en: 'Lid wall-top platform width; the production form uses a thin-wall single-line return fold, default 0. At 0 with a low wall height, the thin-wall gusset relief can compress and deform; see the gusset-b-fits warning.',
     },
     highlightTags: ['wallTop'],
   },
   {
     key: 'thickness',
-    label: { zh: '紙厚' },
+    label: { zh: '紙厚', en: 'Board caliper' },
     unit: 'mm',
     default: 0.3,
     min: 0,
     max: 0.8,
     step: 0.01,
-    group: { zh: '尺寸與材質' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
     description: {
       zh: '紙張厚度（caliper）。驅動內襯套合間隙（linerFitGap 換算）與角撐對角線位置（reach＝壁高－紙厚）。Slice 5 F3 解耦（audit A-01）：不再直接驅動壁根雙摺線間距與內外壁差，改由 rootJog／innerWallReduction／wallTopCompensation 三個獨立參數負責——設 0 不會讓這三處補償跟著歸零，見各自的參數說明。',
+      en: 'Board caliper; drives the converted liner fit gap (linerFitGap) and gusset diagonal position (reach = wall height − board caliper). Following the Slice 5 F3 decoupling (audit A-01), it no longer drives the wall-root double-crease spacing or the inner-to-outer wall difference directly; rootJog, innerWallReduction, and wallTopCompensation now control those independently. Setting caliper to 0 does not zero those three compensations; see their parameter descriptions.',
     },
     highlightTags: ['gusset'],
   },
   {
     key: 'rootJog',
-    label: { zh: '壁根位移量' },
+    label: { zh: '壁根位移量', en: 'Root jog' },
     unit: 'mm',
     default: 0.5,
     min: 0,
     max: 3,
     step: 0.1,
-    group: { zh: '補償' },
+    group: { id: 'compensation', zh: '補償', en: 'Compensation' },
     description: {
       zh: '後摺壁（y 向）壁根雙摺線之間的間距——與紙厚解耦的獨立參數（Slice 5 F3，audit A-01：原本讀紙厚）。設 0 時雙摺線 collapse 為單一 crease（不論紙厚是否為 0）。Slice 5 T2 起這個位移量會進一步變成壁根階梯 stagger 的 jog 幅度，本階段（T1）幾何形狀仍是現行雙摺線，只有數值來源改讀這個參數。',
+      en: 'Spacing between the double creases at the wall root of the y-axis second-fold walls; an independent parameter decoupled from board caliper in Slice 5 F3 (audit A-01). At 0, the double creases collapse into a single crease regardless of caliper. From Slice 5 T2, this offset also becomes the jog amplitude of the staggered wall root; at the present T1 stage, the geometry remains the current double crease and only the value source changes.',
     },
     highlightTags: ['wallRoot'],
   },
   {
     key: 'innerWallReduction',
-    label: { zh: '內壁縮減量' },
+    label: { zh: '內壁縮減量', en: 'Inner-wall reduction' },
     unit: 'mm',
     default: 0.8,
     min: 0,
     max: 5,
     step: 0.1,
-    group: { zh: '補償' },
+    group: { id: 'compensation', zh: '補償', en: 'Compensation' },
     description: {
       zh: '牆的內壁（面向盒內、舌摺線起點）相對外壁的縮減量——內壁＝外壁－此值，與紙厚解耦的獨立參數（Slice 5 F3，audit A-01：原本讀 2×紙厚）。base／lid、x 向／y 向四面牆共用同一個值。',
+      en: 'Reduction of the inner wall, facing the box interior at the tongue-crease origin, relative to the outer wall: inner wall = outer wall − this value. Decoupled from board caliper in Slice 5 F3 (audit A-01; formerly 2× board caliper), this value is shared by all base and lid walls on both the x and y axes.',
     },
     highlightTags: ['tongueFold'],
   },
   {
     key: 'wallTopCompensation',
-    label: { zh: '壁頂平齊補償' },
+    label: { zh: '壁頂平齊補償', en: 'Wall-top compensation' },
     unit: 'mm',
     default: 0.5,
     min: 0,
     max: 5,
     step: 0.1,
-    group: { zh: '補償' },
+    group: { id: 'compensation', zh: '補償', en: 'Compensation' },
     description: {
       zh: '下盒左右外壁（先摺壁）的頂緣平齊修正量——外壁＝下盒壁高－此值，與紙厚解耦的獨立參數（Slice 5 F3，audit A-01：原本讀紙厚）。只影響下盒：上蓋左右壁的平齊特例已移除（B-06），四面外壁恆＝壁高，不吃這個補償。',
+      en: 'Flush-top correction for the left and right base outer walls (first-fold walls): outer wall = base wall height − this value. Decoupled from board caliper in Slice 5 F3 (audit A-01), it affects the base only. The lid-wall exception was removed under B-06; all four lid outer walls remain equal to the wall height and do not use this compensation.',
     },
     highlightTags: ['wallTop'],
   },
   {
     key: 'linerEnabled',
-    label: { zh: '內襯墊片' },
+    label: { zh: '內襯墊片', en: 'Liner pad' },
     unit: 'bool',
     default: true,
-    group: { zh: '內襯' },
+    group: { id: 'liner', zh: '內襯', en: 'Liner' },
     description: {
       zh: '是否產生內襯墊片（2026-07-09 T7 gate 反饋重定義：平台式腳架墊片，放進下盒貼底、把物品墊高）。關閉時只輸出上蓋／下盒兩片，套合與定位需另外自理（如緊配或腰封）。',
+      en: 'Liner-pad generation; under the 2026-07-09 T7 gate redefinition, produces a platform liner seated against the base with downward legs that raise the contents. When disabled, only the lid and base pieces are generated; fit and positioning require a separate solution, such as a friction fit or belly band.',
     },
     highlightTags: ['linerPad', 'linerFlap'],
   },
   {
     key: 'linerFitGap',
-    label: { zh: '內襯套合間隙' },
+    label: { zh: '內襯套合間隙', en: 'Liner fit gap' },
     unit: 'mm',
     default: 0.5,
     min: 0.2,
     max: 2,
     step: 0.1,
-    group: { zh: '內襯' },
+    group: { id: 'liner', zh: '內襯', en: 'Liner' },
     description: {
       zh: '內襯底面對下盒內淨，四邊各留一次的套合間隙（2026-07-09 T7 gate 重定義：內襯改為平台式、底面錨定下盒內淨，此間隙只扣一次，不再是舊圍框版「上蓋一次＋下盒一次」的雙重扣）；愈大底面愈小、內襯愈鬆好放入。',
+      en: 'Per-side fit gap between the liner base and the base inside dimensions. Under the 2026-07-09 T7 gate redefinition, the platform liner is anchored to the base interior and this gap is deducted once, replacing the former frame liner’s double deduction for lid and base. A larger gap produces a smaller, looser liner that is easier to insert.',
     },
     highlightTags: ['linerPad'],
   },
   {
     key: 'linerFlapDepth',
-    label: { zh: '內襯腳架深度' },
+    label: { zh: '內襯腳架深度', en: 'Liner leg depth' },
     unit: 'mm',
     default: 15,
     min: 5,
     max: 60,
     step: 0.5,
-    group: { zh: '內襯' },
+    group: { id: 'liner', zh: '內襯', en: 'Liner' },
     description: {
       zh: '內襯四翼向下摺的深度＝腳架高度，也就是物品被墊高的量（2026-07-09 T7 gate 反饋新增：平台式內襯重定義，維護者提供正確形式）。太深會頂出下盒盒口（見 liner-flap-fits 警告），太深也可能讓翼片外緣反轉（同一警告的另一條件）。',
+      en: 'Downward fold depth of the liner’s four flaps = leg height and the amount by which the contents are raised. Added with the 2026-07-09 T7 gate redefinition of the platform liner. Excessive depth can project above the base opening or reverse the flap’s outer edge; see both conditions in the liner-flap-fits warning.',
     },
     highlightTags: ['linerFlap'],
   },
@@ -718,8 +735,8 @@ function buildLidPiece(
   return addTrayDimensions(tray, lidPanelX, lidPanelY, lidHeight, rootJog, 'lid', offsetX, offsetY, 'lidMarginX', 'lidMarginY', 'lidHeight');
 }
 
-function toPiece(id: string, label: string, r: TrayResult): DielinePiece {
-  return { id, label: { zh: label }, pathIds: r.paths.map((p) => p.id), textIds: r.texts.map((t) => t.id), bounds: r.bounds };
+function toPiece(id: string, label: DielinePiece['label'], r: TrayResult): DielinePiece {
+  return { id, label, pathIds: r.paths.map((p) => p.id), textIds: r.texts.map((t) => t.id), bounds: r.bounds };
 }
 
 function generate(p: ResolvedParams): GenerateResult {
@@ -761,8 +778,12 @@ function generate(p: ResolvedParams): GenerateResult {
     : undefined;
 
   const pieces: DielinePiece[] = linerEnabled
-    ? [toPiece('base', '下盒', baseFinal), toPiece('lid', '上蓋', lidFinal), toPiece('liner', '內襯', linerFinal!)]
-    : [toPiece('base', '下盒', baseFinal), toPiece('lid', '上蓋', lidFinal)];
+    ? [
+        toPiece('base', { zh: '下盒', en: 'Base' }, baseFinal),
+        toPiece('lid', { zh: '上蓋', en: 'Lid' }, lidFinal),
+        toPiece('liner', { zh: '內襯', en: 'Liner' }, linerFinal!),
+      ]
+    : [toPiece('base', { zh: '下盒', en: 'Base' }, baseFinal), toPiece('lid', { zh: '上蓋', en: 'Lid' }, lidFinal)];
 
   const allResults = linerEnabled ? [baseFinal, lidFinal, linerFinal!] : [baseFinal, lidFinal];
   const paths = allResults.flatMap((r) => r.paths);
@@ -810,7 +831,7 @@ const invariants: BoxInvariant[] = [
     },
     check(_params, result) {
       const v = validatePieces(result);
-      if (!v.ok) return { ok: false, message: { zh: v.message } };
+      if (!v.ok) return { ok: false, message: { zh: v.message, en: v.message } };
       return { ok: true };
     },
   },
@@ -835,7 +856,10 @@ const invariants: BoxInvariant[] = [
       if (frame.padL <= 0 || frame.padW <= 0) {
         return {
           ok: false,
-          message: { zh: `內襯底面尺寸（${frame.padL.toFixed(2)}×${frame.padW.toFixed(2)}mm）非正值，參數組合下底面幾何不存在` },
+          message: {
+            zh: `內襯底面尺寸（${frame.padL.toFixed(2)}×${frame.padW.toFixed(2)}mm）非正值，參數組合下底面幾何不存在`,
+            en: `Liner base dimensions (${frame.padL.toFixed(2)}×${frame.padW.toFixed(2)}mm) are not positive; no base geometry exists for this parameter combination.`,
+          },
           tags: ['baseLength', 'baseWidth', 'linerPad'],
         };
       }
@@ -843,7 +867,10 @@ const invariants: BoxInvariant[] = [
       if (linerFlapDepth > baseHeight) {
         return {
           ok: false,
-          message: { zh: `內襯腳架深度 ${linerFlapDepth}mm 超過下盒壁高 ${baseHeight}mm，內襯會頂出盒口` },
+          message: {
+            zh: `內襯腳架深度 ${linerFlapDepth}mm 超過下盒壁高 ${baseHeight}mm，內襯會頂出盒口`,
+            en: `Liner leg depth ${linerFlapDepth}mm exceeds the base wall height of ${baseHeight}mm; the liner will project above the box opening.`,
+          },
           tags: ['baseHeight', 'linerFlap'],
         };
       }
@@ -852,7 +879,10 @@ const invariants: BoxInvariant[] = [
       if (linerFlapDepth > minPadEdge / 2) {
         return {
           ok: false,
-          message: { zh: `內襯腳架深度 ${linerFlapDepth}mm 超過底面較短邊長 ${minPadEdge.toFixed(2)}mm 的一半，翼片外緣已反轉自撞` },
+          message: {
+            zh: `內襯腳架深度 ${linerFlapDepth}mm 超過底面較短邊長 ${minPadEdge.toFixed(2)}mm 的一半，翼片外緣已反轉自撞`,
+            en: `Liner leg depth ${linerFlapDepth}mm exceeds half the shorter base edge of ${minPadEdge.toFixed(2)}mm; the flap’s outer edge has reversed and self-intersected.`,
+          },
           tags: ['baseLength', 'baseWidth', 'linerFlap'],
         };
       }
@@ -885,7 +915,10 @@ const invariants: BoxInvariant[] = [
         if (Math.abs(actual - expected) > tol) {
           return {
             ok: false,
-            message: { zh: `${label} 主面板實測 ${actual.toFixed(2)}mm 應為 ${expected.toFixed(2)}mm（pieces 身分可能對調或算錯）` },
+            message: {
+              zh: `${label} 主面板實測 ${actual.toFixed(2)}mm 應為 ${expected.toFixed(2)}mm（pieces 身分可能對調或算錯）`,
+              en: `${label} main panel measures ${actual.toFixed(2)}mm; expected ${expected.toFixed(2)}mm. Piece identities may be swapped or miscalculated.`,
+            },
             tags,
           };
         }
@@ -908,6 +941,7 @@ const invariants: BoxInvariant[] = [
           ok: false,
           message: {
             zh: `base 片先摺壁外壁高 ${baseWalls.x.toFixed(3)}mm 應等於後摺壁 ${baseWalls.y.toFixed(3)}mm − 壁頂平齊補償 ${wallTopCompensation}mm`,
+            en: `Base first-fold outer-wall height ${baseWalls.x.toFixed(3)}mm should equal second-fold wall height ${baseWalls.y.toFixed(3)}mm − wall-top compensation ${wallTopCompensation}mm.`,
           },
           // FX4：'wallTopCompensation' 不是任何 path 的 tag（tray.ts 的壁根 crease 用
           // 'wallRoot'，也是這個參數自己宣告的 highlightTags），改對。
@@ -922,6 +956,7 @@ const invariants: BoxInvariant[] = [
           ok: false,
           message: {
             zh: `lid 片先摺壁外壁高 ${lidWalls.x.toFixed(3)}mm 應等於後摺壁 ${lidWalls.y.toFixed(3)}mm（B-06：左右壁特例移除，四面外壁應等高）`,
+            en: `Lid first-fold outer-wall height ${lidWalls.x.toFixed(3)}mm should equal second-fold wall height ${lidWalls.y.toFixed(3)}mm. Under B-06, the left/right-wall exception is removed and all four outer walls should be equal in height.`,
           },
           tags: ['wallRoot'],
         };
@@ -946,7 +981,10 @@ const invariants: BoxInvariant[] = [
         if (platformWidth === 0 && height < minH) {
           return {
             ok: false,
-            message: { zh: `${platformKey}=0（薄壁角撐）時壁高 ${height}mm 低於 ${minH.toFixed(1)}mm，讓位槽幾何已擠壓變形` },
+            message: {
+              zh: `${platformKey}=0（薄壁角撐）時壁高 ${height}mm 低於 ${minH.toFixed(1)}mm，讓位槽幾何已擠壓變形`,
+              en: `With ${platformKey}=0 (thin-wall gusset), wall height ${height}mm is below ${minH.toFixed(1)}mm; the relief geometry has compressed and deformed.`,
+            },
             // FX4：platformKey（'basePlatformWidth'/'lidPlatformWidth'）不是任何 path 的
             // tag，退化的讓位槽幾何本身標的是 'gusset'（tray.ts buildGussetA/buildGussetB），改對。
             tags: ['gusset'],
@@ -996,7 +1034,10 @@ const invariants: BoxInvariant[] = [
           const minEdge = 2 * minPerpHalf;
           return {
             ok: false,
-            message: { zh: `${label}＝${edge}mm 低於插底舌讓位所需的最小邊長 ${minEdge}mm，該側插底舌梯形已反轉自撞` },
+            message: {
+              zh: `${label}＝${edge}mm 低於插底舌讓位所需的最小邊長 ${minEdge}mm，該側插底舌梯形已反轉自撞`,
+              en: `${label}=${edge}mm is below the minimum edge length of ${minEdge}mm required for the bottom-lock tongue relief; the tongue trapezoid on this side has reversed and self-intersected.`,
+            },
             tags,
           };
         }
@@ -1011,7 +1052,14 @@ const invariants: BoxInvariant[] = [
     },
     check(params) {
       if (!anyNotchDegradation(params, 'notch-reduced')) return { ok: true };
-      return { ok: false, message: { zh: '側壁雙 U-notch 放不下兩個，已退化為單一置中 notch（notch-reduced）' }, tags: ['tongueFold', 'uNotch'] };
+      return {
+        ok: false,
+        message: {
+          zh: '側壁雙 U-notch 放不下兩個，已退化為單一置中 notch（notch-reduced）',
+          en: 'Two side-wall U-notches do not fit; reduced to one centred notch (notch-reduced).',
+        },
+        tags: ['tongueFold', 'uNotch'],
+      };
     },
   },
   {
@@ -1021,7 +1069,14 @@ const invariants: BoxInvariant[] = [
     },
     check(params) {
       if (!anyNotchDegradation(params, 'notch-omitted')) return { ok: true };
-      return { ok: false, message: { zh: 'U-notch 壁長不足 40mm，已全部省略（notch-omitted）' }, tags: ['tongueFold', 'uNotch'] };
+      return {
+        ok: false,
+        message: {
+          zh: 'U-notch 壁長不足 40mm，已全部省略（notch-omitted）',
+          en: 'Wall length is below the 40mm required for a U-notch; all U-notches omitted (notch-omitted).',
+        },
+        tags: ['tongueFold', 'uNotch'],
+      };
     },
   },
   {
@@ -1036,7 +1091,10 @@ const invariants: BoxInvariant[] = [
       if (!degraded) return { ok: true };
       return {
         ok: false,
-        message: { zh: `平台端寬度低於 ${PLATFORM_CORNER_MIN_WIDTH_MM}mm，角落圓角降級為直角（platform-corner-omitted）` },
+        message: {
+          zh: `平台端寬度低於 ${PLATFORM_CORNER_MIN_WIDTH_MM}mm，角落圓角降級為直角（platform-corner-omitted）`,
+          en: `Platform-end width is below ${PLATFORM_CORNER_MIN_WIDTH_MM}mm; corner radius reduced to a square corner (platform-corner-omitted).`,
+        },
         tags: ['platformCorner'],
       };
     },
@@ -1050,7 +1108,10 @@ const invariants: BoxInvariant[] = [
       if (!anyGussetChainOmitted(params, result)) return { ok: true };
       return {
         ok: false,
-        message: { zh: 'A 款角撐周邊複合 relief 鏈與 U-notch／壁界衝突，或壁高偏離校準值致鏈自身扭曲自撞，已整鏈省略（gusset-relief-omitted）' },
+        message: {
+          zh: 'A 款角撐周邊複合 relief 鏈與 U-notch／壁界衝突，或壁高偏離校準值致鏈自身扭曲自撞，已整鏈省略（gusset-relief-omitted）',
+          en: 'Type A gusset perimeter relief chain conflicts with a U-notch or wall boundary, or wall height has distorted the chain into self-intersection; entire chain omitted (gusset-relief-omitted).',
+        },
         tags: ['aGussetPeriphery'],
       };
     },
@@ -1062,7 +1123,14 @@ const invariants: BoxInvariant[] = [
     },
     check(params) {
       if (!anyBTongueDegradation(params, 'tongue-crease-shrunk')) return { ok: true };
-      return { ok: false, message: { zh: 'B 款舌根端段可用長度不足 nominal，已縮減（tongue-crease-shrunk）' }, tags: ['tongueFold'] };
+      return {
+        ok: false,
+        message: {
+          zh: 'B 款舌根端段可用長度不足 nominal，已縮減（tongue-crease-shrunk）',
+          en: 'Available length at the Type B tongue-root end segment is below nominal; segment shortened (tongue-crease-shrunk).',
+        },
+        tags: ['tongueFold'],
+      };
     },
   },
   {
@@ -1072,7 +1140,14 @@ const invariants: BoxInvariant[] = [
     },
     check(params) {
       if (!anyBTongueDegradation(params, 'tongue-crease-omitted')) return { ok: true };
-      return { ok: false, message: { zh: 'B 款舌根端段可用長度過短，已全省改 halfcut（tongue-crease-omitted）' }, tags: ['tongueFold'] };
+      return {
+        ok: false,
+        message: {
+          zh: 'B 款舌根端段可用長度過短，已全省改 halfcut（tongue-crease-omitted）',
+          en: 'Available length at the Type B tongue-root end segment is too short; segment omitted and replaced with a half-cut (tongue-crease-omitted).',
+        },
+        tags: ['tongueFold'],
+      };
     },
   },
   {
@@ -1082,7 +1157,14 @@ const invariants: BoxInvariant[] = [
     },
     check(params) {
       if (!anyReliefOmitted(params)) return { ok: true };
-      return { ok: false, message: { zh: 'V relief 依附端段過短，已省略（relief-omitted）' }, tags: ['tongueFold', 'vRelief'] };
+      return {
+        ok: false,
+        message: {
+          zh: 'V relief 依附端段過短，已省略（relief-omitted）',
+          en: 'End segment supporting the V relief is too short; relief omitted (relief-omitted).',
+        },
+        tags: ['tongueFold', 'vRelief'],
+      };
     },
   },
   {
@@ -1090,7 +1172,7 @@ const invariants: BoxInvariant[] = [
     description: { zh: '所有幾何座標必須是有效數字；任何 NaN 代表參數鏈某處算式除零或讀到未定義值。' },
     check(_params, result) {
       if (hasNaN(result.paths.flatMap((p) => p.segments))) {
-        return { ok: false, message: { zh: '偵測到 NaN 座標' } };
+        return { ok: false, message: { zh: '偵測到 NaN 座標', en: 'NaN coordinate detected.' } };
       }
       return { ok: true };
     },
@@ -1100,7 +1182,10 @@ const invariants: BoxInvariant[] = [
     description: { zh: 'v1 尚不支援出血線（bleed）——不得產生 bleed 線型的路徑（spec §8 全盒型通則）。' },
     check(_params, result) {
       if (result.paths.some((p) => p.type === 'bleed')) {
-        return { ok: false, message: { zh: '不應出現 bleed 線型路徑（v1 尚未支援）' } };
+        return {
+          ok: false,
+          message: { zh: '不應出現 bleed 線型路徑（v1 尚未支援）', en: 'Bleed paths should not be present; v1 does not support them.' },
+        };
       }
       return { ok: true };
     },
@@ -1116,7 +1201,12 @@ const invariants: BoxInvariant[] = [
         actual.maxX <= result.bounds.maxX + boundsEps &&
         actual.minY >= result.bounds.minY - boundsEps &&
         actual.maxY <= result.bounds.maxY + boundsEps;
-      if (!ok) return { ok: false, message: { zh: 'bounds 未完整涵蓋所有路徑的實際範圍' } };
+      if (!ok) {
+        return {
+          ok: false,
+          message: { zh: 'bounds 未完整涵蓋所有路徑的實際範圍', en: 'Bounds do not fully cover the actual extent of all paths.' },
+        };
+      }
       return { ok: true };
     },
   },
@@ -1129,9 +1219,10 @@ const invariants: BoxInvariant[] = [
 export const telescope: BoxModule = {
   meta: {
     id: 'telescope',
-    name: { zh: '天地盒 (Telescope Box)' },
+    name: { zh: '天地盒 (Telescope Box)', en: 'Telescope Box' },
     intro: {
       zh: '上蓋與下盒共用同一套免膠雙壁 tray 拓撲、上蓋依長短向分別放大套住下盒（Slice 5 F1：lidMarginX／lidMarginY 兩軸獨立，不再是單一等邊放大量）；內襯墊片放進下盒貼底，四翼向下摺成腳架把物品墊高（2026-07-09 T7 gate 反饋重定義：平台式，取代舊圍框版）。',
+      en: 'Lid and base share the same glueless double-wall tray topology; the lid expands independently along the long and short axes to fit over the base (Slice 5 F1: separate lidMarginX and lidMarginY, replacing a single equal oversize). The liner pad seats against the base with four flaps folded down as legs to raise the contents, following the 2026-07-09 T7 gate redefinition from the former frame liner.',
     },
     topology: 'nested',
   },
