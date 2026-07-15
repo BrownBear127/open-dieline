@@ -1210,7 +1210,7 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
     render(<App />);
     const dialog = await screen.findByRole('dialog');
 
-    fireEvent.click(within(dialog).getByText(/一個開源的印刷刀模/));
+    fireEvent.click(within(dialog).getByText(/一個印刷刀模/));
 
     expect(screen.getByRole('dialog')).toBeInTheDocument(); // 仍在，未被誤關
   });

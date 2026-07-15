@@ -5,7 +5,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-const RE = /open[\s-]?source|\bMIT\b/i;
+// 中文等價詞（開源/开源/開放原始碼）＝裁決（2026-07-16）：D7 是既定裁決、涵蓋
+// 等價詞——工具授權=PolyForm NC 非開源，任何語言的 open-source 宣稱皆違規。
+const RE = /open[\s-]?source|\bMIT\b|開源|开源|開放原始碼/i;
 const ALLOW_RE = /\/\/\s*g5-allow:\s*(.*)\s*$/;
 
 function* walk(dir) {
