@@ -2,7 +2,10 @@
 # Latin subset for dieline.konvolut.art. Keep variable axes (no instancing).
 set -e
 SRC=/tmp/fonts-src; OUT="$(dirname "$0")"
-UNI="U+0020-007E,U+00A0-00FF,U+2013,U+2014,U+2018,U+2019,U+201C,U+201D,U+2022,U+00D7,U+2715,U+2192,U+00B7,U+2039,U+203A,U+00BA,U+00B0"
+# U+2715(✕) 已自清單移除（M3 收尾）：三套上游字體皆無此 glyph，pyftsubset 對缺碼位靜默跳過
+# （列了=no-op·從未真的進過 woff2）；頁面 marquee 已改用 U+00D7(×)、type-case 格 ⟨⟩ 改 ‹›
+# （U+2039/203A·Plex 有）。缺字風險此後由 checks/font-gate.py 掃描把關。
+UNI="U+0020-007E,U+00A0-00FF,U+2013,U+2014,U+2018,U+2019,U+201C,U+201D,U+2022,U+00D7,U+2192,U+00B7,U+2039,U+203A,U+00BA,U+00B0"
 common=(--flavor=woff2 --layout-features='*' --unicodes="$UNI")
 uvx --from fonttools pyftsubset "$SRC/Fraunces[SOFT,WONK,opsz,wght].ttf"        "${common[@]}" --output-file="$OUT/fraunces-var.woff2"
 uvx --from fonttools pyftsubset "$SRC/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf" "${common[@]}" --output-file="$OUT/fraunces-italic-var.woff2"
