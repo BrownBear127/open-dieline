@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { LINE_STYLES } from '@/core/styles';
 import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
@@ -28,5 +30,22 @@ describe('DISPLAY_LINE_STYLES（Spec §5 拆層契約）', () => {
   it('匯出層未被污染（LINE_STYLES 原值）', () => {
     expect(LINE_STYLES.cut.stroke).toBe('#000000');
     expect(LINE_STYLES.crease.stroke).toBe('#00FF00');
+  });
+
+  it('LayersPanel 四款線色 key 與顯示層同色（vocab.css ↔ DISPLAY_LINE_STYLES）', () => {
+    const vocabCss = readFileSync(resolve(process.cwd(), 'src/styles/vocab.css'), 'utf8');
+    const cases = [
+      ['.layer .key', 'cut'],
+      ['.layer .key.crease', 'crease'],
+      ['.layer .key.halfcut', 'halfcut'],
+      ['.layer .key.dim', 'dimension'],
+    ] as const;
+
+    for (const [selector, lineType] of cases) {
+      const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const ruleBody = new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`).exec(vocabCss)?.[1];
+      const color = ruleBody?.match(/var\(--[^)]+\)/)?.[0];
+      expect(color, `${selector} 應宣告線色 token`).toBe(DISPLAY_LINE_STYLES[lineType].stroke);
+    }
   });
 });
