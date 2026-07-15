@@ -354,6 +354,27 @@ describe('M1 T5 console sidebar and parameter panel', () => {
 });
 
 describe('App 冒煙測試', () => {
+  it('M1 fix wave：platebar 是 app 直屬 footer，且不在 console 側欄內', () => {
+    const { container } = render(<App />);
+    const app = container.querySelector('.app');
+    const consolePanel = app!.querySelector(':scope > .main > .console');
+    const platebar = app!.querySelector(':scope > .platebar');
+
+    expect(platebar).not.toBeNull();
+    expect(platebar?.tagName).toBe('FOOTER');
+    expect(platebar?.parentElement).toBe(app);
+    expect(consolePanel?.contains(platebar)).toBe(false);
+  });
+
+  it('M1 fix wave：main 與 bench 之間的 wrapper 可在 grid 1fr 列內收縮', () => {
+    const { container } = render(<App />);
+    const workspace = container.querySelector('.app > .main > main');
+
+    expect(workspace).not.toBeNull();
+    expect(workspace).toHaveClass('min-h-0');
+    expect(workspace?.querySelector(':scope > .bench > .drawing')).not.toBeNull();
+  });
+
   it('起站→選 RTE→調 L→畫布 path 數不變且幾何改變', async () => {
     render(<App />);
     expect(await screen.findByRole('heading', { name: WORDMARK_TEXT })).toBeInTheDocument();

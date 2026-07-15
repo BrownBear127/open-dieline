@@ -346,23 +346,19 @@ export function App() {
           {/* 拼版模式下側欄不再渲染任何拼版專屬元件（T4：`ImpositionControls` 搬到主區
               toolbar，見下方 `<main>`）——側欄只剩上方共用的 ParamPanel／盒型選擇。 */}
           {appMode === 'design' && (
-            <>
-              <LayersPanel
-                layers={layersState}
-                onLayersChange={setLayersState}
-                targetBounds={overlayTargetBounds}
-                result={result}
-                calibrating={calibrating}
-                onCalibratingChange={setCalibrating}
-                createOverlayId={createOverlayId}
-              />
-
-              <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
-            </>
+            <LayersPanel
+              layers={layersState}
+              onLayersChange={setLayersState}
+              targetBounds={overlayTargetBounds}
+              result={result}
+              calibrating={calibrating}
+              onCalibratingChange={setCalibrating}
+              createOverlayId={createOverlayId}
+            />
           )}
         </aside>
 
-        <main className={appMode === 'design' ? 'flex-1 flex' : 'flex-1 flex overflow-y-auto p-6 bg-white'}>
+        <main className={appMode === 'design' ? 'min-h-0 flex-1 flex' : 'min-h-0 flex-1 flex overflow-y-auto p-6 bg-white'}>
           {appMode === 'design' ? (
             <Canvas
               result={result}
@@ -388,6 +384,10 @@ export function App() {
           )}
         </main>
       </div>
+
+      {appMode === 'design' && (
+        <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
+      )}
 
       <AnnouncementModal open={announcementOpen} onClose={() => setAnnouncementOpen(false)} />
     </div>

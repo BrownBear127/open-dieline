@@ -209,6 +209,8 @@
   .drawing svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; }
   .plate-label { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: var(--ink-soft); }  /* slice-d:177 */
   .legend { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 24px; color: var(--ink-soft); } /* slice-d:178-180 */
+  /* M1 E2E fix wave controller 裁決：浮層語意高於可平移／縮放的 SVG，確保控制項不被攔截。 */
+  .plate-label, .legend, .zoom { z-index: 1; }
   .legend i { display: inline-block; width: 26px; height: 0; border-top: 1.5px solid var(--cut); vertical-align: middle; margin-right: 7px; }
   .legend .crease-key i { border-top: 1.5px dashed var(--crease); }
   .zoom { position: absolute; bottom: 20px; right: 24px; color: var(--ink-soft); display: flex; gap: 14px; align-items: center; }
