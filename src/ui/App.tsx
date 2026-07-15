@@ -296,38 +296,42 @@ export function App() {
       </div>
 
       <div className="main">
-        <aside className="w-[320px] flex-shrink-0 flex flex-col gap-2.5 overflow-y-auto p-3 border-r border-zinc-200">
-          <div className="flex flex-col gap-1 p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
-            <label htmlFor="box-select" className="text-[10px] uppercase tracking-wider text-zinc-400">
-              盒型
-            </label>
-            <select
-              id="box-select"
-              value={boxId}
-              onChange={(e) => {
-                setBoxId(e.target.value);
-                // 切盒型時視圖重置回全版：不同盒型的 pieces id 集合互不相干，殘留舊 selectedPieceId
-                // 可能剛好對不到任何片（activePiece 防呆會擋下 crash），也可能巧合撞到新盒型裡
-                // 同名的 piece id 卻渲染錯的內容——兩種情況都不是使用者切盒型時預期的行為，直接
-                // 重置最單純。
-                setSelectedPieceId(null);
-                // 拼版件選擇同步失效（review Medium 1 fix round 1）：不能只靠下面 fallback effect
-                // 的 stillValid 檢查決定——若新盒型的非首片剛好沿用舊 id（如天地盒的 'lid'；registry
-                // 是公開擴充介面，未來新增的多片盒型與現有盒型撞 id 不是抽象假設），stillValid 會
-                // 誤判「仍合法」而讓選擇停留在同名新片，違反 F6「切盒即第一片」。「切盒」這個事件
-                // 本身在這裡同步觸發歸位：先清為 null，交給下面的 fallback effect 依新
-                // `result.pieces` 收斂（多片盒型→pieces[0]；RTE→null），不依賴舊 id 巧合失效。
-                setImpositionState((prev) => ({ ...prev, pieceId: null }));
-              }}
-              className="w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors"
-            >
-              {boxes.map((b) => (
-                <option key={b.meta.id} value={b.meta.id}>
-                  {b.meta.name.zh}
-                </option>
-              ))}
-            </select>
-          </div>
+        <aside className="console">
+          <section className="sect">
+            <div className="sect-head">
+              <label htmlFor="box-select" className="label">
+                {t('console.boxStyle')}
+              </label>
+              <span className="mono">{t('console.styles.count', { n: boxes.length })}</span>
+            </div>
+            <div className="boxsel">
+              <select
+                id="box-select"
+                value={boxId}
+                onChange={(e) => {
+                  setBoxId(e.target.value);
+                  // 切盒型時視圖重置回全版：不同盒型的 pieces id 集合互不相干，殘留舊 selectedPieceId
+                  // 可能剛好對不到任何片（activePiece 防呆會擋下 crash），也可能巧合撞到新盒型裡
+                  // 同名的 piece id 卻渲染錯的內容——兩種情況都不是使用者切盒型時預期的行為，直接
+                  // 重置最單純。
+                  setSelectedPieceId(null);
+                  // 拼版件選擇同步失效（review Medium 1 fix round 1）：不能只靠下面 fallback effect
+                  // 的 stillValid 檢查決定——若新盒型的非首片剛好沿用舊 id（如天地盒的 'lid'；registry
+                  // 是公開擴充介面，未來新增的多片盒型與現有盒型撞 id 不是抽象假設），stillValid 會
+                  // 誤判「仍合法」而讓選擇停留在同名新片，違反 F6「切盒即第一片」。「切盒」這個事件
+                  // 本身在這裡同步觸發歸位：先清為 null，交給下面的 fallback effect 依新
+                  // `result.pieces` 收斂（多片盒型→pieces[0]；RTE→null），不依賴舊 id 巧合失效。
+                  setImpositionState((prev) => ({ ...prev, pieceId: null }));
+                }}
+              >
+                {boxes.map((box) => (
+                  <option key={box.meta.id} value={box.meta.id}>
+                    {box.meta.name[getLang()]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
 
           <ParamPanel
             params={mod.params}
