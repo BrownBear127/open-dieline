@@ -9,13 +9,17 @@ import path from 'node:path';
 // konvolut.art/github.com/BrownBear127/konvolut.substack.com 為 AnnouncementModal.tsx
 // 既有功能（v0.2.0·commit a9ee9bc）品牌自我指涉／原始碼揭露連結，非追蹤或 CDN。
 // 皆綁定精確網域，不影響 gate 對「新引入之任意外部網域」的偵測力（§8.2 mutation probe 精神）。
+// 邊界錨定（batch review 2 Important·2026-07-16 修）：網域後必須緊跟 `/` 或字串結尾，
+// 否則 `https://konvolut.art.evil-phish.example/steal` 這類網域混淆字串會被靜默放行
+//（修前實測打穿）。w3.org／react.dev 以既有的必帶 `\/` 錨定；github 條目連 repo 路徑也
+// 補 `(\/|$)`（防 `open-dieline-evil` 這類 repo 名前綴混淆）。
 const ALLOW = [
   /^https?:\/\/www\.w3\.org\//, // SVG/HTML xmlns 命名空間字串，非網路請求
   /^https?:\/\/react\.dev\//,
-  /^https?:\/\/tailwindcss\.com/,
-  /^https?:\/\/konvolut\.art/,
-  /^https?:\/\/github\.com\/BrownBear127\/open-dieline/,
-  /^https?:\/\/konvolut\.substack\.com/,
+  /^https?:\/\/tailwindcss\.com(\/|$)/,
+  /^https?:\/\/konvolut\.art(\/|$)/,
+  /^https?:\/\/github\.com\/BrownBear127\/open-dieline(\/|$)/,
+  /^https?:\/\/konvolut\.substack\.com(\/|$)/,
 ];
 
 function* walk(dir) {
