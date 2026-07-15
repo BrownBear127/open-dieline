@@ -31,10 +31,19 @@ const PROBES = [
     run: () => mutate('checks/canonical/tokens.css', '--paper: #FAF7F0;', '--paper: #FAF7F1;'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g1-parity', GATE_SKIP_BUILD: '1' }) },
   // — G2 家族（值漂移＋後置覆寫·C4）—
-  // 對齊修正：原稿目標字串 'letter-spacing: 0.16em' 在 vocab.css 現況找不到（.label 規則
-  // 已非該值）。換一條現存的凍結宣告（.masthead .wordmark，slice-d 逐字凍結值）。
+  // 對齊修正（雙重）：① 原稿目標字串 'letter-spacing: 0.16em' 在 vocab.css 現況找不到
+  // （.label 規則已非該值）。② 更根本的問題——單純把某條宣告的值原地改掉（不管改哪條）
+  // 對 G2 恆綠不起：G2 的 manifest 直接讀 src/styles/vocab.css 本檔（不像 G1 有獨立的
+  // vendored canonical 可比對），改了源檔＝manifest 跟著變、build 也吃同一份源檔＝built
+  // 跟著變，兩邊永遠自洽、沒有漂移可言（手測驗證過：改 letter-spacing 0.015em→0.02em，
+  // G2 仍 OK；改成非法單位 0.015emx 讓 Lightning CSS 靜默丟棄的假設也測過，--minify false
+  // 下無效地聲明照樣原樣序列化通過）。改用「同一 rule 內插入第二條同屬性異值宣告」——
+  // 這會讓 manifest 端出現兩筆同 selector+prop 記錄（parseDeclarations 不去重複），built
+  // 端 cascade 只留最後一筆，第一筆（凍結值）就跟 built 最終值對不上，同時觸發「值漂移」
+  // 與「同 selector 重複宣告含異值」兩條錯誤——這是真實、與 g2-late-override 不同的注入
+  // 管道（同一 rule 內部影子覆寫，非另一條規則後置覆寫），手測已確認能可靠翻紅。
   { id: 'g2-value-drift', gate: 'g2-vocab',
-    run: () => mutate('src/styles/vocab.css', 'letter-spacing: 0.015em', 'letter-spacing: 0.02em'),
+    run: () => mutate('src/styles/vocab.css', 'letter-spacing: 0.015em;', 'letter-spacing: 0.015em;\n    letter-spacing: 0.5em;'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-late-override', gate: 'g2-vocab',
     run: () => appendFileSync(path.join(root, 'src/index.css'), '\n.masthead .wordmark { font-weight: 900; }\n'),
