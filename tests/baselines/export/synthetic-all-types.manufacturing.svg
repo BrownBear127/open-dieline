@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="50.00mm" height="30.00mm" viewBox="0.00 0.00 50.00 30.00">
+  <g id="CUT" data-name="切割線">
+    <path d="M0.00,0.00 L50.00,0.00" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+  <g id="CREASE" data-name="摺線">
+    <path d="M0.00,10.00 L50.00,10.00" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+  <g id="HALFCUT" data-name="半刀">
+    <path d="M0.00,20.00 L50.00,20.00" stroke="#FFFF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+  <g id="DIMENSIONS" data-name="尺寸標註">
+    <path d="M0.00,30.00 L50.00,30.00" stroke="#FF00FF" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+</svg>
