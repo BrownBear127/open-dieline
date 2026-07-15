@@ -22,8 +22,14 @@ uvx --from fonttools pyftsubset "$SRC/IBMPlexMono-Medium.ttf"                   
 # body font stack lists Noto Serif TC before Fraunces, so any un-tagged Latin/digit/punctuation
 # character inside zh body copy is drawn from this subset first).
 #   python3 -c "... strip tags, html.unescape, sorted(set(non-space chars)) ..." > /tmp/zh-chars.txt
-uvx --from fonttools pyftsubset /tmp/NotoSerifTC.ttf \
-  --text-file=/tmp/zh-chars.txt --flavor=woff2 --layout-features='*' \
+#
+# ⚠️ 正式流程（T5 起）＝下面這兩步 static 400；舊的「單步 variable subset＋--layout-features='*'」
+# 指令已撤（曾殘留為可執行指令：重跑會把 46,400B static 檔覆寫回 126KB variable 檔，與 css
+# font-weight:400 宣告矛盾、font-gate 翻紅、LH 迴歸——SOL M3 final review 抓出）。歷史脈絡見下方紀錄。
+uvx --from fonttools fonttools varLib.instancer --static -o /tmp/od-static400.ttf \
+  /tmp/NotoSerifTC.ttf "wght=400"
+uvx --from fonttools pyftsubset /tmp/od-static400.ttf \
+  --text-file=/tmp/zh-chars.txt --flavor=woff2 \
   --output-file="$OUT/noto-serif-tc-subset.woff2"
 # Result: 126,180 bytes (123KB) — fvar wght axis retained (no static instancing needed, far
 # under the 700KB/page budget). Glyph spot-check (10 chars incl. 攤/摺/鉛/毫): all present via
