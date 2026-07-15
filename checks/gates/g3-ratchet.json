@@ -1,4 +1,4 @@
 {
-  "_comment": "shrink-only ratchet（Spec A3）：maxViolations 只准往下改，不准調高。268＝2026-07-16 grandfather 初始值（現況既有 Tailwind utility 色彩/字體與 style-object 色值違規全量；src/styles/ 目錄豁免；src/core/styles.ts LINE_STYLES 6 筆 stroke 字面量經 controller 裁決屬匯出層真相源、走 allowlist 不佔 ratchet——原始全量掃描為 274）。M1 T5 console/ParamPanel 清償後降為 214；M1 T6 LayersPanel 清償後降為 156；M1 T7 Canvas chrome 清償後降為 111。M3 收官必須改到 0。",
-  "maxViolations": 111
+  "_comment": "shrink-only ratchet（Spec A3）：maxViolations 只准往下改，不准調高。268＝2026-07-16 grandfather 初始值（現況既有 Tailwind utility 色彩/字體與 style-object 色值違規全量；src/styles/ 目錄豁免；src/core/styles.ts LINE_STYLES 6 筆 stroke 字面量經 controller 裁決屬匯出層真相源、走 allowlist 不佔 ratchet——原始全量掃描為 274）。M1 T5 console/ParamPanel 清償後降為 214；M1 T6 LayersPanel 清償後降為 156；M1 T7 Canvas chrome 清償後降為 111；M1 T8 ExportBar 清償後現況 97；M1 T9 AnnouncementModal 清償後降為 71。M3 收官必須改到 0。",
+  "maxViolations": 71
 }
