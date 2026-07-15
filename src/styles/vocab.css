@@ -70,6 +70,8 @@
   .mode.on { color: var(--ink); border-bottom-color: var(--cut); } /* 現行模式＝紅 cut 底線 */
   .moderow .readout { color: var(--ink-soft); }
   .moderow .readout b { color: var(--ink); font-weight: 500; }
+  /* M1 T4 裁決：About／Reset all 置於 moderow 右側、緊鄰 readout。 */
+  .moderow .acts { display: inline-flex; align-items: center; gap: 8px; margin-left: 18px; }
 
   /* — 主區：console 側欄 320px＋畫布 — */
   .main { display: grid; grid-template-columns: 320px 1fr; min-height: 0; }

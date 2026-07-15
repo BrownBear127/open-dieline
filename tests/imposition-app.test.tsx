@@ -16,6 +16,10 @@ import { App } from '@/ui/App';
 import { ANNOUNCEMENT_DISMISS_KEY } from '@/ui/AnnouncementModal';
 import { OVERLAY_STROKE } from '@/overlay/state';
 import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
+import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { t } from './helpers/i18n';
+
+const WORDMARK_TEXT = t('chrome.wordmark').replaceAll('*', '');
 
 // ── 測試專用 fake 盒型（review Medium 1 回歸 fixture）：兩片 pieces，非首位片刻意沿用
 // telescope 既有的 'lid' id——用來重現「換盒型只看舊 pieceId 是否仍存在於新盒型」的契約
@@ -57,8 +61,7 @@ const sharedLidBox: BoxModule = {
 
 registerBox(sharedLidBox);
 
-// 同 tests/ui/app.test.tsx 慣例：modal 標題文字與 App 側欄 h1 同為「open-dieline」，
-// 不先關閉的話兩者同時掛載會讓任何撞名查詢丟 multiple-elements 錯誤。
+// 同 tests/ui/app.test.tsx 慣例：預設關閉 modal，避免它干擾 App 層互動查詢。
 beforeEach(() => {
   localStorage.setItem(ANNOUNCEMENT_DISMISS_KEY, 'true');
 });
@@ -68,11 +71,11 @@ afterEach(() => {
 });
 
 function switchToImposition(): void {
-  fireEvent.click(screen.getByRole('button', { name: '拼版估算' }));
+  fireEvent.click(screen.getByRole('button', { name: t('mode.imposition') }));
 }
 
 function switchToDesign(): void {
-  fireEvent.click(screen.getByRole('button', { name: '刀模設計' }));
+  fireEvent.click(screen.getByRole('button', { name: t('mode.design') }));
 }
 
 // ── overlay 匯入 harness（review Medium 2 沿用既有「拼版模式與 calibrating 互斥」describe
@@ -94,6 +97,40 @@ async function importOverlay(): Promise<void> {
 }
 
 describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar ↔ 拼版控制、Canvas ↔ 拼版預覽、ParamPanel／盒型選擇不隨模式隱藏）', () => {
+  it('masthead／moderow 掛 D vocabulary、dict 文案、readout 與 裁決的操作鈕位置', () => {
+    const { container } = render(<App />);
+
+    const masthead = container.querySelector('.masthead') as HTMLElement;
+    expect(masthead).toBeInTheDocument();
+    const heading = within(masthead).getByRole('heading', { name: WORDMARK_TEXT });
+    expect(heading).toHaveClass('wordmark');
+    expect(heading.querySelector('em')).toHaveTextContent(t('chrome.wordmark').split('*')[1]!);
+    expect(within(masthead).getByText(t('chrome.folio'))).toHaveClass('mono');
+    expect(within(masthead).queryByText(t('chrome.lang'))).not.toBeInTheDocument();
+
+    const moderow = container.querySelector('.moderow') as HTMLElement;
+    expect(moderow).toBeInTheDocument();
+    const modes = within(moderow).getByRole('group', { name: t('chrome.modeSwitch.aria') });
+    expect(within(modes).getByText(t('chrome.mode'))).toHaveClass('k', 'label');
+    expect(within(modes).getByRole('button', { name: t('mode.design') })).toHaveClass('mode', 'label', 'on');
+    expect(within(modes).getByRole('button', { name: t('mode.imposition') })).toHaveClass('mode', 'label');
+    expect(within(modes).getByRole('button', { name: t('mode.imposition') })).not.toHaveClass('on');
+
+    const readout = moderow.querySelector('.readout') as HTMLElement;
+    expect(readout).toHaveClass('mono');
+    expect(readout).toHaveTextContent(reverseTuckEnd.meta.name.en);
+    expect(readout.querySelector('b')).toHaveTextContent('55 × 55 × 117 mm');
+
+    const actions = moderow.querySelector('.acts') as HTMLElement;
+    expect(actions).toBeInTheDocument();
+    const about = within(actions).getByRole('button', { name: t('chrome.about') });
+    const resetAll = within(actions).getByRole('button', { name: t('chrome.resetAll') });
+    expect(about).toHaveClass('btn', 'label');
+    expect(about).toHaveAttribute('title', t('chrome.about.title'));
+    expect(resetAll).toHaveClass('btn', 'label');
+    expect(resetAll).toHaveAttribute('title', t('chrome.resetAll.title'));
+  });
+
   it('預設（刀模設計）模式：LayersPanel／ExportBar／ParamPanel 可見，拼版控制／結果不可見', () => {
     render(<App />);
 
@@ -134,12 +171,12 @@ describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar
 
   it('頂部模式切換鈕的 aria-pressed 正確反映目前模式', () => {
     render(<App />);
-    expect(screen.getByRole('button', { name: '刀模設計' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '拼版估算' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: t('mode.design') })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: t('mode.imposition') })).toHaveAttribute('aria-pressed', 'false');
 
     switchToImposition();
-    expect(screen.getByRole('button', { name: '刀模設計' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: '拼版估算' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: t('mode.design') })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: t('mode.imposition') })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
