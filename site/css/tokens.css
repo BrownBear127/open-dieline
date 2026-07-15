@@ -6,7 +6,7 @@
   --ink-soft: #57534A;
   --cut: #C93A2B;      /* industry: cut lines are red */
   --crease: #2C4EC4;   /* industry: crease/fold lines are blue */
-  --brass: #96742F;    /* large text (>=24px, or bold >=19px) and ornament only */
+  --brass: #96742F;    /* WCAG large text (>=24px, or >=18.66px bold 700+) and ornament only */
   --brass-deep: #7A5D23; /* small-text brass; must measure >=4.5:1 on --paper (verify Task 7) */
   --hairline: rgba(25, 23, 18, 0.25);
 }

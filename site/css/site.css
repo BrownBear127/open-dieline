@@ -234,7 +234,7 @@ input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; background: v
   max-width: 44ch;
   line-height: 1.45;
 }
-#case-room .tagline .big b { color: var(--brass); font-weight: 550; font-style: normal; }
+#case-room .tagline .big b { color: var(--brass-deep); font-weight: 550; font-style: normal; }
 #case-room .tagline .mono { color: var(--ink-soft); }
 
 .strip {

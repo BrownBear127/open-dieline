@@ -8,7 +8,7 @@
 // being validated per node, not a font-variation-axes check.
 //
 // Large-text threshold (project decision, wider than strict WCAG 18.66px/700):
-//   fontSize >= 24px, OR (fontSize >= 19px AND fontWeight >= 550)
+//   fontSize >= 24px, OR (fontSize >= 18.66px AND fontWeight >= 700)  [strict WCAG, aligned with Lighthouse/axe]
 // This only widens the floor for `.tagline .big b` (brass on paper, ~4.06:1) which already
 // clears the stricter WCAG large-text 3:1 minimum, so the wider floor is safe here.
 import { chromium } from 'playwright';
@@ -16,8 +16,8 @@ import { chromium } from 'playwright';
 const ORIGIN = process.argv[2] ?? 'http://localhost:8788';
 
 const LARGE_MIN_PX = 24;
-const LARGE_BOLD_MIN_PX = 19;
-const LARGE_BOLD_MIN_WEIGHT = 550;
+const LARGE_BOLD_MIN_PX = 18.66;
+const LARGE_BOLD_MIN_WEIGHT = 700;
 const SMALL_TEXT_MIN_RATIO = 4.5;
 const LARGE_TEXT_MIN_RATIO = 3.0;
 
