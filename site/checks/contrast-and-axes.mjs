@@ -143,6 +143,16 @@ const result = await page.evaluate((cfg) => {
 
 await browser.close();
 
+// Scan-floor guard: a broken selector or a page that failed to load can silently produce
+// zero (or near-zero) checked nodes, which would make this gate report "0 violations" and
+// pass green while checking nothing. This site's healthy scan is 98 text nodes; 50 is a
+// generous floor under that.
+const SCAN_FLOOR = 50;
+if (result.checked < SCAN_FLOOR) {
+  console.error(`SCAN TOO THIN: only ${result.checked} text nodes (floor ${SCAN_FLOOR}) — selector or page likely broken`);
+  process.exit(1);
+}
+
 if (result.violations.length) {
   console.error(`CONTRAST VIOLATIONS (${result.violations.length}/${result.checked} text nodes checked):`);
   console.error(JSON.stringify(result.violations, null, 2));
