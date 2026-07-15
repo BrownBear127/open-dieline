@@ -4,6 +4,11 @@
 // Usage: node contrast-and-axes.mjs [baseURL]
 // Requires a local server first, e.g. from repo root: `python3 -m http.server 8788 -d site`
 //
+// Two-page matrix (extended M3 Task 5 for the /zh/ page): '/' and the /zh/ homepage. Local
+// `python3 -m http.server` has no cleanUrls rewrite, so locally the zh page is requested as
+// `/zh/index.html`; in production (Vercel cleanUrls) it's `/zh/`. Set ZH_PATH to override for
+// a production run.
+//
 // "axes" in the filename = the two WCAG contrast thresholds (small-text axis / large-text axis)
 // being validated per node, not a font-variation-axes check.
 //
@@ -14,6 +19,7 @@
 import { chromium } from 'playwright';
 
 const ORIGIN = process.argv[2] ?? 'http://localhost:8788';
+const PAGES = ['/', process.env.ZH_PATH ?? '/zh/index.html'];
 
 const LARGE_MIN_PX = 24;
 const LARGE_BOLD_MIN_PX = 18.66;
@@ -22,12 +28,16 @@ const SMALL_TEXT_MIN_RATIO = 4.5;
 const LARGE_TEXT_MIN_RATIO = 3.0;
 
 const browser = await chromium.launch();
+const allViolations = [];
+let totalChecked = 0;
+
+for (const path of PAGES) {
 const page = await browser.newPage();
 // Forces every `.reveal` element straight to its final visible state (opacity:1, no transform/transition)
 // per site/css/tokens.css's `@media (prefers-reduced-motion: reduce)` override — this sidesteps needing to
 // scroll + wait for the IntersectionObserver-driven reveal animation before scanning computed styles.
 await page.emulateMedia({ reducedMotion: 'reduce' });
-await page.goto(ORIGIN, { waitUntil: 'networkidle' });
+await page.goto(ORIGIN + path, { waitUntil: 'networkidle' });
 
 const result = await page.evaluate((cfg) => {
   const { LARGE_MIN_PX, LARGE_BOLD_MIN_PX, LARGE_BOLD_MIN_WEIGHT, SMALL_TEXT_MIN_RATIO, LARGE_TEXT_MIN_RATIO } = cfg;
@@ -141,21 +151,30 @@ const result = await page.evaluate((cfg) => {
   return { checked, violations };
 }, { LARGE_MIN_PX, LARGE_BOLD_MIN_PX, LARGE_BOLD_MIN_WEIGHT, SMALL_TEXT_MIN_RATIO, LARGE_TEXT_MIN_RATIO });
 
-await browser.close();
+await page.close();
 
 // Scan-floor guard: a broken selector or a page that failed to load can silently produce
 // zero (or near-zero) checked nodes, which would make this gate report "0 violations" and
-// pass green while checking nothing. This site's healthy scan is 98 text nodes; 50 is a
-// generous floor under that.
-const SCAN_FLOOR = 50;
-if (result.checked < SCAN_FLOOR) {
-  console.error(`SCAN TOO THIN: only ${result.checked} text nodes (floor ${SCAN_FLOOR}) — selector or page likely broken`);
+// pass green while checking nothing. This site's healthy scan is ~98 text nodes on '/'; the
+// zh page runs somewhat higher (bilingual layout keeps English-layer sentences alongside most
+// zh copy — see M3 Task 5). Floors set generously under each page's healthy scan count.
+const SCAN_FLOORS = { '/': 50, '/zh/index.html': 50, '/zh/': 50 };
+const floor = SCAN_FLOORS[path] ?? 50;
+if (result.checked < floor) {
+  console.error(`SCAN TOO THIN on ${path}: only ${result.checked} text nodes (floor ${floor}) — selector or page likely broken`);
+  await browser.close();
   process.exit(1);
 }
 
-if (result.violations.length) {
-  console.error(`CONTRAST VIOLATIONS (${result.violations.length}/${result.checked} text nodes checked):`);
-  console.error(JSON.stringify(result.violations, null, 2));
+totalChecked += result.checked;
+for (const v of result.violations) allViolations.push({ page: path, ...v });
+}
+
+await browser.close();
+
+if (allViolations.length) {
+  console.error(`CONTRAST VIOLATIONS (${allViolations.length}/${totalChecked} text nodes checked across ${PAGES.length} pages):`);
+  console.error(JSON.stringify(allViolations, null, 2));
   process.exit(1);
 }
-console.log(`CONTRAST OK — 0 violations across ${result.checked} text nodes (large-text floor: >=${LARGE_MIN_PX}px or >=${LARGE_BOLD_MIN_PX}px+weight>=${LARGE_BOLD_MIN_WEIGHT})`);
+console.log(`CONTRAST OK — 0 violations across ${totalChecked} text nodes on ${PAGES.length} pages (large-text floor: >=${LARGE_MIN_PX}px or >=${LARGE_BOLD_MIN_PX}px+weight>=${LARGE_BOLD_MIN_WEIGHT})`);

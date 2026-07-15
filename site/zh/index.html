@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open Dieline — 像排活字那樣排刀模</title>
+<meta name="description" content="可直接付印的包裝刀模，在瀏覽器裡繪成。非商業使用免費——an independent press for packaging, kept by Konvolut.">
+<link rel="canonical" href="https://dieline.konvolut.art/zh/">
+<link rel="alternate" hreflang="en" href="https://dieline.konvolut.art/">
+<link rel="alternate" hreflang="zh-Hant" href="https://dieline.konvolut.art/zh/">
+<link rel="alternate" hreflang="x-default" href="https://dieline.konvolut.art/">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Open Dieline — 像排活字那樣排刀模">
+<meta property="og:description" content="可直接付印的包裝刀模，在瀏覽器裡繪成。非商業使用免費——an independent press for packaging, kept by Konvolut.">
+<meta property="og:image" content="https://dieline.konvolut.art/assets/og-dieline.png">
+<meta property="og:type" content="website">
+<link rel="preload" href="/fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/fraunces-italic-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/noto-serif-tc-subset.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/site.css">
+<script>document.documentElement.classList.add('js-ready')</script>
+</head>
+<body>
+
+<main>
+
+<!-- ══ Act I · The press (C) ══ -->
+<section id="press">
+  <div class="page">
+    <header class="masthead">
+      <div class="folio label reveal rule-b">
+        <nav class="site-nav label" aria-label="Konvolut sites">
+          <a href="https://konvolut.art/zh/">Katalog</a>
+          <a href="https://konvolut.substack.com">Journal</a>
+          <a href="/zh/" aria-current="page">Open Dieline</a>
+        </nav>
+        <div class="folio-right">
+          <span lang="en">Free for noncommercial use</span>
+          <nav class="lang-switch label" aria-label="Language">
+            <a href="/">EN</a>
+            <a href="/zh/" aria-current="page">中文</a>
+          </nav>
+        </div>
+      </div>
+      <h1 class="reveal" style="--d:0.1s">Open <em>Dieline</em></h1>
+      <div class="dateline label reveal rule-t rule-bd" style="--d:0.2s">
+        <span lang="en">Est. MMXXVI</span><span>·</span>
+        <span lang="en">An independent press for packaging</span><span>·</span>
+        <span>由 <a href="https://konvolut.art/zh/">Konvolut</a> 刊行</span>
+      </div>
+    </header>
+
+    <div class="lede">
+      <p class="kicker label reveal" style="--d:0.25s">本期</p>
+      <h2 class="reveal" style="--d:0.35s">刀模的安靜手藝——攤平繪成，摺起成真。</h2>
+      <p class="byline reveal" style="--d:0.45s">可直接付印的刀模圖，盒型目錄持續增補，全程在瀏覽器裡排成——<b>不必帳號，不必上傳，不沾一滴墨。</b></p>
+    </div>
+
+    <div class="contents reveal rule-t" style="--d:0.2s">
+      <div class="toc">
+        <span class="no" lang="en">No. 01</span>
+        <h3>生成</h3>
+        <p>三個尺寸進，一張可製版的圖出。切線紅、摺線藍——這一行從來就是這樣讀圖的。</p>
+        <span class="label">起一張刀模</span>
+      </div>
+      <div class="toc">
+        <span class="no" lang="en">No. 02</span>
+        <h3>檢視</h3>
+        <p>每一片版面、翻蓋與裕度都分層標註。像排字工檢查活版那樣，逐一核對幾何。</p>
+        <span class="label">讀版</span>
+      </div>
+      <div class="toc">
+        <span class="no" lang="en">No. 03</span>
+        <h3>匯出</h3>
+        <p>SVG 與 DXF，毫米標註，任何刀模廠都收。離開印房的東西，全部歸你。</p>
+        <span class="label">取檔</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Act II · The instrument (A) ══ -->
+<section id="instrument">
+  <div class="copy reveal">
+    <p class="kicker mono">No. 01 — 生成 · <b>本頁即可操作</b></p>
+    <h2>每一只盒子，<br>都從<span class="flat">攤平</span>開始。</h2>
+    <p class="lede-a">拖動三個尺寸，刀模圖隨手應答——<b>毫米不差</b>，任何刀模廠都能直接開工。</p>
+  </div>
+  <div class="bench reveal" lang="en" style="--d:0.15s">
+    <div class="drawing">
+      <i class="rb" aria-hidden="true"></i>
+      <p class="plate-label mono">Plate Nº 04 — Tray, glued corners</p>
+      <svg id="die" viewBox="0 0 100 100" aria-label="Parametric tray dieline"></svg>
+      <div class="legend mono">
+        <span><i></i>Cut</span>
+        <span class="crease-key"><i></i>Crease</span>
+      </div>
+    </div>
+    <div class="console">
+      <div class="param">
+        <label class="mono" for="w">Width</label>
+        <output id="w-out">240<small>mm</small></output>
+        <input type="range" id="w" min="120" max="380" value="240">
+      </div>
+      <div class="param">
+        <label class="mono" for="d">Depth</label>
+        <output id="d-out">160<small>mm</small></output>
+        <input type="range" id="d" min="80" max="300" value="160">
+      </div>
+      <div class="param">
+        <label class="mono" for="h">Height</label>
+        <output id="h-out">60<small>mm</small></output>
+        <input type="range" id="h" min="20" max="140" value="60">
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="cta page">
+  <a class="button" href="https://open-dieline.vercel.app">開啟儀器 →</a>
+  <span class="note mono">限桌面瀏覽器——這座儀器需要一張寬桌。</span>
+</div>
+
+<!-- ══ Act III · The composing room (B, light) ══ -->
+<section id="case-room">
+  <div class="page">
+    <p class="kicker mono reveal">來自排字房 · <b>一間獨立印房</b></p>
+
+    <div class="verse">
+      <div class="line reveal rule-dash"><span class="word">排、</span><span class="gloss">01 — 選一款盒型</span></div>
+      <div class="line reveal rule-dash" style="--d:0.15s"><span class="word">切、</span><span class="gloss">02 — 紅線，貫穿紙板</span></div>
+      <div class="line reveal rule-dash" style="--d:0.3s"><span class="word">摺。</span><span class="gloss">03 — 藍線，摺出形體</span></div>
+    </div>
+
+    <div class="tagline reveal" style="--d:0.4s">
+      <p class="big">活字給了每個字母一具金屬的身體。<b>Open Dieline</b> 給每只盒子一具攤平的——毫米不差地繪成，任你付印。</p>
+      <span class="mono" lang="en">SVG / DXF → any die-shop</span>
+    </div>
+  </div>
+
+  <div class="strip" aria-hidden="true">
+    <span lang="en">— · — · — × — · — · — CUT — · — · — × — · — · — CREASE — · — · — × — · — · — PLATE Nº 04 — · — · — × — · — · — 240×160×60 — · — · — × — · — · — CUT — · — · — × — · — · — CREASE — · — · — × — · — · — PLATE Nº 04 — · — · — × — · — · — 240×160×60 — · — · — × —&nbsp;</span>
+  </div>
+
+  <div class="page">
+    <div class="case reveal">
+      <p class="mono" lang="en">Appendix</p>
+      <h3>字盤——每一枚鉛字各安其位</h3>
+      <div class="case-grid">
+        <div class="cell">O<span class="mono">a1</span></div>
+        <div class="cell">p<span class="mono">a2</span></div>
+        <div class="cell mark"><svg viewBox="0 0 20 20"><path d="M10 2 v16 M2 10 h16"/><circle cx="10" cy="10" r="5"/></svg></div>
+        <div class="cell">e<span class="mono">a4</span></div>
+        <div class="cell">n<span class="mono">a5</span></div>
+        <div class="cell mark">0421</div>
+        <div class="cell">D<span class="mono">a7</span></div>
+        <div class="cell">i<span class="mono">a8</span></div>
+        <div class="cell mark">‹90°›</div>
+        <div class="cell">e<span class="mono">b2</span></div>
+        <div class="cell">l<span class="mono">b3</span></div>
+        <div class="cell mark"><svg viewBox="0 0 20 20"><path d="M2 14 h16" stroke-dasharray="3 2"/><path d="M2 8 h16"/></svg></div>
+        <div class="cell">i<span class="mono">b5</span></div>
+        <div class="cell">n<span class="mono">b6</span></div>
+        <div class="cell mark">mm</div>
+        <div class="cell">e<span class="mono">b8</span></div>
+      </div>
+      <div class="colophon mono" lang="en">
+        <span>Reverse Tuck End · Telescope (lid, base, platform liner) · a growing catalogue</span>
+        <span>Composed MMXXVI · by Konvolut · no cloud, no account</span>
+      </div>
+    </div>
+  </div>
+
+  <section class="page">
+    <div class="tagline rule-t">
+      <p class="big">這座印房的每一行都攤開可讀。<b>非商業使用免費</b>——商業授權請洽 hello@konvolut.art。</p>
+      <span class="mono" lang="en">source-available · <a href="https://github.com/BrownBear127/open-dieline">github.com/BrownBear127/open-dieline</a></span>
+    </div>
+  </section>
+</section>
+
+</main>
+
+<footer class="rule-td page">
+  <span class="label" lang="en">Open Dieline — an independent press for packaging, kept by Konvolut</span>
+  <span class="links label">
+    <a href="https://github.com/BrownBear127/open-dieline">GitHub</a>
+    <a href="https://konvolut.art/zh/">Konvolut.art</a>
+    <a href="https://konvolut.substack.com">Substack</a>
+    <a href="https://konvolut.art/policies">Policies</a>
+  </span>
+</footer>
+
+<script src="/js/site.js" defer></script>
+</body>
+</html>

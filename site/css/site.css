@@ -20,7 +20,9 @@
 @font-face {
   font-family: "Familjen Grotesk";
   src: url("../fonts/familjen.woff2") format("woff2");
-  font-weight: 400 600;
+  /* familjen.woff2 fvar wght=400–700（fontTools 實測）；descriptor 窄於檔案軸域時
+     700 的請求會被 clamp 到 600（半粗冒充粗體）。ks style.css 同檔已宣告 400 700。 */
+  font-weight: 400 700;
   font-style: normal;
   font-display: swap;
 }
@@ -35,6 +37,18 @@
   font-family: "IBM Plex Mono";
   src: url("../fonts/plex-mono-500.woff2") format("woff2");
   font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  /* zh/index.html only (M3 Task 3) — EN page never references "Noto Serif TC" in any rule,
+     so it never triggers a download regardless of this @font-face being visible to it too.
+     M3 Task 5 perf fix: static 400-only instance (was 200-900 variable, 126,180B->46,400B) —
+     see fonts/subset.sh + task-5-report.md. font-weight:400 declared exact (not a range) so
+     font-synthesis:weight faux-bolds the zh page's <b> (550); not a content change. */
+  font-family: "Noto Serif TC";
+  src: url("../fonts/noto-serif-tc-subset.woff2") format("woff2");
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
@@ -321,6 +335,13 @@ footer .links { display: flex; gap: 22px; }
 .site-nav a:hover { color: var(--ink); }
 .site-nav a[aria-current="page"] { color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
 
+/* ── lang-switch（folio 右端·語言切換器·M3 Task 4·視覺語彙照抄 .site-nav）── */
+.folio-right { display: flex; align-items: baseline; gap: 14px; }
+.lang-switch { display: flex; gap: 18px; }
+.lang-switch a { color: var(--ink-soft); text-decoration: none; }
+.lang-switch a:hover { color: var(--ink); }
+.lang-switch a[aria-current="page"] { color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
+
 /* ── tool CTA (new: not in MOCK — Task 4 uses this) ── */
 .cta { display: flex; align-items: baseline; gap: 22px; padding: 26px 0 30px; }
 .cta a.button {
@@ -346,3 +367,41 @@ footer .links { display: flex; gap: 22px; }
 @media (prefers-reduced-motion: reduce) {
   .strip span { animation: none; }
 }
+
+/* ── zh 中文排版適配（M3 Task 3·zh/index.html 專用·od 站樣式外連單處改，無多檔同步債）── */
+html[lang="zh-Hant"] body { font-family: "Noto Serif TC", "Fraunces", Georgia, serif; line-height: 1.8; }
+html[lang="zh-Hant"] :lang(en) { font-family: "Fraunces", Georgia, serif; line-height: 1.62; }
+/* .label / .mono 有自己的字體語彙（Familjen Grotesk / IBM Plex Mono），不能被上面這條 :lang(en)
+   規則搶走——:lang() 依「計算後語言」比對（含由祖先 lang 屬性繼承的情況，如 .bench[lang="en"]
+   底下沒有自己 lang 屬性的 label.mono 子元素），選擇器 specificity 又比 .label/.mono 單獨
+   一個 class 高，若不還原會讓 mono/label 元素的英文文字被畫成 Fraunces（serif 品牌字體）
+   而不是原本的 IBM Plex Mono / Familjen Grotesk。兩種結構都要蓋到：class 在祖先、lang 在
+   自己身上的子孫選擇器（dateline 一類）；以及 class 與計算後語言同時落在同一元素的複合選擇器
+   （.bench[lang="en"] 底下的 label.mono 一類）。⚠️ 這裡故意不用 `font-family: inherit`——
+   inherit 會拿「DOM 父元素」的算出值（一路 cascade 到 body 的 Noto TC 堆疊，因為 .param/
+   .console/.bench 都沒設 font-family），不是拿「同一元素 .mono/.label 規則」的值，兩者是
+   不同來源，用 inherit 會白做（視覺迴圈實測抓到，故直接寫回 tokens.css 的原始字體堆疊）。 */
+html[lang="zh-Hant"] .label :lang(en),
+html[lang="zh-Hant"] .label:lang(en) {
+  font-family: "Familjen Grotesk", sans-serif;
+  line-height: normal;
+}
+html[lang="zh-Hant"] .mono :lang(en),
+html[lang="zh-Hant"] .mono:lang(en) {
+  font-family: "IBM Plex Mono", monospace;
+  line-height: normal;
+}
+/* 品牌字標「Open Dieline」不譯，鎖 Fraunces（同 ks /zh/ 對「Konvolut」字標的判斷） */
+html[lang="zh-Hant"] .masthead h1 { font-family: "Fraunces", Georgia, serif; }
+/* Noto Serif TC 沒有斜體字重，中文若被強制 italic 會被瀏覽器 faux-italic（斜切矩陣）——
+   以下都是視覺迴圈中發現、原本內容變成中文後仍帶著 italic 樣式的元素，一律轉正常體 */
+html[lang="zh-Hant"] #press .byline,
+html[lang="zh-Hant"] #instrument h2 .flat,
+html[lang="zh-Hant"] #case-room .word:hover,
+html[lang="zh-Hant"] #case-room .line:nth-child(3) .word,
+html[lang="zh-Hant"] #case-room .case h3,
+html[lang="zh-Hant"] #case-room .tagline .big {
+  font-style: normal;
+}
+/* CTA 按鈕：EN 版鎖 Fraunces + italic，中文改用 Noto TC + 正常體 */
+html[lang="zh-Hant"] .cta a.button { font-family: "Noto Serif TC", "Fraunces", Georgia, serif; font-style: normal; }
