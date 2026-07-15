@@ -61,6 +61,13 @@ const CASES: Array<{ name: string; make: () => GenerateResult }> = [
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'base')!);
     },
   },
+  {
+    name: 'telescope-liner',
+    make: () => {
+      const full = telescope.generate(resolveParams(telescope));
+      return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'liner')!);
+    },
+  },
 ];
 
 function sha256(s: string): string { return createHash('sha256').update(s).digest('hex'); }

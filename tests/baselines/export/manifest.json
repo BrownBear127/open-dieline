@@ -1,5 +1,5 @@
 {
-  "generatedAtCommit": "cd2dbb72cf2478963d03f476a6c3a1e7767ed7b4",
+  "generatedAtCommit": "9b9944eda07b958c162b24ef1fb5126c991e79d7",
   "files": {
     "rte-default.svg": "350b322e5336bbbdb5858a1cf1cf1d4d297559325c2358afab5230208429a7f2",
     "rte-default.manufacturing.svg": "22347e605e20dd3fbd2e01bf3fedb4238f4cbefa1478642f96193dd8c091ca90",
@@ -15,6 +15,9 @@
     "telescope-lid.dxf": "4b91240bba0b9955ee881536ed935e17fd54d94cd4aa371085011193abfc767d",
     "telescope-base.svg": "ee40dd860bdcafadb5cb347f0aa7adef32f4bab404846d59d42926855f6a6624",
     "telescope-base.manufacturing.svg": "8817a68ec882f89365f2f500c1026abda5643db2ddd081ed014ed94c4325839d",
-    "telescope-base.dxf": "935d6880916f4bf96b844668f47151187bcc71408f55c2a587e2a0dc46c66cce"
+    "telescope-base.dxf": "935d6880916f4bf96b844668f47151187bcc71408f55c2a587e2a0dc46c66cce",
+    "telescope-liner.svg": "b3eb7dc5909e0f353a475e4726dca5d9abf7421e76c01e7014e7d3591bbba7e0",
+    "telescope-liner.manufacturing.svg": "85e7ae72b5fccebff580cefb8696cc377d0ec7feed684c9bba1005fb5646e68c",
+    "telescope-liner.dxf": "eafdadb2dd3ad247d8be3192d9ab63e644054b39263148cc8be8de5242241271"
   }
 }
