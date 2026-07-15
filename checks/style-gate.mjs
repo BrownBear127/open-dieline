@@ -13,7 +13,14 @@ const only = process.env.GATE_ONLY ? process.env.GATE_ONLY.split(',') : null;
 
 if (needBuild) {
   rmSync(distDir, { recursive: true, force: true });
-  execSync(`npx vite build --outDir ${distDir} --emptyOutDir`, { cwd: root, stdio: 'pipe' });
+  // --minify false（G2 專用需求，Task 4）：CSS minifier（Lightning CSS）做的是結構性重寫
+  // （shorthand/longhand 互換、attribute selector 引號剝除、函式名合併如 translateX→translate）
+  // ——這些不是「等價值的不同寫法」而是「不同語法路徑達成同渲染」，G2 的 selector+prop+value
+  // 三元組比對架構無法合理追蹤。關掉 minify 後仍會跑的是 Lightning CSS 的 target-based 語法
+  // 降級（如 ::before→:before、色彩正規化、font-family 引號可省略時剝除）——這類才是 norm()
+  // 該吸收的「等價變形」。僅影響本 gate 私有建置產物（.gate-dist），不影響 `npm run build` 的
+  // 正式產物（不同的 vite build 呼叫，此 flag 不外溢）。
+  execSync(`npx vite build --outDir ${distDir} --emptyOutDir --minify false`, { cwd: root, stdio: 'pipe' });
 }
 
 let failed = false;
