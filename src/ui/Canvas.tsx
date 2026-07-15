@@ -8,7 +8,9 @@
  * jsdom 不支援這些量測回傳真值，測試才可行；瀏覽器下語意也更正確（bounds 是
  * generate() 保證涵蓋全部路徑的權威範圍，見 core/types.ts 的 BoxInvariant「bounds-cover」）。
  *
- * 線段樣式一律查 `LINE_STYLES[p.type]`（唯一來源，見 core/styles.ts）；highlight 疊加色
+ * 線段樣式一律查 `DISPLAY_LINE_STYLES[p.type]`（顯示層唯一來源，見 core/displayStyles.ts；
+ * Spec §5 拆層——匯出層讀 core/styles.ts 的 LINE_STYLES，兩者僅 stroke 欄位可能不同、
+ * strokeWidth/dasharray 逐欄位繼承同一份匯出真相源）；highlight 疊加色
  * #FF6B00 是 brief 明文的例外——UI 互動色，不是線型樣式，不放進 LINE_STYLES。T9 樣張 gate
  * 反饋後畫布底色由深轉淺（見 App.tsx 開頭註解），#FF6B00 維持原值不變：它不再是「深色調亮
  * 亮色」，而是白底畫布上與黑 cut／綠 crease／黃 halfcut／藍 dimension 四色仍保持清楚對比的
@@ -35,7 +37,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from 'react';
 import type { Bounds } from '@/core/geometry';
 import type { DielinePiece, GenerateResult, LocalizedText } from '@/core/types';
-import { LINE_STYLES } from '@/core/styles';
+import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 import { segmentsToSvgD } from '@/core/path';
 import { OVERLAY_STROKE, calibrateScale, findNearestOverlaySegment } from '@/overlay/state';
 import { initialLayersState, layerKeyForLineType, updateOverlayLayer } from '@/overlay/layers';
@@ -108,7 +110,7 @@ const FIT_PADDING = 120;
  * pieces undefined）不受影響，維持 1.0×fit 現狀不變。
  */
 const MULTI_PIECE_FIT_MULTIPLIER = 1.3;
-const DIMENSION_TEXT_FILL = LINE_STYLES.dimension.stroke;
+const DIMENSION_TEXT_FILL = DISPLAY_LINE_STYLES.dimension.stroke;
 /**
  * 單片視圖的幾何邊距（mm，viewBox 座標系——不要跟上面 `FIT_PADDING` 的螢幕像素單位搞混，
  * 兩者是完全不同的量綱，只是剛好都叫 padding）。20mm 沿用專案裡兩個既有的同量級慣例：
@@ -590,7 +592,7 @@ export function Canvas({
           onClick={handleCalibrationClick}
         >
           {visiblePaths.map((p) => {
-            const style = LINE_STYLES[p.type];
+            const style = DISPLAY_LINE_STYLES[p.type];
             const highlighted = isHighlighted(p.tags);
             const d = segmentsToSvgD(p.segments);
             return (
@@ -636,8 +638,8 @@ export function Canvas({
               return (
                 // 疊圖獨立圖層：一個 <g transform> 套 scale+offset（不逐段換算，見 overlay/state.ts
                 // docblock 的座標套用順序：先 scale 再平移）。全段固定 OVERLAY_STROKE，線寬沿用
-                // LINE_STYLES.cut（生成層最常見的結構線寬，brief「線寬同生成層」的具體取值——
-                // overlay 的原始 Segment[] 沒有 LineType 可對應，取單一代表值而非逐段猜測型別）。
+                // DISPLAY_LINE_STYLES.cut（生成層最常見的結構線寬，brief「線寬同生成層」的具體
+                // 取值——overlay 的原始 Segment[] 沒有 LineType 可對應，取單一代表值而非逐段猜測型別）。
                 // 選中層 stroke 加粗（Slice 3 gate round 1 T2，brief「選中層 stroke 加粗」）：
                 // 沿用既有校準高亮的寬度倍率常數（HIGHLIGHT_WIDTH_FACTOR），但顏色仍是
                 // OVERLAY_STROKE 洋紅——這是「這層目前被選中」的視覺，跟下面「校準模式選中段」
@@ -648,7 +650,7 @@ export function Canvas({
                     d={segmentsToSvgD(o.segments)}
                     fill="none"
                     stroke={OVERLAY_STROKE}
-                    strokeWidth={isSelected ? LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR : LINE_STYLES.cut.strokeWidth}
+                    strokeWidth={isSelected ? DISPLAY_LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR : DISPLAY_LINE_STYLES.cut.strokeWidth}
                     strokeOpacity={o.opacity}
                     vectorEffect="non-scaling-stroke"
                   />
@@ -660,7 +662,7 @@ export function Canvas({
                       d={segmentsToSvgD([o.segments[pickedSegmentIndex]])}
                       fill="none"
                       stroke={HIGHLIGHT_STROKE}
-                      strokeWidth={LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR}
+                      strokeWidth={DISPLAY_LINE_STYLES.cut.strokeWidth * HIGHLIGHT_WIDTH_FACTOR}
                       opacity={HIGHLIGHT_OPACITY}
                       vectorEffect="non-scaling-stroke"
                     />

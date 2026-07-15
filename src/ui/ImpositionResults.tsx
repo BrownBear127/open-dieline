@@ -56,7 +56,7 @@ import { computeImposition, PAPER_PRESETS, MAX_PREVIEW_INSTANCES, MIN_GAP_MM, MI
 import type { DirectionResult, ImpositionFieldError, ImpositionInput, SheetOrientation, WorkingSheet } from '@/core/imposition';
 import { manufacturingPaths, computeProfileStrides } from '@/core/profile';
 import type { ProfileStrides } from '@/core/profile';
-import { LINE_STYLES } from '@/core/styles';
+import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 import { segmentsToSvgD } from '@/core/path';
 import { directionInstances, previewPaths, sectionOffsets } from './impositionPreview';
 import type { PreviewInstance } from './impositionPreview';
@@ -110,7 +110,8 @@ const USABLE_ZONE_STROKE = '#e4e4e7'; // zinc-200
  * `PREVIEW_STROKE_SCALE`（乘大 mm 級線寬撐視覺）的做法，改搭配下方所有結構線元素的
  * `vectorEffect="non-scaling-stroke"`：這幾個數字是畫面上恆定的 CSS 像素寬度，不隨
  * viewBox／紙張 mm 尺度縮放。gate 驗收反饋「線條粗細統一和單紙盒刀模一致」：刀模
- * paths 沿用 `LINE_STYLES[type].strokeWidth` 原始值＋non-scaling-stroke（與 Canvas.tsx
+ * paths 沿用 `DISPLAY_LINE_STYLES[type].strokeWidth` 原始值（逐欄位繼承 core/styles.ts
+ * LINE_STYLES，Spec §5 拆層不改數值）＋non-scaling-stroke（與 Canvas.tsx
  * 逐字同構，見該檔 docblock），使得全紙縮到卡片大小時的刀模線觀感與單片畫布視圖同一個
  * CSS 像素粗細；紙張結構線（不是刀模幾何本身）用獨立一組較粗的常數，純視覺分層，不影響
  * 任何數值計算（cols/rows/count/utilization 皆與這組常數無關）。
@@ -226,7 +227,7 @@ function SectionGroup({
       {section.instances.map((inst, j) => (
         <g key={j} data-testid="preview-instance" transform={inst.transform}>
           {paths.map((p) => {
-            const style = LINE_STYLES[p.type];
+            const style = DISPLAY_LINE_STYLES[p.type];
             return (
               <path
                 key={p.id}

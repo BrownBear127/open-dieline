@@ -18,6 +18,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: Install uv (font-gate needs uvx)
+        uses: astral-sh/setup-uv@v5
       - run: npm test
       - run: npm run check:cycles
       - run: npm run build

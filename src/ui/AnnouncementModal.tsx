@@ -100,7 +100,7 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
           </h2>
 
           <p>
-            一個開源的印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。
+            一個印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。
             幾何規則以真實生產刀模逆向量測校準。
           </p>
 

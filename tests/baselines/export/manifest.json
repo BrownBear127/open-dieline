@@ -1,0 +1,23 @@
+{
+  "generatedAtCommit": "9b9944eda07b958c162b24ef1fb5126c991e79d7",
+  "files": {
+    "rte-default.svg": "350b322e5336bbbdb5858a1cf1cf1d4d297559325c2358afab5230208429a7f2",
+    "rte-default.manufacturing.svg": "22347e605e20dd3fbd2e01bf3fedb4238f4cbefa1478642f96193dd8c091ca90",
+    "rte-default.dxf": "380089fee757ba5aa4f1c4593456c379082d10002b43db2b2fa62f9a03e580b4",
+    "telescope-default.svg": "bbf2516c72db71a30a1e5df770723616408bb1abfd1abb93c779ca10ad497097",
+    "telescope-default.manufacturing.svg": "28707378bd77c179c251f9ec90fc02d5ce033cbc5839de03892fefc72a6af3a3",
+    "telescope-default.dxf": "f7706be471d28c6ac61a4bf46e8ece15b9445e1a217ae0fa5fafdbc7a04bfe95",
+    "synthetic-all-types.svg": "a5eb47d5bfa357c2be4abf746d13e9d8cd0d021b5f82c1bd26af9e63c514bf30",
+    "synthetic-all-types.manufacturing.svg": "94173144e1840a2abc6eb50432342592c02b74f13bc5046615b677528da3e6ad",
+    "synthetic-all-types.dxf": "66deeb69b8b6989d6c0613326c2acedfa35b29b855720d666d2ea3e4b365f0ad",
+    "telescope-lid.svg": "dfad758286126df33e7aa8d471f273462f99f5e823b1d07b3c56d8b023de9a25",
+    "telescope-lid.manufacturing.svg": "6eb6eac4b42f4757ad25d5d86dc4cbc241cfe75a809f6241e5ae319894200cd2",
+    "telescope-lid.dxf": "4b91240bba0b9955ee881536ed935e17fd54d94cd4aa371085011193abfc767d",
+    "telescope-base.svg": "ee40dd860bdcafadb5cb347f0aa7adef32f4bab404846d59d42926855f6a6624",
+    "telescope-base.manufacturing.svg": "8817a68ec882f89365f2f500c1026abda5643db2ddd081ed014ed94c4325839d",
+    "telescope-base.dxf": "935d6880916f4bf96b844668f47151187bcc71408f55c2a587e2a0dc46c66cce",
+    "telescope-liner.svg": "b3eb7dc5909e0f353a475e4726dca5d9abf7421e76c01e7014e7d3591bbba7e0",
+    "telescope-liner.manufacturing.svg": "85e7ae72b5fccebff580cefb8696cc377d0ec7feed684c9bba1005fb5646e68c",
+    "telescope-liner.dxf": "eafdadb2dd3ad247d8be3192d9ab63e644054b39263148cc8be8de5242241271"
+  }
+}

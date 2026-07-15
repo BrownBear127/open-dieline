@@ -1,1 +1,3 @@
+@import './styles/tokens.css';
+@import './styles/vocab.css';
 @import "tailwindcss";

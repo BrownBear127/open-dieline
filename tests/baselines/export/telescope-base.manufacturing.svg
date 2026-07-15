@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400.40mm" height="458.40mm" viewBox="397.40 0.00 400.40 458.40">
+  <g id="CUT" data-name="切割線">
+    <path d="M476.10,139.70 L471.10,139.70 M476.10,318.70 L471.10,318.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M412.40,184.86 L414.60,184.86 A2.00,2.00 0 0,1 416.60,186.86 L416.60,212.86 A2.00,2.00 0 0,1 414.60,214.86 L412.40,214.86 M412.40,243.54 L414.60,243.54 A2.00,2.00 0 0,1 416.60,245.54 L416.60,271.54 A2.00,2.00 0 0,1 414.60,273.54 L412.40,273.54" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M412.40,148.70 L404.90,148.70 L397.40,156.20 L397.40,302.20 L404.90,309.70 L412.40,309.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M719.10,139.70 L724.10,139.70 M719.10,318.70 L724.10,318.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M782.80,184.86 L780.60,184.86 A2.00,2.00 0 0,0 778.60,186.86 L778.60,212.86 A2.00,2.00 0 0,0 780.60,214.86 L782.80,214.86 M782.80,243.54 L780.60,243.54 A2.00,2.00 0 0,0 778.60,245.54 L778.60,271.54 A2.00,2.00 0 0,0 780.60,273.54 L782.80,273.54" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M782.80,148.70 L790.30,148.70 L797.80,156.20 L797.80,302.20 L790.30,309.70 L782.80,309.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,80.20 L535.60,79.20 M659.60,80.20 L659.60,79.20" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M582.60,15.00 L582.60,17.20 A2.00,2.00 0 0,0 584.60,19.20 L610.60,19.20 A2.00,2.00 0 0,0 612.60,17.20 L612.60,15.00" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M544.60,15.00 L544.60,7.50 L552.10,0.00 L643.10,0.00 L650.60,7.50 L650.60,15.00" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,378.20 L535.60,379.20 M659.60,378.20 L659.60,379.20" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M582.60,443.40 L582.60,441.20 A2.00,2.00 0 0,1 584.60,439.20 L610.60,439.20 A2.00,2.00 0 0,1 612.60,441.20 L612.60,443.40" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M544.60,443.40 L544.60,450.90 L552.10,458.40 L643.10,458.40 L650.60,450.90 L650.60,443.40" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,318.70 L684.89,343.99" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,378.20 L710.18,369.28 L719.10,318.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M719.10,318.70 L724.10,317.82 M724.10,314.20 L724.10,371.70 M753.45,371.70 L724.10,371.70 M743.18,371.70 L732.91,376.70 L732.91,391.70 L780.80,391.70 L780.80,313.24 L797.80,313.24 M763.30,313.24 L780.80,313.24 M763.30,316.20 L763.30,314.20 L763.30,313.24 M780.80,313.24 L780.80,297.20 L782.80,297.20" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,379.20 L659.60,381.70 A2.50,2.50 0 0,1 657.10,384.20 L654.60,384.20 L654.60,425.40 L657.60,428.40 L657.60,443.40" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,139.70 L684.89,114.41" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,80.20 L710.18,89.12 L719.10,139.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M719.10,139.70 L724.10,140.58 M724.10,144.20 L724.10,66.70 M751.45,86.70 L780.80,86.70 M761.72,86.70 L771.99,81.70 L771.99,66.70 L724.10,66.70 M780.80,86.70 L780.80,145.16 L797.80,145.16 M763.30,145.16 L780.80,145.16 M763.30,142.20 L763.30,144.20 L763.30,145.16 M780.80,145.16 L780.80,161.20 L782.80,161.20" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,79.20 L659.60,76.70 A2.50,2.50 0 0,0 657.10,74.20 L654.60,74.20 L654.60,33.00 L657.60,30.00 L657.60,15.00" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,318.70 L510.31,343.99" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,378.20 L485.02,369.28 L476.10,318.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M476.10,318.70 L471.10,317.82 M471.10,314.20 L471.10,391.70 M443.75,371.70 L414.40,371.70 M433.48,371.70 L423.21,376.70 L423.21,391.70 L471.10,391.70 M414.40,371.70 L414.40,313.24 L397.40,313.24 M431.90,313.24 L414.40,313.24 M431.90,316.20 L431.90,314.20 L431.90,313.24 M414.40,313.24 L414.40,297.20 L412.40,297.20" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,379.20 L535.60,381.70 A2.50,2.50 0 0,0 538.10,384.20 L540.60,384.20 L540.60,425.40 L537.60,428.40 L537.60,443.40" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,139.70 L510.31,114.41" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,80.20 L485.02,89.12 L476.10,139.70" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M476.10,139.70 L471.10,140.58 M471.10,144.20 L471.10,86.70 M441.75,86.70 L471.10,86.70 M452.02,86.70 L462.29,81.70 L462.29,66.70 L414.40,66.70 L414.40,145.16 L397.40,145.16 M431.90,145.16 L414.40,145.16 M431.90,142.20 L431.90,144.20 L431.90,145.16 M414.40,145.16 L414.40,161.20 L412.40,161.20" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,79.20 L535.60,76.70 A2.50,2.50 0 0,1 538.10,74.20 L540.60,74.20 L540.60,33.00 L537.60,30.00 L537.60,15.00" stroke="#000000" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+  <g id="CREASE" data-name="摺線">
+    <path d="M535.60,139.70 L535.60,318.70" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M476.10,139.70 L476.10,318.70 M471.10,144.20 L471.10,314.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,139.70 L659.60,318.70" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M719.10,139.70 L719.10,318.70 M724.10,144.20 L724.10,314.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,139.20 L659.60,139.20 M535.60,139.70 L535.60,139.20 M659.60,139.20 L659.60,139.70" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,79.20 L659.60,79.20 M540.60,74.20 L654.60,74.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,319.20 L659.60,319.20 M535.60,318.70 L535.60,319.20 M659.60,319.20 L659.60,318.70" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,379.20 L659.60,379.20 M540.60,384.20 L654.60,384.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,318.70 L719.10,318.70 M659.60,319.20 L659.60,378.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M684.89,343.99 L710.18,369.28" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M659.60,139.70 L719.10,139.70 M659.60,139.20 L659.60,80.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M684.89,114.41 L710.18,89.12" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,318.70 L476.10,318.70 M535.60,319.20 L535.60,378.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M510.31,343.99 L485.02,369.28" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M535.60,139.70 L476.10,139.70 M535.60,139.20 L535.60,80.20" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M510.31,114.41 L485.02,89.12" stroke="#00FF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+  <g id="HALFCUT" data-name="半刀">
+    <path d="M412.40,161.20 L412.40,184.86 M412.40,214.86 L412.40,243.54 M412.40,273.54 L412.40,297.20" stroke="#FFFF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M782.80,161.20 L782.80,184.86 M782.80,214.86 L782.80,243.54 M782.80,273.54 L782.80,297.20" stroke="#FFFF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M537.60,15.00 L582.60,15.00 M612.60,15.00 L657.60,15.00" stroke="#FFFF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M537.60,443.40 L582.60,443.40 M612.60,443.40 L657.60,443.40" stroke="#FFFF00" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+</svg>
