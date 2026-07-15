@@ -233,3 +233,19 @@ export function validatePieces(result: GenerateResult): { ok: true } | { ok: fal
 
   return { ok: true };
 }
+
+/**
+ * 把 result 縮到只含 `piece` 的 paths/texts＋該片 bounds（pathIds/textIds 集合匹配，不是猜
+ * index）。`toSvgDocument` 不消費 `GenerateResult.pieces` 欄位（只讀 paths/texts/bounds，
+ * 見 export/svg.ts），縮完的物件省略 pieces 完全合法，餵給既有的 `toSvgDocument` 就能重用
+ * 它內部按線型分 4 個命名 `<g>` 圖層的序列化邏輯，不需要另外複製一份匯出邏輯。
+ */
+export function scopeResultToPiece(result: GenerateResult, piece: DielinePiece): GenerateResult {
+  const pathIds = new Set(piece.pathIds);
+  const textIds = new Set(piece.textIds);
+  return {
+    paths: result.paths.filter((p) => pathIds.has(p.id)),
+    texts: result.texts.filter((t) => textIds.has(t.id)),
+    bounds: piece.bounds,
+  };
+}

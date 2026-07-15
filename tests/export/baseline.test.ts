@@ -13,6 +13,7 @@ import type { GenerateResult } from '@/core/types';
 import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
+import { scopeResultToPiece } from '@/core/pieces';
 import { toSvgDocument } from '@/export/svg';
 import { toDxfDocument } from '@/export/dxf';
 
@@ -46,6 +47,20 @@ const CASES: Array<{ name: string; make: () => GenerateResult }> = [
   { name: 'rte-default', make: () => reverseTuckEnd.generate(resolveParams(reverseTuckEnd)) },
   { name: 'telescope-default', make: () => telescope.generate(resolveParams(telescope)) },
   { name: 'synthetic-all-types', make: syntheticAllTypes },
+  {
+    name: 'telescope-lid',
+    make: () => {
+      const full = telescope.generate(resolveParams(telescope));
+      return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'lid')!);
+    },
+  },
+  {
+    name: 'telescope-base',
+    make: () => {
+      const full = telescope.generate(resolveParams(telescope));
+      return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'base')!);
+    },
+  },
 ];
 
 function sha256(s: string): string { return createHash('sha256').update(s).digest('hex'); }
