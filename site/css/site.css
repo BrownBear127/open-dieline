@@ -330,6 +330,13 @@ footer .links { display: flex; gap: 22px; }
 .site-nav a:hover { color: var(--ink); }
 .site-nav a[aria-current="page"] { color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
 
+/* ── lang-switch（folio 右端·語言切換器·M3 Task 4·視覺語彙照抄 .site-nav）── */
+.folio-right { display: flex; align-items: baseline; gap: 14px; }
+.lang-switch { display: flex; gap: 18px; }
+.lang-switch a { color: var(--ink-soft); text-decoration: none; }
+.lang-switch a:hover { color: var(--ink); }
+.lang-switch a[aria-current="page"] { color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
+
 /* ── tool CTA (new: not in MOCK — Task 4 uses this) ── */
 .cta { display: flex; align-items: baseline; gap: 22px; padding: 26px 0 30px; }
 .cta a.button {
