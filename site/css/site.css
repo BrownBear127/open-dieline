@@ -20,7 +20,9 @@
 @font-face {
   font-family: "Familjen Grotesk";
   src: url("../fonts/familjen.woff2") format("woff2");
-  font-weight: 400 600;
+  /* familjen.woff2 fvar wght=400–700（fontTools 實測）；descriptor 窄於檔案軸域時
+     700 的請求會被 clamp 到 600（半粗冒充粗體）。ks style.css 同檔已宣告 400 700。 */
+  font-weight: 400 700;
   font-style: normal;
   font-display: swap;
 }
