@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Bounds } from '@/core/geometry';
 import type { DielinePath, DielineText, DielinePiece, GenerateResult } from '@/core/types';
-import { validatePieces } from '@/core/pieces';
+import { validatePieces, scopeResultToPiece } from '@/core/pieces';
+import { resolveParams } from '@/core/registry';
+import { telescope } from '@/boxes/telescope';
 
 // ── 測試專用工具：手工組最小的 DielinePath/DielineText/DielinePiece/GenerateResult ──
 // （brief 要求「手工組的最小 GenerateResult」，不依賴任何真實盒型的 generate()）
@@ -194,5 +196,22 @@ describe('validatePieces', () => {
       bounds: { minX: -100, maxX: 50, minY: 0, maxY: 10 },
     };
     expectViolation(result, 'geometry-hull-mismatch');
+  });
+});
+
+describe('scopeResultToPiece（自 ExportBar 搬入·move-only）', () => {
+  it('telescope base 片：輸出只含該片 pathIds/textIds，bounds 縮到該片', () => {
+    const full = telescope.generate(resolveParams(telescope));
+    const base = full.pieces!.find((p) => p.id === 'base')!;
+    const scoped = scopeResultToPiece(full, base);
+    expect(scoped.paths.every((p) => base.pathIds.includes(p.id))).toBe(true);
+    expect(scoped.paths.length).toBeLessThan(full.paths.length);
+  });
+  it('lid 片與 base 片的 path 集合不重疊', () => {
+    const full = telescope.generate(resolveParams(telescope));
+    const [lid, base] = [full.pieces!.find((p) => p.id === 'lid')!, full.pieces!.find((p) => p.id === 'base')!];
+    const lidIds = new Set(scopeResultToPiece(full, lid).paths.map((p) => p.id));
+    const baseIds = scopeResultToPiece(full, base).paths.map((p) => p.id);
+    expect(baseIds.some((id) => lidIds.has(id))).toBe(false);
   });
 });
