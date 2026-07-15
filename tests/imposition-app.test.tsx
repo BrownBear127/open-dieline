@@ -150,7 +150,7 @@ describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar
     render(<App />);
 
     expect(screen.getByText(t('layers.generated'))).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下載 SVG' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('export.svg') })).toBeInTheDocument();
     expect(screen.getByLabelText(paramLabel(reverseTuckEnd, 'L'))).toBeInTheDocument();
 
     expect(screen.queryByText('拼版設定')).not.toBeInTheDocument();
@@ -163,7 +163,7 @@ describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar
 
     expect(screen.queryByText(t('layers.generated'))).not.toBeInTheDocument();
     expect(screen.queryByText(t('layers.overlays'))).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '下載 SVG' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: t('export.svg') })).not.toBeInTheDocument();
 
     expect(screen.getByLabelText(paramLabel(reverseTuckEnd, 'L'))).toBeInTheDocument(); // ParamPanel 保留
     expect(screen.getByLabelText(t('console.boxStyle'))).toBeInTheDocument(); // 盒型選擇保留
@@ -181,7 +181,7 @@ describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar
     expect(screen.queryByText('拼版設定')).not.toBeInTheDocument();
     expect(screen.queryByTestId('direction-card-0')).not.toBeInTheDocument();
     expect(screen.getByText(t('layers.generated'))).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下載 SVG' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('export.svg') })).toBeInTheDocument();
   });
 
   it('頂部模式切換鈕的 aria-pressed 正確反映目前模式', () => {
