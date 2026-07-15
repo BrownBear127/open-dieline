@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Open Dieline — OG card</title>
+<style>
+  @font-face {
+    font-family: "Fraunces";
+    src: url("../fonts/fraunces-var.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Fraunces";
+    src: url("../fonts/fraunces-italic-var.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: italic;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "IBM Plex Mono";
+    src: url("../fonts/plex-mono.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+  }
+  body {
+    background: #FAF7F0;
+    color: #191712;
+    font-family: "Fraunces", Georgia, serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+  .card {
+    width: 1200px;
+    height: 630px;
+    padding: 70px 76px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .kicker {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 15px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #57534A;
+    margin-bottom: 34px;
+  }
+  h1 {
+    font-size: 156px;
+    font-weight: 400;
+    font-variation-settings: "opsz" 144;
+    letter-spacing: 0.005em;
+    line-height: 0.98;
+  }
+  h1 em {
+    font-style: italic;
+    font-weight: 340;
+  }
+  .rule {
+    margin-top: 46px;
+    height: 3px;
+    width: 340px;
+    background: #C93A2B;
+  }
+  .tagline {
+    margin-top: 30px;
+    font-size: 22px;
+    font-style: italic;
+    font-weight: 380;
+    font-variation-settings: "opsz" 20;
+    color: #57534A;
+    max-width: 46ch;
+  }
+  .wordmark {
+    position: absolute;
+    right: 76px;
+    bottom: 54px;
+    height: 22px;
+    width: auto;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <p class="kicker">Vol. I — Packaging, set like type</p>
+    <h1>Open <em>Dieline</em></h1>
+    <div class="rule"></div>
+    <p class="tagline">Production-ready cutting layouts, composed in your browser.</p>
+  </div>
+  <img class="wordmark" src="Konvolut-wordmark.svg" alt="Konvolut">
+</body>
+</html>
