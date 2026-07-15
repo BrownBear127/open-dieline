@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import type { BoxModule, DielinePiece, GenerateResult, ResolvedParams } from '@/core/types';
 import { registerBox, _clearRegistry, resolveParams } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
+import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 import { App } from '@/ui/App';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
@@ -316,7 +317,7 @@ describe('App 冒煙測試', () => {
     const checkbox = screen.getByLabelText('尺寸標註') as HTMLInputElement;
     expect(checkbox.checked).toBe(true); // 預設全開
 
-    const dimStrokeSelector = `svg path[stroke="${LINE_STYLES.dimension.stroke}"]`;
+    const dimStrokeSelector = `svg path[stroke="${DISPLAY_LINE_STYLES.dimension.stroke}"]`;
     expect(document.querySelectorAll(dimStrokeSelector).length).toBeGreaterThan(0); // 預設畫布有 dimension 線
     expect(document.querySelectorAll('svg text').length).toBeGreaterThan(0); // 預設畫布有標註文字
 
@@ -334,8 +335,8 @@ describe('App 冒煙測試', () => {
   it('關閉「切割線」生成圖層後畫布 cut 樣式 path 消失、不影響 crease／dimension（驗證圖層過濾對四桶皆通用，非只認 dimensions 這一桶）', async () => {
     render(<App />);
     await screen.findByText('open-dieline');
-    const cutSelector = `svg path[stroke="${LINE_STYLES.cut.stroke}"]`;
-    const creaseSelector = `svg path[stroke="${LINE_STYLES.crease.stroke}"]`;
+    const cutSelector = `svg path[stroke="${DISPLAY_LINE_STYLES.cut.stroke}"]`;
+    const creaseSelector = `svg path[stroke="${DISPLAY_LINE_STYLES.crease.stroke}"]`;
     expect(document.querySelectorAll(cutSelector).length).toBeGreaterThan(0);
     expect(document.querySelectorAll(creaseSelector).length).toBeGreaterThan(0);
 
