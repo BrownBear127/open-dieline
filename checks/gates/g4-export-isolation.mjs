@@ -14,6 +14,11 @@ function resolveImport(from, spec, root) {
 }
 
 export async function run({ root }) {
+  const configPath = path.join(root, 'checks/gates/g4-forbidden.json');
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  const forbidden = Array.isArray(config.forbidden)
+    ? config.forbidden.filter((fragment) => typeof fragment === 'string' && fragment.length > 0)
+    : [];
   const entryDir = path.join(root, 'src/export');
   const queue = readdirSync(entryDir).filter((f) => /\.tsx?$/.test(f)).map((f) => path.join(entryDir, f));
   const visited = new Set();
@@ -28,10 +33,11 @@ export async function run({ root }) {
     }
   }
   const errs = [];
-  const names = [...visited].map((f) => path.relative(root, f));
+  if (forbidden.length === 0) errs.push('g4-forbidden.json forbidden 清單不可為空（sanity）');
+  const names = [...visited].map((f) => path.relative(root, f).split(path.sep).join('/'));
   if (names.length < 3) errs.push(`BFS 僅走訪 ${names.length} 檔——gate 疑似空心（sanity）`);
-  if (!names.some((n) => n.includes(path.join('core', 'styles')))) errs.push('BFS 未達 core/styles.ts——解析器壞了（sanity）');
-  const bad = names.filter((n) => n.includes('displayStyles'));
+  if (!names.some((n) => n.includes('core/styles'))) errs.push('BFS 未達 core/styles.ts——解析器壞了（sanity）');
+  const bad = names.filter((name) => forbidden.some((fragment) => name.includes(fragment)));
   if (bad.length) errs.push(`匯出路徑引入顯示層：${bad.join(', ')}`);
   return errs;
 }
