@@ -42,7 +42,7 @@ import { segmentsToSvgD } from '@/core/path';
 import { OVERLAY_STROKE, calibrateScale, findNearestOverlaySegment } from '@/overlay/state';
 import { initialLayersState, layerKeyForLineType, updateOverlayLayer } from '@/overlay/layers';
 import type { LayersState } from '@/overlay/layers';
-import { t } from '@/i18n/t';
+import { getLang, t } from '@/i18n/t';
 
 export interface CanvasProps {
   result: GenerateResult;
@@ -475,7 +475,11 @@ export function Canvas({
   // （見 core/types.ts 的 bounds-cover 不變式），隱藏某個生成圖層不應該連帶讓視窗跟著縮放/位移。
   const visiblePaths = pieceScopedPaths.filter((p) => layers.generatedVisible[layerKeyForLineType(p.type)]);
   const visibleTexts = layers.generatedVisible.dimensions ? pieceScopedTexts : [];
-  const plateContent = activePiece ? `${activePiece.label.en} view` : boxName.en;
+  // {content} 隨語言＝inventory canvas.plateLabel 契約明文；片視圖句殼=canvas.view.piece
+  // （法蘭三案對照選 A·2026-07-16 視覺簽核輪·取代 M1 佈線期的 `${label.en} view`）。
+  const plateContent = activePiece
+    ? t('canvas.view.piece', { label: activePiece.label[getLang()] })
+    : boxName[getLang()];
   const plateLabel = t('canvas.plateLabel', {
     nn: String(plateNumber).padStart(2, '0'),
     content: plateContent,
@@ -490,7 +494,7 @@ export function Canvas({
             {t('canvas.checks', { p: passedInvariantCount, f: invariantWarnings.length })}
           </span>
           {invariantWarnings.map((w, i) => (
-            <span key={i}>{w.message.en}</span>
+            <span key={i}>{w.message[getLang()]}</span>
           ))}
         </div>
       )}
@@ -559,7 +563,7 @@ export function Canvas({
                 onClick={() => onSelectPiece?.(piece.id)}
                 className={`btn label tog${activePiece?.id === piece.id ? ' on' : ''}`}
               >
-                {piece.label.en}
+                {piece.label[getLang()]}
               </button>
             ))}
           </div>

@@ -51,6 +51,7 @@ export const dict = {
   'overlay.recenter.needSelect': { en: 'Select a layer first', zh: '先選取一個圖層' },
 
   'canvas.plateLabel': { en: 'Plate Nº {nn} — {content}', zh: 'Plate Nº {nn} — {content}' },
+  'canvas.view.piece': { en: '{label} view', zh: '{label}視圖' },
   'canvas.view.fullSet': { en: 'Full set', zh: '全版' },
   'canvas.legend.cut': { en: 'Cut', zh: '切割' },
   'canvas.legend.crease': { en: 'Crease', zh: '摺線' },
