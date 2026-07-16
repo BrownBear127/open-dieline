@@ -4,14 +4,20 @@ import { dict } from '../src/i18n/dict';
 import { gotoReady, settleFontsAndLayout } from './helpers';
 
 const RECT_TOLERANCE_PX = 0.5;
-// M3 實測 2026-07-16, 1440×900, Chromium. Signed direction is intentional: EN is
-// 13.1875px taller than zh before the downstream flex filler absorbs the difference.
-const DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX = 13.1875;
+// CI 教訓（2026-07-16·run 29510386272）：凍結絕對像素差是平台相依的——同一份 woff2、
+// 同版 Chromium，Linux 的 glyph advance 微差讓 EN disclaimer 換 3 行（macOS 2 行），
+// EN−zh 差從 13.1875 變 26.375（恰 2 個行盒）。改為平台無關的兩層鎖：
+// ①文字源的 language-invariant layout props EN↔zh 逐項相等（padding/margin 注入直接紅）
+// ②signed delta 必須是該元素 computed line-height 的非負整數倍（換行量化律——
+//   內容驅動的差只能以整行盒出現；任何非整數倍漂移＝非文字源差異，紅）。
+// 下游 attributable 關係式改對「當次量測的 source delta」——source 已被①②釘死，
+// 動態基準不再有 N1 的自我正規化路徑。
 
-// Modal copy may legitimately change intrinsic height, font fallback, letter spacing,
-// weight, and text transform by language. These remaining computed properties define the
-// layout box around each named text source and must not acquire a zh-only layout override.
-const MODAL_SOURCE_LAYOUT_PROPERTIES = [
+// Text-source copy may legitimately change intrinsic height, font fallback, letter
+// spacing, weight, and text transform by language. These remaining computed properties
+// define the layout box around each named text source and must not acquire a zh-only
+// layout override.
+const SOURCE_LAYOUT_PROPERTIES = [
   'box-sizing',
   'display',
   'position',
@@ -43,6 +49,7 @@ const MODAL_SOURCE_LAYOUT_PROPERTIES = [
 ] as const;
 
 const MODAL_TEXT_SOURCE_SELECTORS = ['.modal-card h2', '.modal-body'] as const;
+const IMPOSITION_TEXT_SOURCE_SELECTORS = ['p.mono.pb-4.opacity-60'] as const;
 
 const DESIGN_GEOMETRY_SAMPLES = [
   { name: '.masthead', selector: '.masthead', index: 0, exempt: [], attributable: {} },
@@ -329,6 +336,7 @@ test('zh strict geometry parity: imposition containers and exempt group alignmen
   await settleFontsAndLayout(page);
   const en = await measureRects(page, IMPOSITION_GEOMETRY_SAMPLES);
   const enGroupRects = await measureImpositionGroupRows(page);
+  const enSourceLayout = await measureSourceLayout(page, IMPOSITION_TEXT_SOURCE_SELECTORS);
   expectFrozenRowMembership(enGroupRects, 'en');
 
   if (process.env.OD_N1_DISCLAIMER_MUTATION === '1') {
@@ -339,11 +347,19 @@ test('zh strict geometry parity: imposition containers and exempt group alignmen
   await switchLanguage(page, 'zh');
   const zh = await measureRects(page, IMPOSITION_GEOMETRY_SAMPLES);
   const zhGroupRects = await measureImpositionGroupRows(page);
+  const zhSourceLayout = await measureSourceLayout(page, IMPOSITION_TEXT_SOURCE_SELECTORS);
   expectFrozenRowMembership(zhGroupRects, 'zh');
 
-  // N1（H4）: freeze the named source itself before using its legal signed difference in
-  // downstream relationships. A zh-only padding can no longer rewrite its own baseline.
+  // N1（H4）: pin the named source with platform-independent laws instead of a frozen
+  // absolute px (CI lesson in the header comment). ① its language-invariant layout props
+  // must match EN exactly; ② its signed height delta must be a non-negative whole-number
+  // multiple of its own computed line-height (content wrap quantization). Only then is the
+  // measured delta a trustworthy baseline for the downstream attributable relationships.
   const disclaimerSignedDelta = en['imp disclaimer line']!.height - zh['imp disclaimer line']!.height;
+  const disclaimerLineBoxPx = Number.parseFloat(
+    enSourceLayout[IMPOSITION_TEXT_SOURCE_SELECTORS[0]]!['line-height']!,
+  );
+  const wrapLines = Math.round(disclaimerSignedDelta / disclaimerLineBoxPx);
 
   console.log(
     `GEOMETRY-MEASUREMENTS imposition ${JSON.stringify({
@@ -351,18 +367,32 @@ test('zh strict geometry parity: imposition containers and exempt group alignmen
       zh,
       delta: rectDeltas(en, zh),
       disclaimerSignedDelta,
-      frozenDisclaimerSignedDelta: DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX,
+      disclaimerLineBoxPx,
+      wrapLines,
+      sourceLayout: { en: enSourceLayout, zh: zhSourceLayout },
       impGroupRows: { en: enGroupRects, zh: zhGroupRects },
       exemptions: GEOMETRY_EXEMPTIONS,
     })}`,
   );
   expect(
-    disclaimerSignedDelta,
-    'imp disclaimer EN−zh height delta must equal the frozen M3 Chromium measurement',
-  ).toBe(DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX);
+    zhSourceLayout,
+    'imp disclaimer must preserve language-invariant layout-affecting computed properties',
+  ).toEqual(enSourceLayout);
   expect(
-    rectParityFailures(en, zh, IMPOSITION_GEOMETRY_SAMPLES, DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX),
-    'all imposition deltas must be strictly equal, or preserve the frozen signed disclaimer relationship',
+    Number.isFinite(disclaimerLineBoxPx) && disclaimerLineBoxPx > 0,
+    `disclaimer computed line-height must be a positive px length (got ${disclaimerLineBoxPx})`,
+  ).toBe(true);
+  expect(
+    wrapLines,
+    'imp disclaimer EN−zh height delta must be a non-negative number of whole line boxes',
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    Math.abs(disclaimerSignedDelta - wrapLines * disclaimerLineBoxPx),
+    `imp disclaimer EN−zh height delta (${disclaimerSignedDelta}) must be a whole multiple of its line box (${disclaimerLineBoxPx})`,
+  ).toBeLessThan(RECT_TOLERANCE_PX);
+  expect(
+    rectParityFailures(en, zh, IMPOSITION_GEOMETRY_SAMPLES, disclaimerSignedDelta),
+    'all imposition deltas must be strictly equal, or preserve the signed disclaimer relationship',
   ).toEqual([]);
 });
 
@@ -389,17 +419,17 @@ async function measureModalCardNaturalHeight(page: Page): Promise<number> {
   return page.locator('.modal-card').first().evaluate((element) => element.scrollHeight);
 }
 
-type ModalSourceLayout = Record<string, Record<string, string>>;
+type SourceLayout = Record<string, Record<string, string>>;
 
-async function measureModalSourceLayout(page: Page): Promise<ModalSourceLayout> {
-  const result: ModalSourceLayout = {};
-  for (const selector of MODAL_TEXT_SOURCE_SELECTORS) {
+async function measureSourceLayout(page: Page, selectors: readonly string[]): Promise<SourceLayout> {
+  const result: SourceLayout = {};
+  for (const selector of selectors) {
     result[selector] = await page.locator(selector).first().evaluate(
       (element, properties) => {
         const style = getComputedStyle(element);
         return Object.fromEntries(properties.map((property) => [property, style.getPropertyValue(property)]));
       },
-      MODAL_SOURCE_LAYOUT_PROPERTIES,
+      SOURCE_LAYOUT_PROPERTIES,
     );
   }
   return result;
@@ -413,7 +443,7 @@ test('zh strict geometry parity: modal container', async ({ page }) => {
   const en = await measureRects(page, MODAL_GEOMETRY_SAMPLES);
   const enContentHeight = await measureModalContentHeight(page);
   const enNaturalHeight = await measureModalCardNaturalHeight(page);
-  const enSourceLayout = await measureModalSourceLayout(page);
+  const enSourceLayout = await measureSourceLayout(page, MODAL_TEXT_SOURCE_SELECTORS);
   // The modal intentionally covers the language control. Close it through its
   // public button, switch language on the same page, then reopen through About.
   await page.getByRole('dialog').getByRole('button', { name: dict['modal.close'].en }).click();
@@ -425,7 +455,7 @@ test('zh strict geometry parity: modal container', async ({ page }) => {
   const zh = await measureRects(page, MODAL_GEOMETRY_SAMPLES);
   const zhContentHeight = await measureModalContentHeight(page);
   const zhNaturalHeight = await measureModalCardNaturalHeight(page);
-  const zhSourceLayout = await measureModalSourceLayout(page);
+  const zhSourceLayout = await measureSourceLayout(page, MODAL_TEXT_SOURCE_SELECTORS);
 
   const modalContentDelta = Math.abs(enContentHeight - zhContentHeight);
   const naturalHeightDelta = Math.abs(enNaturalHeight - zhNaturalHeight);
