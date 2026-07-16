@@ -224,13 +224,19 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
         hingeXInterval(panel(model, 'bottomLid')),
         nominalizeInterval(horizontalCreaseInterval(result, D, 'L'), offsets, [0, 1]),
       );
+      // 插舌 hinge＝2D crease 區間內縮 tuckClearance（M1 B4 接線 2026-07-17）：2D 在 yFold
+      // 畫全跨 crease，但肩部（lid.start..xt1／xt2..lid.end）同座標被插舌 cut 路徑分離，
+      // 實體摺合連接只有 tongue 區間 [xt1, xt2]＝crease 區間 ∓ resolved tuckClearance
+      //（generate() 的 xt1/xt2=lid.start+tInset/lid.end−tInset）。
+      const tuckClearance = params.tuckClearance as number;
+      const insetInterval = ([start, end]: number[]): number[] => [start! + tuckClearance, end! - tuckClearance];
       expectCoordinatesClose(
         hingeXInterval(panel(model, 'topTuck')),
-        nominalizeInterval(horizontalCreaseInterval(result, -W, 'W'), offsets, [2, 3]),
+        insetInterval(nominalizeInterval(horizontalCreaseInterval(result, -W, 'W'), offsets, [2, 3])),
       );
       expectCoordinatesClose(
         hingeXInterval(panel(model, 'bottomTuck')),
-        nominalizeInterval(horizontalCreaseInterval(result, D + W, 'W'), offsets, [0, 1]),
+        insetInterval(nominalizeInterval(horizontalCreaseInterval(result, D + W, 'W'), offsets, [0, 1])),
       );
 
       const dustPanelIds = ['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4'];
