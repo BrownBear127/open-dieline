@@ -327,6 +327,21 @@
   }
   .imp-stats .v small { font-size: 0.42em; font-style: italic; font-weight: 400; color: var(--ink-soft); }
 
+  /* M2 T1 衍生件：來源=src/styles/vocab.css:135-143；沿用同一套儀器輸入語彙，
+     width 依 brief 留在 JSX 的 w-20 佈局類。 */
+  .imp-group input[type="number"] {
+    padding: 1px 0 7px;
+    border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+    background: transparent;
+    font-family: "Fraunces", serif; font-size: 28px; font-weight: 340;
+    font-variation-settings: "opsz" 60; font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .imp-group input[type="number"]:focus { outline: none; border-bottom-color: var(--ink); }
+
+  /* M2 T1 衍生件：拼版 toolbar 欄位錯誤沿用既有 cut 色票。 */
+  .imp-toolbar .err { color: var(--cut); }
+
   /* M1 T9 衍生件：來源=typography-matrix.md #25（逐字值）。 */
   .modal-body {
     font-family: "Fraunces", serif;
