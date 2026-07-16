@@ -1,6 +1,6 @@
 <!--
 Vendored from: /Users/fran/projects/coding-workspace/Coding Projets/web/2026/07/15-open-dieline工具UI改版-phase2/m0.5/copy-inventory.md
-Vendor date: 2026-07-16
+Vendor date: 2026-07-17
 -->
 
 # Copy Inventory（D10·M0.5 簽核 artifact）
@@ -218,6 +218,20 @@ Vendor date: 2026-07-16
 | modal.begin | Begin | 開始使用 | |
 | modal.body.* | — Tier B（§B3·3 段＋5 注意事項） | audit #4-#12 | body 聲部 |
 
+### A8 摺盒模式（P3 M1 新增·2026-07-17 法蘭簽核）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| mode.fold | Fold | 摺盒預覽 | | label |
+| fold.play | Play | 播放 | | label |
+| fold.pause | Pause | 暫停 | | label |
+| fold.autorotate | Auto-rotate | 自動旋轉 | | label |
+| fold.progress.aria | Fold progress | 摺合進度 | | — |
+| fold.controls.aria | Fold controls | 摺盒控制 | | — |
+
+（mode.fold 的 EN 顯示形＝label 聲部 uppercase 由 CSS 管，字典存 Title case——同 mode.design 慣例；
+兩條 aria 不渲染。）
+
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 
 §A 補漏 4 key（`param.reset.glyph` ↺·lock／`overlay.unit.pt/mm/px` lock 規格值／
@@ -236,6 +250,8 @@ Vendor date: 2026-07-16
 - **B6 overlay 解析警告 ×8**（audit §13——`${key} ×N 未匯入` 模板家族；`err.message`
   透傳條保持原樣不翻）
 - **B7 pieces.ts 檢核 ×9**（audit §10）——規則 6：error-code 前綴保留
+- **B8 摺盒模式狀態文案 ×2**（P3 M1 新增·2026-07-17 法蘭簽核·無 audit 前身）——
+  telescope 空狀態＋WebGL fallback；聲部=mono 置中（P3 Spec §7）
 
 ## §C 匯出凍結（規則 3 執行細目）
 

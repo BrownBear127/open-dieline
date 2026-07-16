@@ -1,6 +1,6 @@
 <!--
 Vendored from: /Users/fran/projects/coding-workspace/Coding Projets/web/2026/07/15-open-dieline工具UI改版-phase2/m0.5/tierb-en-draft.md
-Vendor date: 2026-07-16
+Vendor date: 2026-07-17
 -->
 
 # Tier B EN draft
@@ -156,6 +156,17 @@ Vendor date: 2026-07-16
 | inv.pieces.overlapping-pieces | overlapping-pieces: 片「{a.id}」與「{b.id}」的 bounds 重疊 | overlapping-pieces: bounds for pieces “{a.id}” and “{b.id}” overlap | |
 | inv.pieces.result-bounds-mismatch | result-bounds-mismatch: GenerateResult.bounds 與全片 bounds 聯集包絡不一致 | result-bounds-mismatch: GenerateResult.bounds does not match the union hull of all piece bounds | |
 | inv.pieces.geometry-hull-mismatch | geometry-hull-mismatch: GenerateResult.bounds 與全幾何包絡不一致（宣告的 bounds 跟實際幾何脫節） | geometry-hull-mismatch: GenerateResult.bounds does not match the full geometry hull; declared bounds are detached from the actual geometry | |
+
+---
+
+## B8 摺盒模式狀態文案（2·P3 M1 新增·2026-07-17 法蘭簽核）
+
+語調：儀器陳述式（同 B2 家族）；mono 聲部置中；無 audit 前身。
+
+| key | zh（照抄·對照用） | EN（你的稿） | 譯註（僅必要時） |
+|---|---|---|---|
+| fold.unsupported | 此盒型尚未支援 3D 摺盒預覽。 | 3D fold preview is not yet available for this box style. | |
+| fold.webglUnavailable | 瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。 | 3D fold preview requires WebGL, which is not available in this browser. | |
 
 ---
 
