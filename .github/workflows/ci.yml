@@ -8,6 +8,27 @@ on:
   pull_request:
 
 jobs:
+  # M3：Playwright 層（§8.3）——獨立 job 與 gates 並行；驗證對象=正式 minified build
+  # 的 vite preview（e2e:build 內含 build）。失敗時上傳 test-results/ 供離線排查。
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e:build
+      - name: Upload Playwright results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
+
   gates:
     runs-on: ubuntu-latest
     steps:
