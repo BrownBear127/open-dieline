@@ -191,23 +191,45 @@ const BASE_STATE: ImpositionState = {
 // ── 兩卡並列＋列×行＝N 模＋利用率 ──────────────────────────────────────────
 
 describe('ImpositionView — 兩方向卡片', () => {
-  it('兩卡並列，各含「列×行＝N 模」與主格點 footprint mm（customW=customH=50、製造 bounds 20×10、無收縮矩形件 → 兩方向皆 8 模，footprint 互為轉置 43.0×49.0／49.0×43.0，spec F6 終裁 b：利用率百分比已移除）', () => {
-    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+  it('套用 imp-results／imp-card／sheet／imp-stats 結構，卡名與兩格統計全數從 dict 取得', () => {
+    const { container } = render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
 
+    const results = container.querySelector('.imp-results');
+    expect(results).toBeInTheDocument();
     const card0 = screen.getByTestId('direction-card-0');
     const card90 = screen.getByTestId('direction-card-90');
-    expect(card0.textContent).toContain('2 列 × 4 行 ＝ 8 模');
-    expect(card0.textContent).toContain('主格點 footprint 43.0 × 49.0 mm');
-    expect(card90.textContent).toContain('4 列 × 2 行 ＝ 8 模');
-    expect(card90.textContent).toContain('主格點 footprint 49.0 × 43.0 mm');
+    expect(results?.querySelectorAll(':scope > .imp-card')).toHaveLength(2);
+    expect(card0).toHaveClass('imp-card');
+    expect(card90).toHaveClass('imp-card');
+    expect(within(card0).getByRole('heading', { name: t('imp.card.0') }).querySelector('em')).toBeNull();
+    expect(within(card90).getByRole('heading', { name: t('imp.card.90') }).querySelector('em')).toBeNull();
+    expect(within(card0).getByText(t('imp.grid.formula', { cols: 2, rows: 4, fillSuffix: '', count: 8 }))).toHaveClass('sub', 'mono');
+    expect(within(card90).getByText(t('imp.grid.formula', { cols: 4, rows: 2, fillSuffix: '', count: 8 }))).toHaveClass('sub', 'mono');
+    expect(card0.querySelector(':scope > .sheet')).toBeInTheDocument();
+    expect(card90.querySelector(':scope > .sheet')).toBeInTheDocument();
+    expect(within(card0).getByRole('img')).toHaveAccessibleName(t('imp.preview.aria', { label: t('imp.card.0') }));
+    expect(within(card90).getByRole('img')).toHaveAccessibleName(t('imp.preview.aria', { label: t('imp.card.90') }));
+
+    for (const [card, footprint] of [
+      [card0, '43.0 × 49.0mm'],
+      [card90, '49.0 × 43.0mm'],
+    ] as const) {
+      const stats = card.querySelector(':scope > .imp-stats') as HTMLElement;
+      expect(stats).toBeInTheDocument();
+      expect(stats.querySelectorAll(':scope > div')).toHaveLength(2);
+      expect(within(stats).getByText(t('imp.stats.up'))).toHaveClass('k', 'mono');
+      expect(within(stats).getByText(t('imp.stats.footprint'))).toHaveClass('k', 'mono');
+      expect(within(stats).getByText('8')).toHaveClass('v');
+      expect(within(stats).getByText((_content, element) => element?.classList.contains('v') === true && element.textContent === footprint)).toBeInTheDocument();
+    }
   });
 
   it('必須用製造 bounds（20×10）而非宣告 bounds（150×150，spec F1）：用宣告 bounds 會讓件比紙張還大、算出 0 模／放不下', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
     const card0 = screen.getByTestId('direction-card-0');
     // 若誤用宣告 bounds（150×150 > 50×50 紙張），deg0 會是「放不下」；製造 bounds 路徑應為 8 模。
-    expect(card0.textContent).not.toContain('放不下');
-    expect(card0.textContent).toContain('8 模');
+    expect(card0.textContent).not.toContain(t('imp.noFit'));
+    expect(within(card0).getByText('8')).toBeInTheDocument();
   });
 
   it('0 模方向顯示「放不下」且不渲染排列；另一方向正常排列（長窄件 800×10）', () => {
@@ -217,19 +239,32 @@ describe('ImpositionView — 兩方向卡片', () => {
     const card0 = screen.getByTestId('direction-card-0'); // pieceForCols=800 > usableW=100 → 放不下
     const card90 = screen.getByTestId('direction-card-90'); // pieceForCols=10 → 7 模
 
-    expect(card0.textContent).toContain('放不下');
+    expect(card0.textContent).toContain(t('imp.noFit'));
     expect(within(card0).queryAllByTestId('preview-instance')).toHaveLength(0);
 
-    expect(card90.textContent).toContain('7 模');
+    expect(within(card90).getByText('7')).toBeInTheDocument();
     // 無收縮矩形件：usedW=pieceH(10)+(cols90-1=6)*stride(10+gap3=13)=88.0；
     // usedH=pieceW(800)+(rows90-1=0)*stride(800+gap3=803)=800.0（rows90=1，第二項歸零）。
-    expect(card90.textContent).toContain('主格點 footprint 88.0 × 800.0 mm');
+    expect(within(card90).getByText((_content, element) => element?.classList.contains('v') === true && element.textContent === '88.0 × 800.0mm')).toBeInTheDocument();
     expect(within(card90).queryAllByTestId('preview-instance')).toHaveLength(7);
   });
 
-  it('無「最佳／推薦」字樣（F9）：兩卡樣式對稱、不含推薦標記', () => {
-    const { container } = render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(container.textContent).not.toMatch(/最佳|推薦/);
+  it('Best yield：兩卡均可用且 totalCount 嚴格較大時，只標在較大卡', () => {
+    const state: ImpositionState = { ...BASE_STATE, customW: 17, customH: 11, orientation: 'landscape', allowRotate: true };
+    render(<ImpositionView result={FILL_FORMAT_RESULT} state={state} onChange={vi.fn()} />);
+
+    expect(within(screen.getByTestId('direction-card-0')).queryByText(t('imp.best'))).toBeNull();
+    expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.best'))).toHaveClass('best', 'mono');
+  });
+
+  it('Best yield：totalCount 相等時兩卡都不標', () => {
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
+    expect(screen.queryByText(t('imp.best'))).toBeNull();
+  });
+
+  it('Best yield：imposition 不可用時兩卡都不標', () => {
+    render(<ImpositionView result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, gap: 2.9 }} onChange={vi.fn()} />);
+    expect(screen.queryByText(t('imp.best'))).toBeNull();
   });
 });
 
@@ -249,13 +284,15 @@ describe('ImpositionView — 卡片文字格式：整紙有補排（T3）', () =
     render(<ImpositionView result={FILL_FORMAT_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0'); // cols=2,rows=2,gridCount=4,補2＝6模
-    expect(card0.textContent).toContain('2 列 × 2 行 ＋ 補 2 ＝ 6 模');
+    expect(card0.textContent).toContain(
+      t('imp.grid.formula', { cols: 2, rows: 2, fillSuffix: t('imp.grid.fillSuffix', { fillCount: 2 }), count: 6 }),
+    );
     // 無收縮矩形件：usedW=pieceW(4)+(cols-1=1)*stride(4+gap3=7)=11.0；usedH=pieceH(2)+(rows-1=1)*stride(2+gap3=5)=7.0。
-    expect(card0.textContent).toContain('主格點 footprint 11.0 × 7.0 mm');
+    expect(within(card0).getByText((_content, element) => element?.classList.contains('v') === true && element.textContent === '11.0 × 7.0mm')).toBeInTheDocument();
 
     const card90 = screen.getByTestId('direction-card-90'); // cols=4,rows=2,無補排，8模
-    expect(card90.textContent).toContain('4 列 × 2 行 ＝ 8 模');
-    expect(card90.textContent).not.toContain('＋ 補');
+    expect(card90.textContent).toContain(t('imp.grid.formula', { cols: 4, rows: 2, fillSuffix: '', count: 8 }));
+    expect(card90.textContent).not.toContain(t('imp.grid.fillSuffix', { fillCount: 0 }));
   });
 });
 
@@ -264,9 +301,7 @@ describe('ImpositionView — 卡片文字格式：整紙有補排（T3）', () =
 describe('ImpositionView — 界線聲明', () => {
   it('固定顯示界線聲明，逐字相符', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(
-      screen.getByText('以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。'),
-    ).toBeInTheDocument();
+    expect(screen.getByText(t('imp.disclaimer'))).toHaveClass('mono');
   });
 });
 
@@ -277,24 +312,43 @@ describe('ImpositionView — 對開模式', () => {
     const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 200, gripper: 10, cutV: true, cutH: false };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
-    const sizeText = screen.getByText(/全紙/).textContent ?? '';
-    expect(sizeText).toContain('100.0'); // fullW
-    expect(sizeText).toContain('200.0'); // fullH（＝workingSheet.h，cutH 為 false）
-    expect(sizeText).toContain('50.0'); // workingSheet.w（V 切半：100/2）
-    expect(sizeText).toContain('30.0'); // usableW
-    expect(sizeText).toContain('180.0'); // usableH
+    const sub = t('imp.sheet.subSize', {
+      sheetW: '50.0',
+      sheetH: '200.0',
+      sheetUsableW: '30.0',
+      sheetUsableH: '180.0',
+    });
+    expect(
+      screen.getByText(
+        t('imp.sheet.workingCut', {
+          sheetFullW: '100.0',
+          sheetFullH: '200.0',
+          subLabel: t('imp.sub.half'),
+          sub,
+        }),
+      ),
+    ).toHaveClass('mono');
 
     const card0 = screen.getByTestId('direction-card-0'); // cols=1,rows=14,count=14,totalCount=28
-    expect(card0.textContent).toContain('每半張');
-    expect(card0.textContent).toContain('14 模');
-    expect(card0.textContent).toContain('28 模'); // totalCount＝count×2
+    expect(card0.textContent).toContain(
+      t('imp.cut.formula', { per: t('imp.per.half'), count: 14, sections: 2, totalCount: 28 }),
+    );
     expect(card0.textContent).not.toMatch(/\d+\s*列/); // 裁切格式整套替換,不是在整紙格式後加註記
   });
 
   it('整紙模式（非對開）：不顯示「每半張」，working 尺寸文字維持整紙舊格式逐字不變（回歸，spec 附錄「回歸保證」）', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(screen.getByTestId('direction-card-0').textContent).not.toContain('每半張');
-    expect(screen.getByText('工作尺寸：50.0 × 50.0 mm（可用區 50.0 × 50.0 mm）')).toBeInTheDocument();
+    expect(screen.getByTestId('direction-card-0').textContent).not.toContain(t('imp.per.half'));
+    expect(
+      screen.getByText(
+        t('imp.sheet.working', {
+          sheetW: '50.0',
+          sheetH: '50.0',
+          sheetUsableW: '50.0',
+          sheetUsableH: '50.0',
+        }),
+      ),
+    ).toBeInTheDocument();
   });
 });
 
@@ -448,11 +502,20 @@ describe('ImpositionView — 輸入 domain 錯誤', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     expect(screen.getByText(t('imp.err.field.belowMin', { MIN_GAP_MM: String(MIN_GAP_MM) }))).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
     // 沒有工作尺寸文字（sheet 沒有算出來）
-    expect(screen.queryByText(/工作尺寸/)).toBeNull();
+    expect(
+      screen.queryByText(
+        t('imp.sheet.working', {
+          sheetW: '50.0',
+          sheetH: '50.0',
+          sheetUsableW: '50.0',
+          sheetUsableH: '50.0',
+        }),
+      ),
+    ).toBeNull();
   });
 
   it('paperW/paperH 自訂欄位無效（NaN）→ 欄位錯誤標示在對應輸入框旁', () => {
@@ -491,11 +554,11 @@ describe('ImpositionView — 件選擇', () => {
 describe('ImpositionView — 即時性（重新渲染即重算，抽驗）', () => {
   it('gripper 改值 → 重新渲染後結果同步變化', () => {
     const { rerender } = render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(screen.getByTestId('direction-card-0').textContent).toContain('8 模');
+    expect(within(screen.getByTestId('direction-card-0')).getByText('8')).toBeInTheDocument();
 
     const changed: ImpositionState = { ...BASE_STATE, gripper: 40 }; // 咬口過大：50-80<0 → clamp 0 usable
     rerender(<ImpositionView result={SINGLE_PIECE_RESULT} state={changed} onChange={vi.fn()} />);
-    expect(screen.getByTestId('direction-card-0').textContent).toContain('放不下');
+    expect(screen.getByTestId('direction-card-0').textContent).toContain(t('imp.noFit'));
   });
 });
 
@@ -506,26 +569,26 @@ describe('ImpositionView — F6 stale piece fail loud（review Medium 1）', () 
     const state: ImpositionState = { ...BASE_STATE, pieceId: null };
     render(<ImpositionView result={MULTI_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
-    expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
-    expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
-    expect(screen.getByText('請選擇拼版的件')).toBeInTheDocument();
+    expect(screen.getByTestId('imposition-general-error')).toHaveClass('warnbar', 'mono');
+    expect(screen.getByText(t('imp.err.selectPiece'))).toBeInTheDocument();
   });
 
   it('多片盒型 pieceId 對到不存在的 id（stale，如剛被刪除的片）→ 同樣 fail loud，不退全版', () => {
     const state: ImpositionState = { ...BASE_STATE, pieceId: 'ghost' };
     render(<ImpositionView result={MULTI_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
-    expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
     expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
   });
 
   it('RTE（result.pieces 為 undefined）不受 stalePiece 規則影響：回歸防護，確保修復沒有誤傷既有全版行為', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(screen.getByTestId('direction-card-0').textContent).toContain('8 模');
+    expect(within(screen.getByTestId('direction-card-0')).getByText('8')).toBeInTheDocument();
     expect(screen.queryByTestId('imposition-general-error')).toBeNull();
   });
 });
@@ -538,8 +601,8 @@ describe('ImpositionView — piece.bounds 禁用（review 測試縫 5）', () =>
     render(<ImpositionView result={PIECE_BOUNDS_DIVERGENT_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');
-    expect(card0.textContent).not.toContain('放不下');
-    expect(card0.textContent).toContain('2 列 × 4 行 ＝ 8 模');
+    expect(card0.textContent).not.toContain(t('imp.noFit'));
+    expect(card0.textContent).toContain(t('imp.grid.formula', { cols: 2, rows: 4, fillSuffix: '', count: 8 }));
   });
 });
 
@@ -551,9 +614,9 @@ describe('ImpositionView — 超 cap 預覽（review 測試縫 1）', () => {
     render(<ImpositionView result={TINY_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');
-    expect(card0.textContent).toContain('25 列 × 25 行 ＝ 625 模');
+    expect(card0.textContent).toContain(t('imp.grid.formula', { cols: 25, rows: 25, fillSuffix: '', count: 625 }));
     expect(within(card0).getAllByTestId('preview-instance')).toHaveLength(500);
-    expect(within(card0).getByText('數量過大，預覽已簡化')).toBeInTheDocument();
+    expect(within(card0).getByText(t('imp.previewSimplified'))).toHaveClass('sub', 'mono');
   });
 
   it('count 恰為 MAX_PREVIEW_INSTANCES（cap 邊界，不超過）→ 不顯示簡化提示，instance 數＝count', () => {
@@ -561,9 +624,9 @@ describe('ImpositionView — 超 cap 預覽（review 測試縫 1）', () => {
     render(<ImpositionView result={TINY_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0');
-    expect(card0.textContent).toContain('25 列 × 20 行 ＝ 500 模');
+    expect(card0.textContent).toContain(t('imp.grid.formula', { cols: 25, rows: 20, fillSuffix: '', count: 500 }));
     expect(within(card0).getAllByTestId('preview-instance')).toHaveLength(500);
-    expect(within(card0).queryByText('數量過大，預覽已簡化')).toBeNull();
+    expect(within(card0).queryByText(t('imp.previewSimplified'))).toBeNull();
   });
 });
 
@@ -611,18 +674,20 @@ describe('ImpositionView — 整體錯誤（review 測試縫 3）', () => {
   it('pieceW 由製造 bounds 導出為 0（degenerate 零寬幾何）→ 整體錯誤＋兩卡「—」＋零排列', () => {
     render(<ImpositionView result={DEGENERATE_ZERO_WIDTH_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
 
-    expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    expect(screen.getByTestId('imposition-general-error')).toHaveClass('warnbar', 'mono');
+    expect(screen.getByText(t('imp.err.default'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
   });
 
   it('pieceH 由製造 bounds 導出為 0（degenerate 零高幾何）→ 整體錯誤＋兩卡「—」＋零排列', () => {
     render(<ImpositionView result={DEGENERATE_ZERO_HEIGHT_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
 
-    expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-    expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+    expect(screen.getByTestId('imposition-general-error')).toHaveClass('warnbar', 'mono');
+    expect(screen.getByText(t('imp.err.default'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
   });
 
@@ -635,9 +700,10 @@ describe('ImpositionView — 整體錯誤（review 測試縫 3）', () => {
     try {
       render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
 
-      expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+      expect(screen.getByTestId('imposition-general-error')).toHaveClass('warnbar', 'mono');
+      expect(screen.getByText(t('imp.err.internal'))).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
       expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
     } finally {
       spy.mockRestore();
@@ -665,6 +731,8 @@ describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
     const frame = within(screen.getByTestId('direction-card-0')).getByTestId('sheet-frame');
     expect(frame).toHaveAttribute('width', '100');
     expect(frame).toHaveAttribute('height', '200');
+    expect(frame).toHaveAttribute('stroke', 'var(--ink)');
+    expect(frame).toHaveAttribute('stroke-width', '1');
     expect(frame).toHaveAttribute('vector-effect', 'non-scaling-stroke');
   });
 
@@ -678,6 +746,9 @@ describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
     expect(line).toHaveAttribute('x2', '50');
     expect(line).toHaveAttribute('y1', '0');
     expect(line).toHaveAttribute('y2', '200');
+    expect(line).toHaveAttribute('stroke', 'var(--hairline)');
+    expect(line).toHaveAttribute('stroke-width', '1.5');
+    expect(line).toHaveAttribute('stroke-dasharray', '4 4');
     expect(line).toHaveAttribute('vector-effect', 'non-scaling-stroke');
     expect(within(card0).queryByTestId('cut-line-h')).toBeNull();
   });
@@ -721,12 +792,16 @@ describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
       const gripperZone = within(section).getByTestId('gripper-zone');
       expect(gripperZone).toHaveAttribute('width', '50'); // workingSheet.w
       expect(gripperZone).toHaveAttribute('height', '100'); // workingSheet.h
+      expect(gripperZone).toHaveAttribute('fill', 'rgba(25, 23, 18, 0.025)');
 
       const usableZone = within(section).getByTestId('usable-zone');
       expect(usableZone).toHaveAttribute('x', '10'); // gripper
       expect(usableZone).toHaveAttribute('y', '10');
       expect(usableZone).toHaveAttribute('width', '30'); // usableW = 50 - 2*10
       expect(usableZone).toHaveAttribute('height', '80'); // usableH = 100 - 2*10
+      expect(usableZone).toHaveAttribute('fill', 'var(--paper)');
+      expect(usableZone).toHaveAttribute('stroke', 'var(--hairline)');
+      expect(usableZone).toHaveAttribute('stroke-width', '1');
       expect(usableZone).toHaveAttribute('vector-effect', 'non-scaling-stroke');
     }
   });
@@ -736,7 +811,9 @@ describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0'); // cols=1,rows=6,count=6,totalCount=24（獨立 computeImposition 驗算）
-    expect(card0.textContent).toContain('每四開 6 模 × 4 ＝ 24 模');
+    expect(card0.textContent).toContain(
+      t('imp.cut.formula', { per: t('imp.per.quarter'), count: 6, sections: 4, totalCount: 24 }),
+    );
     const sections = within(card0).getAllByTestId('section');
     for (const section of sections) {
       expect(within(section).getAllByTestId('preview-instance')).toHaveLength(6);
@@ -759,7 +836,9 @@ describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
     render(<ImpositionView result={TINY_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
     const card0 = screen.getByTestId('direction-card-0'); // cols=15,rows=10,count=150,totalCount=600（獨立驗算）
-    expect(card0.textContent).toContain('每四開 150 模 × 4 ＝ 600 模');
+    expect(card0.textContent).toContain(
+      t('imp.cut.formula', { per: t('imp.per.quarter'), count: 150, sections: 4, totalCount: 600 }),
+    );
 
     const sections = within(card0).getAllByTestId('section');
     expect(sections).toHaveLength(4);
@@ -767,7 +846,7 @@ describe('ImpositionView — 全紙預覽 SVG 結構（T3 重寫）', () => {
     expect(perSectionCounts).toEqual([150, 150, 150, 50]); // 左上/右上/左下/右下順序，不均分
 
     expect(within(card0).getAllByTestId('preview-instance')).toHaveLength(500); // renderedCount=min(600,500)
-    expect(within(card0).getByText('數量過大，預覽已簡化')).toBeInTheDocument(); // totalCount(600) > renderedCount(500)
+    expect(within(card0).getByText(t('imp.previewSimplified'))).toBeInTheDocument(); // totalCount(600) > renderedCount(500)
   });
 
   it('paths 帶 vector-effect=non-scaling-stroke，strokeWidth＝LINE_STYLES 原始值（不再乘 PREVIEW_STROKE_SCALE）', () => {
@@ -798,12 +877,10 @@ describe('ImpositionControls／ImpositionResults — 獨立掛載（review Mediu
   it('ImpositionResults 單獨掛載：渲染兩張方向卡片＋界線聲明（不依賴 ImpositionControls，無需 onChange）', () => {
     render(<ImpositionResults result={SINGLE_PIECE_RESULT} state={BASE_STATE} />);
 
-    expect(screen.getByTestId('direction-card-0').textContent).toContain('8 模');
-    expect(screen.getByTestId('direction-card-90').textContent).toContain('8 模');
-    expect(
-      screen.getByText('以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。'),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: '件' })).toBeNull(); // 控制項不屬於 Results
+    expect(within(screen.getByTestId('direction-card-0')).getByText('8')).toBeInTheDocument();
+    expect(within(screen.getByTestId('direction-card-90')).getByText('8')).toBeInTheDocument();
+    expect(screen.getByText(t('imp.disclaimer'))).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: t('imp.piece') })).toBeNull(); // 控制項不屬於 Results
   });
 });
 
@@ -833,8 +910,12 @@ describe('ImpositionView — production-chain usedW/usedH 一致性（gate round
     const card90 = screen.getByTestId('direction-card-90');
 
     // 卡片文字鎖總數（controller 手算＋獨立 computeImposition 呼叫驗算，見 fixture 註解）。
-    expect(card0.textContent).toContain('每四開 7 模 × 4 ＝ 28 模');
-    expect(card90.textContent).toContain('每四開 6 模 × 4 ＝ 24 模');
+    expect(card0.textContent).toContain(
+      t('imp.cut.formula', { per: t('imp.per.quarter'), count: 7, sections: 4, totalCount: 28 }),
+    );
+    expect(card90.textContent).toContain(
+      t('imp.cut.formula', { per: t('imp.per.quarter'), count: 6, sections: 4, totalCount: 24 }),
+    );
 
     // ① 兩卡各 4 個 section（四開＝2×2 子紙）。
     const sections0 = within(card0).getAllByTestId('section');
@@ -906,8 +987,8 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
 
       expect(spy).not.toHaveBeenCalled();
       expect(screen.getByText(t('imp.err.field.belowMin', { MIN_GAP_MM: String(MIN_GAP_MM) }))).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-90')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     } finally {
       spy.mockRestore();
     }
@@ -921,7 +1002,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
 
       expect(spy).not.toHaveBeenCalled();
       expect(screen.getByText(t('imp.err.field.notFinite'))).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     } finally {
       spy.mockRestore();
     }
@@ -935,7 +1016,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
 
       expect(spy).not.toHaveBeenCalled();
       expect(screen.getByText(t('imp.err.field.notFinite'))).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
     } finally {
       spy.mockRestore();
     }
@@ -948,7 +1029,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
 
       expect(spy).not.toHaveBeenCalled();
       expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
       expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
     } finally {
       spy.mockRestore();
@@ -962,7 +1043,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
 
       expect(spy).not.toHaveBeenCalled();
       expect(screen.getByTestId('imposition-general-error')).toBeInTheDocument();
-      expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
+      expect(within(screen.getByTestId('direction-card-0')).getByText(t('imp.placeholder.dash'))).toBeInTheDocument();
       expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
     } finally {
       spy.mockRestore();
@@ -1079,25 +1160,33 @@ describe('ImpositionView — spacingAxis 標示收縮向＋footprint 顯示（sp
 
     // 前提檢查：卡片文字的模數與 tests/fixtures/z-notch.ts 的權威錨值一致（防 fixture 漂移，
     // 同 tests/imposition.test.ts／tests/imposition-preview.test.ts 兩檔既有的前提檢查慣例）。
-    expect(card0.textContent).toContain(`＝ ${Z_NOTCH_ANCHOR_DEG0.count} 模`);
-    expect(card90.textContent).toContain(`＝ ${Z_NOTCH_ANCHOR_DEG90.count} 模`);
+    expect(within(card0).getByText(String(Z_NOTCH_ANCHOR_DEG0.count))).toBeInTheDocument();
+    expect(within(card90).getByText(String(Z_NOTCH_ANCHOR_DEG90.count))).toBeInTheDocument();
 
-    expect(card0.textContent).toContain('行距輪廓收縮');
-    expect(card0.textContent).toContain(
-      `主格點 footprint ${Z_NOTCH_ANCHOR_DEG0.usedW.toFixed(1)} × ${Z_NOTCH_ANCHOR_DEG0.usedH.toFixed(1)} mm`,
-    );
-    expect(card0.textContent).not.toContain('列距輪廓收縮');
+    expect(within(card0).getByText(t('imp.spacing.rows'))).toHaveClass('sub', 'mono');
+    expect(card0.textContent).not.toContain(t('imp.spacing.cols'));
+    expect(
+      within(card0).getByText(
+        (_content, element) =>
+          element?.classList.contains('v') === true &&
+          element.textContent === `${Z_NOTCH_ANCHOR_DEG0.usedW.toFixed(1)} × ${Z_NOTCH_ANCHOR_DEG0.usedH.toFixed(1)}mm`,
+      ),
+    ).toBeInTheDocument();
 
-    expect(card90.textContent).toContain('列距輪廓收縮');
-    expect(card90.textContent).toContain(
-      `主格點 footprint ${Z_NOTCH_ANCHOR_DEG90.usedW.toFixed(1)} × ${Z_NOTCH_ANCHOR_DEG90.usedH.toFixed(1)} mm`,
-    );
-    expect(card90.textContent).not.toContain('行距輪廓收縮');
+    expect(within(card90).getByText(t('imp.spacing.cols'))).toHaveClass('sub', 'mono');
+    expect(card90.textContent).not.toContain(t('imp.spacing.rows'));
+    expect(
+      within(card90).getByText(
+        (_content, element) =>
+          element?.classList.contains('v') === true &&
+          element.textContent === `${Z_NOTCH_ANCHOR_DEG90.usedW.toFixed(1)} × ${Z_NOTCH_ANCHOR_DEG90.usedH.toFixed(1)}mm`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('矩形件零收益退化（spacingAxis 恆 null，如既有 SINGLE_PIECE_RESULT）：兩卡皆不顯示任何收縮標示文字', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(screen.queryByText('行距輪廓收縮')).toBeNull();
-    expect(screen.queryByText('列距輪廓收縮')).toBeNull();
+    expect(screen.queryByText(t('imp.spacing.rows'))).toBeNull();
+    expect(screen.queryByText(t('imp.spacing.cols'))).toBeNull();
   });
 });
