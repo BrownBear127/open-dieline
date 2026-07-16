@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "e2e": "playwright test",
+    "e2e:build": "npm run build && playwright test",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests && node checks/style-gate.mjs",
     "check:cycles": "npx -y madge@8.0.0 --warning --circular --extensions ts,tsx --ts-config tsconfig.json src/main.tsx",
@@ -18,6 +20,7 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
