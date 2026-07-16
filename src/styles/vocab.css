@@ -29,10 +29,10 @@
      （新 context＝app 側欄/工具列；語彙件逐字、尺寸為衍生值）
      ═══════════════════════════════════════════════════════════════ */
   /* — app 外框 — */
-  /* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
-     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
   /* html 也上 paper：overscroll／彈性回彈區跟著 canvas 底色走，避免 dark mode 黑邊 */
   html { background: var(--paper); }
+  /* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
+     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
   body {
     min-height: 100dvh;
     display: flex; justify-content: center; align-items: center;
