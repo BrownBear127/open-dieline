@@ -62,15 +62,39 @@ const declarations = parseDeclarations(readFileSync(vocabPath, 'utf8'));
 export const allManifest = groupDeclarations(declarations);
 const included = [];
 const excluded = Object.fromEntries(EXCLUSION_RULES.map(({ category }) => [category, 0]));
+// F1（H1）: `classify(selector)` is a pure function of the selector text, so every
+// declaration sharing a selector always lands in the same category — grouping by selector
+// loses no identity information versus a flat per-declaration list, and is far more
+// reviewable. Each entry is a full identity triple: selector, its exclusion category, and
+// the exact set of properties excluded for it.
+const excludedSelectors = new Map();
 
 for (const declaration of declarations) {
   const category = classify(declaration.selector);
-  if (category === null) included.push(declaration);
-  else excluded[category] += 1;
+  if (category === null) {
+    included.push(declaration);
+    continue;
+  }
+  excluded[category] += 1;
+  let entry = excludedSelectors.get(declaration.selector);
+  if (!entry) {
+    entry = { selector: declaration.selector, category, props: new Set() };
+    excludedSelectors.set(declaration.selector, entry);
+  }
+  entry.props.add(declaration.prop);
 }
 
 export const manifest = groupDeclarations(included);
 export const manifestJson = Object.fromEntries(manifest);
+
+// F1（H1）: the frozen-identity counterpart of `manifest` — consumed by
+// e2e/vocab-baseline.spec.ts's frozen-exclusion-set test. Any new selector that falls into
+// an exclusion bucket (a new @supports rule, a new pseudo-class override, a minifier
+// regression that reclassifies a selector) changes this export and must fail that test until
+// a human reviews and extends the frozen constant.
+export const excludedManifest = [...excludedSelectors.values()]
+  .map(({ selector, category, props }) => ({ selector, category, props: [...props].sort() }))
+  .sort((a, b) => (a.selector < b.selector ? -1 : a.selector > b.selector ? 1 : 0));
 
 const tokenDeclarations = parseDeclarations(readFileSync(tokensPath, 'utf8'));
 export const tokenValues = Object.fromEntries(

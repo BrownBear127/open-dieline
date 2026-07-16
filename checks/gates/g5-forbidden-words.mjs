@@ -7,7 +7,10 @@ import path from 'node:path';
 
 // 中文等價詞（開源/开源/開放原始碼）＝裁決（2026-07-16）：D7 是既定裁決、涵蓋
 // 等價詞——工具授權=PolyForm NC 非開源，任何語言的 open-source 宣稱皆違規。
-const RE = /open[\s-]?source|\bMIT\b|開源|开源|開放原始碼/i;
+// F7（I3 修正，2026-07-16）：單一真相源。e2e/no-external.spec.ts 的 runtime rendered-text
+// 掃描 import 這個 export，不再維護逐字同步的複製本——日後擴充禁語清單只改這一處。
+export const FORBIDDEN_RE = /open[\s-]?source|\bMIT\b|開源|开源|開放原始碼/i;
+const RE = FORBIDDEN_RE;
 const ALLOW_RE = /\/\/\s*g5-allow:\s*(.*)\s*$/;
 
 function* walk(dir) {
