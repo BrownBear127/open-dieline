@@ -69,11 +69,14 @@ describe('fold import boundary', () => {
       .globSync('**/*.ts', { cwd: foldDir })
       .map((file) => fs.readFileSync(path.join(foldDir, file), 'utf8'))
       .join('\n');
+    const specifiers = [...source.matchAll(
+      /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    )].map((match) => match[1] ?? match[2]!);
+    const forbiddenRoots = ['three', 'react', '@/ui'];
+    const forbiddenSpecifiers = specifiers.filter((specifier) => forbiddenRoots.some(
+      (root) => specifier === root || specifier.startsWith(`${root}/`),
+    ));
 
-    expect(source).not.toContain("from 'three'");
-    expect(source).not.toContain('from "three"');
-    expect(source).not.toContain("from 'react'");
-    expect(source).not.toContain('from "react"');
-    expect(source).not.toContain("from '@/ui'");
+    expect(forbiddenSpecifiers).toEqual([]);
   });
 });

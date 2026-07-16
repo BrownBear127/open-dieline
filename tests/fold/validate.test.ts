@@ -118,6 +118,60 @@ describe('validateFoldModel', () => {
     expect(errors).toContain('endpoint');
   });
 
+  it('rejects hingeLine endpoints that lie on different parent edges', () => {
+    const model = validModel();
+    model.panels[1]!.polygon = [
+      { x: 0, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    model.panels[1]!.hingeLine = { a: { x: 0, y: 0 }, b: { x: 10, y: 10 } };
+
+    const errors = errorText(model);
+    expect(errors).toContain('side-a');
+    expect(errors).toContain('single edge of parent "root"');
+  });
+
+  it('rejects a detached child whose polygon does not contain the hinge segment', () => {
+    const model = validModel();
+    model.panels[1]!.polygon = [
+      { x: 20, y: 20 },
+      { x: 30, y: 20 },
+      { x: 30, y: 30 },
+      { x: 20, y: 30 },
+    ];
+    model.panels[1]!.hingeLine = { a: { x: 0, y: 0 }, b: { x: 10, y: 10 } };
+
+    const errors = errorText(model);
+    expect(errors).toContain('side-a');
+    expect(errors).toContain('single edge of child polygon');
+  });
+
+  it('rejects a hinge whose endpoints hit collinear parent edges but whose middle crosses a gap', () => {
+    const model = validModel();
+    model.panels[0]!.polygon = [
+      { x: 0, y: 0 },
+      { x: 2, y: 0 },
+      { x: 2, y: 2 },
+      { x: 8, y: 2 },
+      { x: 8, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    model.panels[1]!.polygon = [
+      { x: 1, y: 0 },
+      { x: 9, y: 0 },
+      { x: 9, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    model.panels[1]!.hingeLine = { a: { x: 1, y: 0 }, b: { x: 9, y: 0 } };
+
+    const errors = errorText(model);
+    expect(errors).toContain('side-a');
+    expect(errors).toContain('single edge of parent "root"');
+  });
+
   it('accepts hingeLine endpoints less than 1e-6 from a parent edge', () => {
     const model = validModel();
     model.panels[1]!.hingeLine = {
@@ -173,6 +227,16 @@ describe('validateFoldModel', () => {
     const errors = errorText(model);
     expect(errors).toContain('side-a');
     expect(errors).toContain('2 steps');
+  });
+
+  it('rejects a non-zero liftOffset on a panel that has a child', () => {
+    const model = validModel();
+    model.panels[2]!.parent = 'side-a';
+
+    const errors = errorText(model);
+    expect(errors).toContain('side-a');
+    expect(errors).toContain('liftoffset');
+    expect(errors).toContain('child');
   });
 
   it('rejects a root assigned to a step', () => {

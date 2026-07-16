@@ -36,6 +36,41 @@ function isPointOnPolygonEdge(point: Pt, polygon: Pt[]): boolean {
   });
 }
 
+function edgeContainsSegment(start: Pt, end: Pt, hingeStart: Pt, hingeEnd: Pt): boolean {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return false;
+
+  const midpoint = {
+    x: (hingeStart.x + hingeEnd.x) / 2,
+    y: (hingeStart.y + hingeEnd.y) / 2,
+  };
+
+  return [hingeStart, hingeEnd, midpoint].every((point) => {
+    const projection = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared;
+    return projection >= 0
+      && projection <= 1
+      && pointToSegmentDistance(point, start, end) < EDGE_TOLERANCE;
+  });
+}
+
+function polygonEdgeContainsSegment(polygon: Pt[], hingeStart: Pt, hingeEnd: Pt): boolean {
+  if (
+    polygon.length < 2
+    || !polygon.every(isFinitePoint)
+    || !isFinitePoint(hingeStart)
+    || !isFinitePoint(hingeEnd)
+  ) {
+    return false;
+  }
+
+  return polygon.some((start, index) => {
+    const end = polygon[(index + 1) % polygon.length]!;
+    return edgeContainsSegment(start, end, hingeStart, hingeEnd);
+  });
+}
+
 function signedPolygonArea(polygon: Pt[]): number {
   return polygon.reduce((twiceArea, point, index) => {
     const next = polygon[(index + 1) % polygon.length]!;
@@ -105,12 +140,25 @@ export function validateFoldModel(model: FoldModel): string[] {
     }
   }
 
+  const parentIdsWithChildren = new Set(
+    model.panels.flatMap(({ parent }) => parent === null ? [] : [parent]),
+  );
+
   for (const panel of model.panels) {
     if (!Number.isFinite(panel.foldAngle)) {
       errors.push(`Panel "${panel.id}" foldAngle must be finite.`);
     }
     if (panel.liftOffset !== undefined && !Number.isFinite(panel.liftOffset)) {
       errors.push(`Panel "${panel.id}" liftOffset must be finite.`);
+    }
+    if (
+      panel.liftOffset !== undefined
+      && panel.liftOffset !== 0
+      && parentIdsWithChildren.has(panel.id)
+    ) {
+      errors.push(
+        `Panel "${panel.id}" has a non-zero liftOffset but also has a child; liftOffset is leaf-only.`,
+      );
     }
 
     panel.polygon.forEach((point, index) => {
@@ -157,6 +205,20 @@ export function validateFoldModel(model: FoldModel): string[] {
         }
         if (!isPointOnPolygonEdge(b, parent.polygon)) {
           errors.push(`Panel "${panel.id}" hingeLine endpoint b must lie on an edge of parent "${parent.id}".`);
+        }
+        if (
+          aIsFinite
+          && bIsFinite
+          && !polygonEdgeContainsSegment(parent.polygon, a, b)
+        ) {
+          errors.push(`Panel "${panel.id}" hingeLine must lie on a single edge of parent "${parent.id}".`);
+        }
+        if (
+          aIsFinite
+          && bIsFinite
+          && !polygonEdgeContainsSegment(panel.polygon, a, b)
+        ) {
+          errors.push(`Panel "${panel.id}" hingeLine must lie on a single edge of child polygon.`);
         }
       }
     }

@@ -183,7 +183,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       id: 'topDustP2',
       polygon: rectangle(x1, -dustFlapDepth, x2, 0),
       parent: 'P2',
-      hingeLine: { a: { x: x2, y: 0 }, b: { x: x1, y: 0 } },
+      hingeLine: { a: { x: x1, y: 0 }, b: { x: x2, y: 0 } },
       foldAngle: INWARD_FOLD_ANGLE,
     });
     // topDustP4 寬=W、高=dustFlapDepth（2D: 寬=wP4、另含 notch/arch；M0 以名義矩形近似）。
@@ -223,7 +223,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       id: 'bottomDustP2',
       polygon: rectangle(x1, D, x2, D + dustFlapDepth),
       parent: 'P2',
-      hingeLine: { a: { x: x1, y: D }, b: { x: x2, y: D } },
+      hingeLine: { a: { x: x2, y: D }, b: { x: x1, y: D } },
       foldAngle: INWARD_FOLD_ANGLE,
     });
     // bottomDustP4 寬=W、高=dustFlapDepth（2D: 寬=wP4、另含 notch/arch；M0 以名義矩形近似）。
