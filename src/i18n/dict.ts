@@ -5,6 +5,7 @@ export const dict = {
   'chrome.mode': { en: 'Mode', zh: 'Mode' },
   'mode.design': { en: 'Design', zh: '刀模設計' },
   'mode.imposition': { en: 'Imposition', zh: '拼版估算' },
+  'mode.fold': { en: 'Fold', zh: '摺盒預覽' },
   'chrome.about': { en: 'About', zh: '關於' },
   'chrome.about.title': { en: 'Reopen the project introduction', zh: '重新開啟專案介紹' },
   'chrome.resetAll': { en: 'Reset all', zh: '重設全部' },
@@ -158,6 +159,20 @@ export const dict = {
   'imp.err.field.belowMin': { en: 'Must not be less than {MIN_GAP_MM}mm.', zh: '不得小於 {MIN_GAP_MM}mm' },
   'imp.err.field.outOfRange': { en: 'Value is outside the safe range.', zh: '數值超出安全範圍' },
   'imp.err.field.internal': { en: 'Internal calculation error.', zh: '內部計算錯誤' },
+
+  'fold.play': { en: 'Play', zh: '播放' },
+  'fold.pause': { en: 'Pause', zh: '暫停' },
+  'fold.autorotate': { en: 'Auto-rotate', zh: '自動旋轉' },
+  'fold.progress.aria': { en: 'Fold progress', zh: '摺合進度' },
+  'fold.controls.aria': { en: 'Fold controls', zh: '摺盒控制' },
+  'fold.unsupported': {
+    en: '3D fold preview is not yet available for this box style.',
+    zh: '此盒型尚未支援 3D 摺盒預覽。',
+  },
+  'fold.webglUnavailable': {
+    en: '3D fold preview requires WebGL, which is not available in this browser.',
+    zh: '瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。',
+  },
 
   'modal.aria': { en: 'About open-dieline', zh: '關於 open-dieline' },
   'modal.close': { en: 'Close', zh: '關閉' },
