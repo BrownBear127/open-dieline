@@ -120,7 +120,7 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-mask p-4"
       onClick={handleDismiss}
     >
       <div
@@ -128,7 +128,7 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
         aria-modal="true"
         aria-label={t('modal.aria')}
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-[560px] max-h-[85vh] overflow-y-auto rounded-lg bg-white/95 shadow-2xl border border-zinc-200 p-6"
+        className="relative w-full max-w-[560px] max-h-[85vh] overflow-y-auto rounded-lg modal-card shadow-2xl p-6"
       >
         <button
           type="button"
@@ -140,7 +140,7 @@ export function AnnouncementModal({ open, onClose }: AnnouncementModalProps) {
         </button>
 
         <div className="pr-6">
-          <h2 className="text-lg font-bold tracking-wide text-zinc-900">
+          <h2>
             {t('modal.title')} <span className="mono">{t('modal.version', { version: pkg.version })}</span>
           </h2>
         </div>
