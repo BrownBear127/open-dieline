@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 26 probes：既有 18 項＋P3 style contract 三項＋G4 fold import 一項＋final review F4/F5 兩項＋re-review N2/N3 兩項。
+// 共 28 probes：既有 18 項＋P3 style contract 三項＋G4 fold 四項（import/dynamic/template/computed+jsspec 家族）＋F4 decoy 兩項＋N4 前身一項——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -127,6 +127,16 @@ const PROBES = [
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   { id: 'g4-fold-import', gate: 'g4-export-isolation',
     run: () => append('src/export/svg.ts', "\nimport '../fold/registry';\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // round 3 R1-A：計算型 dynamic import 曾被靜默略過——fail-loud 修後常駐紅方向
+  { id: 'g4-fold-computed', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import('../fold/' + 'registry');\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // round 3 R1-B：.js specifier（build 解析到 .ts）曾被靜默判綠——解析映射修後常駐紅方向
+  { id: 'g4-fold-jsspec', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import('../fold/registry.js');\n"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
     greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   // re-review N3：無替換 template literal specifier 曾可穿越 G4——TS AST 修後常駐紅方向
