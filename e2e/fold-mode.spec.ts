@@ -156,6 +156,41 @@ async function expectNonBackgroundFrame(canvas: Locator): Promise<void> {
 // 走 compositor 而非 toDataURL——three 預設 preserveDrawingBuffer:false，渲染停止後
 // toDataURL 回空白（實測：靜止 canvas 的 signature 取樣永不收斂），compositor 截圖
 // 不受 drawing buffer 生命週期影響。供 F6 的 t 態對比使用（final review F6）。
+//
+// t 態對比用「像素容差」不用 byte 等式：同 t 的重渲染有 GPU AA 抖動（實測 8/568,094 px·
+// 每通道 Δ≤1/255），byte 等式假紅；閾值給 ~30× 餘裕仍遠低於任何真幾何差異的量級。
+async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ diffPx: number; totalPx: number; maxDelta: number }> {
+  return page.evaluate(async ([a, b]) => {
+    const load = (b64: string) => new Promise<HTMLImageElement>((resolve) => {
+      const image = new Image();
+      image.addEventListener('load', () => resolve(image), { once: true });
+      image.src = `data:image/png;base64,${b64}`;
+    });
+    const [imageA, imageB] = await Promise.all([load(a), load(b)]);
+    const pixels = (image: HTMLImageElement) => {
+      const probe = document.createElement('canvas');
+      probe.width = image.width;
+      probe.height = image.height;
+      const context = probe.getContext('2d')!;
+      context.drawImage(image, 0, 0);
+      return context.getImageData(0, 0, probe.width, probe.height).data;
+    };
+    const dataA = pixels(imageA);
+    const dataB = pixels(imageB);
+    let diffPx = 0;
+    let maxDelta = 0;
+    for (let index = 0; index < dataA.length; index += 4) {
+      const delta = Math.abs(dataA[index] - dataB[index])
+        + Math.abs(dataA[index + 1] - dataB[index + 1])
+        + Math.abs(dataA[index + 2] - dataB[index + 2]);
+      if (delta > 0) {
+        diffPx += 1;
+        maxDelta = Math.max(maxDelta, delta);
+      }
+    }
+    return { diffPx, totalPx: dataA.length / 4, maxDelta };
+  }, [left.toString('base64'), right.toString('base64')] as const);
+}
 async function stableShot(canvas: Locator): Promise<Buffer> {
   let previous: Buffer | null = null;
   let stable: Buffer | null = null;
@@ -238,11 +273,24 @@ test('dragging fold progress to one renders a non-background canvas frame', asyn
 
   await expect.poll(async () => Number(await range.inputValue())).toBeGreaterThanOrEqual(0.999);
   const folded = await stableShot(canvas);
-  expect(folded.equals(flat), 'folded (t=1) frame must differ from the flat (t=0) frame').toBe(false);
+  // 「不同」升級為可見差異量級（byte not-equal 連 1 個 AA 抖動像素都算過——太弱）
+  const foldedDiff = await pixelDiff(page, folded, flat);
+  expect(
+    foldedDiff.diffPx / foldedDiff.totalPx,
+    'folded (t=1) frame must visibly differ from the flat (t=0) frame',
+  ).toBeGreaterThan(0.01);
 
   await range.fill('0');
   const reflattened = await stableShot(canvas);
-  expect(reflattened.equals(folded), 'returning to t=0 must leave the folded frame').toBe(false);
+  // re-review N4：只斷言「離開 folded」可被『第二次歸零偷換 0.5』假綠——回到 t=0 必須
+  // 回到 flat 幀（像素容差版：AA 抖動實測 8px/Δ1·閾值 0.05%＋Δ≤8 給 30× 餘裕，
+  // 半摺畫面的差異量級〔>1%〕遠超此閾值必紅）。
+  const reflatDiff = await pixelDiff(page, reflattened, flat);
+  expect(reflatDiff.maxDelta, 'reflattened frame may differ from flat only by AA jitter').toBeLessThanOrEqual(8);
+  expect(
+    reflatDiff.diffPx / reflatDiff.totalPx,
+    'returning to t=0 must reproduce the flat frame within AA tolerance',
+  ).toBeLessThan(0.0005);
 });
 
 test('zh fold controls use exact dictionary copy and the zh voice classes', async ({ page }) => {

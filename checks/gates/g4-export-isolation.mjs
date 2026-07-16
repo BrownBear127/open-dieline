@@ -2,6 +2,7 @@
 // 自寫 BFS 不用 madge（madge 空心 gate 前科——見 memory）；sanity：走訪數>0 且含 core/styles
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
 
 function resolveImport(from, spec, root) {
   let base = spec.startsWith('@/') ? path.join(root, 'src', spec.slice(2))
@@ -11,6 +12,34 @@ function resolveImport(from, spec, root) {
     if (existsSync(cand) && !cand.endsWith(path.sep)) try { if (readFileSync(cand)) return cand; } catch { /* dir */ }
   }
   return null;
+}
+
+
+// TS AST 取真 import 面（re-review N3·取代 regex）：static import／re-export／dynamic
+// import()，specifier 接受 string literal 與「無替換 template literal」；註解與一般字串
+// 天然不算——regex 版兩反例（import(`…`) 假綠、// import('…') 假紅）同時根治。
+function importSpecifiers(text, fileName) {
+  const sourceFile = ts.createSourceFile(
+    fileName, text, ts.ScriptTarget.Latest, true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const specs = [];
+  const specText = (node) => (
+    node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+      ? node.text : null
+  );
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      const spec = specText(node.moduleSpecifier);
+      if (spec !== null) specs.push(spec);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const spec = specText(node.arguments[0]);
+      if (spec !== null) specs.push(spec);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return specs;
 }
 
 export async function run({ root }) {
@@ -27,11 +56,8 @@ export async function run({ root }) {
     if (visited.has(file)) continue;
     visited.add(file);
     const text = readFileSync(file, 'utf8');
-    // 三分支 specifier：static from／dynamic import(…)／裸 side-effect import
-    //（dynamic 分支＝final review F5——漏掉時 export/ 可用 import('../fold/…') 靜默穿越禁區；
-    // import\s*\( 必須排在 import\s* 前——alternation 左先匹配）
-    for (const m of text.matchAll(/\b(?:from\s+|import\s*\(\s*|import\s*)['"]([^'"]+)['"]/g)) {
-      const next = resolveImport(file, m[1], root);
+    for (const spec of importSpecifiers(text, file)) {
+      const next = resolveImport(file, spec, root);
       if (next) queue.push(next);
     }
   }

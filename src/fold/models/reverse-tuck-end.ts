@@ -119,10 +119,11 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
   const xGapVal = Math.max(flapNotch > 0 ? flapNotch : 0, creaseRelief > 0 ? creaseRelief : 0);
   const dustRelief = Math.min(xGapVal > 0 ? xGapVal : 3, W / 2);
 
-  // tuckLock 不進 M1 模型（BLOCKED-ON-法蘭 2026-07-17）：2D frictionLock 的摺線本身分裂
-  //（crease 斷成 [xStart..xLeft]+[xRight..xEnd]、蓋板梯形凸片跨越摺線），validate 的
-  // 單邊含中點規則（polygonEdgeContainsSegment）在原理上無法表達分裂 hinge；
-  // 放寬該規則＝M0 核心不變式變更，超出 M1 授權——證明與候選方案見 ledger progress-p3-m1.md。
+  // tuckLock 不進 M1 模型（BLOCKED-ON-法蘭 2026-07-17）：表示法是設計選擇非技術不可行——
+  // 候選 A（左右 hinge 翼＋中央 foldAngle=0 分片）已實證通過現有 validate 且接縫 0，
+  // 但使預設模型 panels 13→17（釘值測試/steps 語義全面波及）且非唯一表示法；
+  // 候選 B=放寬 validate 至共線段集合、候選 C=延 M2 與紙厚視覺一起裁。
+  // A/B/C 待法蘭裁——證明與記錄見 ledger progress-p3-m1.md（re-review N1 修正過時說法）。
 
   const x0 = 0;
   const x1 = L;

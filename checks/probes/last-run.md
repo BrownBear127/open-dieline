@@ -9,11 +9,13 @@
 - [PASS] g2-frozen-zh-weights → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] p3c-unregistered → p3-style：目標紅=true、復原全綠=true
 - [PASS] p3c-value-drift → p3-style：目標紅=true、復原全綠=true
+- [PASS] p3c-comment-decoy → p3-style：目標紅=true、復原全綠=true
 - [PASS] p3c-context-leak → p3-style：目標紅=true、復原全綠=true
 - [PASS] g3-new-utility → g3-utility：目標紅=true、復原全綠=true
 - [PASS] g4-display-import → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-rename → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-fold-import → g4-export-isolation：目標紅=true、復原全綠=true
+- [PASS] g4-fold-dynamic → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g5-literal → g5-forbidden-words：目標紅=true、復原全綠=true
 - [PASS] g6-external-url → g6-external-urls：目標紅=true、復原全綠=true
 - [PASS] a2-export-color-leak → baseline：目標紅=true、復原全綠=true
