@@ -4,6 +4,45 @@ import { dict } from '../src/i18n/dict';
 import { gotoReady, settleFontsAndLayout } from './helpers';
 
 const RECT_TOLERANCE_PX = 0.5;
+// M3 實測 2026-07-16, 1440×900, Chromium. Signed direction is intentional: EN is
+// 13.1875px taller than zh before the downstream flex filler absorbs the difference.
+const DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX = 13.1875;
+
+// Modal copy may legitimately change intrinsic height, font fallback, letter spacing,
+// weight, and text transform by language. These remaining computed properties define the
+// layout box around each named text source and must not acquire a zh-only layout override.
+const MODAL_SOURCE_LAYOUT_PROPERTIES = [
+  'box-sizing',
+  'display',
+  'position',
+  'width',
+  'min-width',
+  'max-width',
+  'min-height',
+  'max-height',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'border-top-width',
+  'border-right-width',
+  'border-bottom-width',
+  'border-left-width',
+  'row-gap',
+  'column-gap',
+  'font-size',
+  'line-height',
+  'text-indent',
+  'white-space',
+  'word-break',
+  'overflow-wrap',
+] as const;
+
+const MODAL_TEXT_SOURCE_SELECTORS = ['.modal-card h2', '.modal-body'] as const;
 
 const DESIGN_GEOMETRY_SAMPLES = [
   { name: '.masthead', selector: '.masthead', index: 0, exempt: [], attributable: {} },
@@ -21,18 +60,16 @@ const DESIGN_GEOMETRY_SAMPLES = [
 // The previous version blanket-exempted those properties (skipped entirely). That is not
 // what "exempt" was supposed to mean here — exempt means "attributable to the named text
 // source," not "unconditionally allowed to drift." An `attributable` map replaces the skip:
-// each entry maps a property to the multiplier of a separately-measured, named base delta
-// (the disclaimer line's own EN/zh height difference) that property's EN/zh delta must
-// equal, within tolerance. Any additional zh-only vertical drift (e.g. an accidentally
-// injected `padding`) changes the measured delta without changing the base delta, so the
-// attribution check — not just a bare presence/absence check — catches it. `x`/`width` and
-// every property without an `attributable` entry stay strictly equal (unchanged behavior).
+// each entry maps a property to the multiplier of the frozen, signed disclaimer height
+// difference that property's EN-minus-zh delta must equal within tolerance. The named source
+// is asserted against that frozen value before the downstream relationships are checked.
+// `x`/`width` and every property without an `attributable` entry stay strictly equal.
 const IMPOSITION_GEOMETRY_SAMPLES = [
   { name: '.imp-toolbar', selector: '.imp-toolbar', index: 0, exempt: [], attributable: {} },
-  { name: '.imp-results', selector: '.imp-results', index: 0, exempt: [], attributable: { height: 1 } },
-  { name: '.imp-card[0]', selector: '.imp-card', index: 0, exempt: [], attributable: { height: 1 } },
-  { name: '.imp-card[1]', selector: '.imp-card', index: 1, exempt: [], attributable: { height: 1 } },
-  { name: '.imp-stats[0]', selector: '.imp-stats', index: 0, exempt: [], attributable: { y: 1 } },
+  { name: '.imp-results', selector: '.imp-results', index: 0, exempt: [], attributable: { height: -1 } },
+  { name: '.imp-card[0]', selector: '.imp-card', index: 0, exempt: [], attributable: { height: -1 } },
+  { name: '.imp-card[1]', selector: '.imp-card', index: 1, exempt: [], attributable: { height: -1 } },
+  { name: '.imp-stats[0]', selector: '.imp-stats', index: 0, exempt: [], attributable: { y: -1 } },
   // The disclaimer line itself is the named text source that defines the base delta below —
   // it has nothing to be attributed *to*, so it stays a bare exempt (unconstrained), not an
   // attributable relationship.
@@ -86,18 +123,14 @@ async function measureRects(page: Page, samples: readonly GeometrySample[]): Pro
   return table;
 }
 
-// F4（H4）: `baseDelta` is a separately-measured, named text-length difference (e.g. the
-// imposition disclaimer line's own EN/zh height delta, or the modal title+body content
-// height delta). A property listed in a sample's `attributable` map is not skipped — its
-// EN/zh delta must equal `baseDelta * multiplier`, within `tolerance`. This makes the
-// exemption load-bearing: an unrelated zh-only drift (extra padding, a stray margin) changes
-// the measured delta without changing baseDelta, so it fails the attribution check even
-// though it would have passed a bare "is this delta non-zero" presence check.
+// N1（H4）: `signedBaseDelta` is a frozen EN-minus-zh text-source difference. A property
+// listed in `attributable` must preserve both magnitude and direction; Math.abs is used only
+// for the final error magnitude. A direction flip can therefore no longer self-normalize.
 function rectParityFailures(
   en: RectTable,
   zh: RectTable,
   samples: readonly GeometrySample[],
-  baseDelta = 0,
+  signedBaseDelta = 0,
   tolerance = RECT_TOLERANCE_PX,
 ): string[] {
   const failures: string[] = [];
@@ -110,22 +143,23 @@ function rectParityFailures(
     const exempt = new Set<string>(sample.exempt ?? []);
     const attributable: Readonly<Partial<Record<'x' | 'y' | 'width' | 'height', number>>> = sample.attributable ?? {};
     for (const property of ['x', 'y', 'width', 'height'] as const) {
-      const delta = Math.abs(enRect[property] - zhRect[property]);
+      const signedDelta = enRect[property] - zhRect[property];
+      const absoluteDelta = Math.abs(signedDelta);
       const multiplier = attributable[property];
       if (multiplier !== undefined) {
-        const expectedDelta = baseDelta * multiplier;
-        const attributionError = Math.abs(delta - expectedDelta);
+        const expectedDelta = signedBaseDelta * multiplier;
+        const attributionError = Math.abs(signedDelta - expectedDelta);
         if (attributionError >= tolerance) {
           failures.push(
-            `${sample.name}.${property}: EN=${enRect[property]}, zh=${zhRect[property]}, |delta|=${delta}, ` +
-              `attributable expected=${expectedDelta} (baseDelta=${baseDelta}×${multiplier}), |diff|=${attributionError}`,
+            `${sample.name}.${property}: EN=${enRect[property]}, zh=${zhRect[property]}, signed delta=${signedDelta}, ` +
+              `attributable expected=${expectedDelta} (baseDelta=${signedBaseDelta}×${multiplier}), |diff|=${attributionError}`,
           );
         }
         continue;
       }
       if (exempt.has(property)) continue;
-      if (delta >= tolerance) {
-        failures.push(`${sample.name}.${property}: EN=${enRect[property]}, zh=${zhRect[property]}, |delta|=${delta}`);
+      if (absoluteDelta >= tolerance) {
+        failures.push(`${sample.name}.${property}: EN=${enRect[property]}, zh=${zhRect[property]}, |delta|=${absoluteDelta}`);
       }
     }
   }
@@ -297,28 +331,38 @@ test('zh strict geometry parity: imposition containers and exempt group alignmen
   const enGroupRects = await measureImpositionGroupRows(page);
   expectFrozenRowMembership(enGroupRects, 'en');
 
+  if (process.env.OD_N1_DISCLAIMER_MUTATION === '1') {
+    await page.addStyleTag({
+      content: '.zh p.mono.pb-4.opacity-60 { padding-block: 24px !important; }',
+    });
+  }
   await switchLanguage(page, 'zh');
   const zh = await measureRects(page, IMPOSITION_GEOMETRY_SAMPLES);
   const zhGroupRects = await measureImpositionGroupRows(page);
   expectFrozenRowMembership(zhGroupRects, 'zh');
 
-  // F4（H4）: the named text source that the imposition height/y exemptions are attributed
-  // to — the disclaimer line's own EN/zh height delta (2 lines in EN, 1 in zh).
-  const disclaimerBaseDelta = Math.abs(en['imp disclaimer line']!.height - zh['imp disclaimer line']!.height);
+  // N1（H4）: freeze the named source itself before using its legal signed difference in
+  // downstream relationships. A zh-only padding can no longer rewrite its own baseline.
+  const disclaimerSignedDelta = en['imp disclaimer line']!.height - zh['imp disclaimer line']!.height;
 
   console.log(
     `GEOMETRY-MEASUREMENTS imposition ${JSON.stringify({
       en,
       zh,
       delta: rectDeltas(en, zh),
-      disclaimerBaseDelta,
+      disclaimerSignedDelta,
+      frozenDisclaimerSignedDelta: DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX,
       impGroupRows: { en: enGroupRects, zh: zhGroupRects },
       exemptions: GEOMETRY_EXEMPTIONS,
     })}`,
   );
   expect(
-    rectParityFailures(en, zh, IMPOSITION_GEOMETRY_SAMPLES, disclaimerBaseDelta),
-    'all imposition deltas must be strictly equal, or attributable to the disclaimer line\'s own height delta',
+    disclaimerSignedDelta,
+    'imp disclaimer EN−zh height delta must equal the frozen M3 Chromium measurement',
+  ).toBe(DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX);
+  expect(
+    rectParityFailures(en, zh, IMPOSITION_GEOMETRY_SAMPLES, DISCLAIMER_EN_MINUS_ZH_HEIGHT_PX),
+    'all imposition deltas must be strictly equal, or preserve the frozen signed disclaimer relationship',
   ).toEqual([]);
 });
 
@@ -345,6 +389,22 @@ async function measureModalCardNaturalHeight(page: Page): Promise<number> {
   return page.locator('.modal-card').first().evaluate((element) => element.scrollHeight);
 }
 
+type ModalSourceLayout = Record<string, Record<string, string>>;
+
+async function measureModalSourceLayout(page: Page): Promise<ModalSourceLayout> {
+  const result: ModalSourceLayout = {};
+  for (const selector of MODAL_TEXT_SOURCE_SELECTORS) {
+    result[selector] = await page.locator(selector).first().evaluate(
+      (element, properties) => {
+        const style = getComputedStyle(element);
+        return Object.fromEntries(properties.map((property) => [property, style.getPropertyValue(property)]));
+      },
+      MODAL_SOURCE_LAYOUT_PROPERTIES,
+    );
+  }
+  return result;
+}
+
 test('zh strict geometry parity: modal container', async ({ page }) => {
   await gotoReady(page);
 
@@ -353,14 +413,19 @@ test('zh strict geometry parity: modal container', async ({ page }) => {
   const en = await measureRects(page, MODAL_GEOMETRY_SAMPLES);
   const enContentHeight = await measureModalContentHeight(page);
   const enNaturalHeight = await measureModalCardNaturalHeight(page);
+  const enSourceLayout = await measureModalSourceLayout(page);
   // The modal intentionally covers the language control. Close it through its
   // public button, switch language on the same page, then reopen through About.
   await page.getByRole('dialog').getByRole('button', { name: dict['modal.close'].en }).click();
+  if (process.env.OD_N1_MODAL_MUTATION === '1') {
+    await page.addStyleTag({ content: '.zh .modal-body { padding-block: 24px !important; }' });
+  }
   await switchLanguage(page, 'zh');
   await page.getByRole('button', { name: dict['chrome.about'].zh, exact: true }).click();
   const zh = await measureRects(page, MODAL_GEOMETRY_SAMPLES);
   const zhContentHeight = await measureModalContentHeight(page);
   const zhNaturalHeight = await measureModalCardNaturalHeight(page);
+  const zhSourceLayout = await measureModalSourceLayout(page);
 
   const modalContentDelta = Math.abs(enContentHeight - zhContentHeight);
   const naturalHeightDelta = Math.abs(enNaturalHeight - zhNaturalHeight);
@@ -377,6 +442,7 @@ test('zh strict geometry parity: modal container', async ({ page }) => {
       zhContentHeight,
       enNaturalHeight,
       zhNaturalHeight,
+      sourceLayout: { en: enSourceLayout, zh: zhSourceLayout },
     })}`,
   );
 
@@ -389,11 +455,15 @@ test('zh strict geometry parity: modal container', async ({ page }) => {
     'x/width (horizontal centering) must remain strictly equal',
   ).toEqual([]);
 
-  // F4（H4，裁決 A 的收斂實作）: the card's *natural* (pre-clamp) height delta —
-  // unaffected by the 85vh visual clamp either language happens to hit — must equal the
-  // title+body content delta. This is the attribution check: any zh-only drift not coming
-  // from the content itself (e.g. an injected `padding-block`) changes naturalHeightDelta
-  // without changing modalContentDelta, and fails here.
+  expect(
+    zhSourceLayout,
+    'modal named text sources must preserve language-invariant layout-affecting computed properties',
+  ).toEqual(enSourceLayout);
+
+  // The card's *natural* (pre-clamp) height delta — unaffected by the 85vh visual clamp
+  // either language happens to hit — must equal the title+body box delta. Source-box drift
+  // is guarded separately by the computed-property equality above; this relationship only
+  // verifies that the card continues to follow those source boxes 1:1.
   expect(
     Math.abs(naturalHeightDelta - modalContentDelta),
     `modal-card natural (scrollHeight) height delta (${naturalHeightDelta}) must be attributable to the title+body content delta (${modalContentDelta})`,
