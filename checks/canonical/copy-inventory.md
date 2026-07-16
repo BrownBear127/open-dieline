@@ -9,6 +9,9 @@ Vendor date: 2026-07-16
 > 尾封盒、天地盒」）：§A6 兩盒型 zh 名去英文附註——`rte.meta.name` zh＝`反插式尾封盒`、
 > `telescope.meta.name` zh＝`天地盒`。EN 不動。inventory-expansion 節3 #24/#25 引述的
 > 舊終稿值同步失效（該兩列為 audit 對帳紀錄·不回改·以本表為準）。
+> 同輪追加：§A3 新 key `canvas.view.piece`＝`{label} view`／`{label}視圖`（plate label
+> 單片視圖句殼·三案對照選 A·2026-07-16）——補 M1 佈線期 `${label.en} view` 硬編碼
+> 的簽核殼；{content} 隨語言契約自此三處（盒名/片名/檢核訊息）全接。
 > 狀態：**v1.1**——v1 簽核（2026-07-16·7 點全過）＋二輪 review 修訂（C1 逐
 > key 化）。本表＋**規範性附件 `inventory-expansion.md`**（Tier B **99** key 逐 key 明細·
 > §A 補漏·mock 作廢清單 28 條·audit 224 條對帳 100%）合為**文案唯一真相源**；
@@ -96,6 +99,7 @@ Vendor date: 2026-07-16
 | key | EN | zh | lock | 聲部 |
 |-----|-----|-----|------|------|
 | canvas.plateLabel | Plate Nº {nn} — {content} | 骨架 lock·{content}=盒型/視圖名隨語言 | ✅骨架 | mono |
+| canvas.view.piece | {label} view | {label}視圖 | | mono |
 | canvas.view.fullSet | Full set | 全版 | | label |
 | canvas.legend.cut | Cut | 切割 | | mono |
 | canvas.legend.crease | Crease | 壓痕 | ⚠ 與 layers.crease「摺線」異詞：**裁決=統一用「摺線」**（沿現行 app·mock zh plate 的「壓痕線」作廢） | mono |
