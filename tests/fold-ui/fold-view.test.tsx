@@ -220,4 +220,21 @@ describe('FoldView visible failure states', () => {
     expect(container.querySelector('canvas')).not.toBeInTheDocument();
     expect(fake.createScene).not.toHaveBeenCalled();
   });
+
+  it('fold-scene chunk 載入失敗時 render 無文案空狀態殼、不留死控制列（final review F2）', async () => {
+    // jsdom getContext 天然 null 會先走 WebGL fallback——mock 成 truthy 讓流程進到 loadScene
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const loadScene = vi.fn(() => Promise.reject(new Error('chunk unavailable')));
+    render(<FoldView boxId="rte" values={RTE_VALUES} loadScene={loadScene} />);
+
+    await waitFor(() => expect(loadScene).toHaveBeenCalled());
+    await waitFor(() => expect(document.querySelector('[data-fold-error="true"]')).not.toBeNull());
+    expect(document.querySelector('[data-fold-error="true"]')).toHaveClass('fold-empty');
+    // 失敗態不得殘留任何看似可操作的控制件或 canvas
+    expect(screen.queryByRole('slider')).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(document.querySelector('canvas')).toBeNull();
+    expect(consoleError).toHaveBeenCalled();
+  });
 });

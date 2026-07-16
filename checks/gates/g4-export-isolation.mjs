@@ -27,7 +27,10 @@ export async function run({ root }) {
     if (visited.has(file)) continue;
     visited.add(file);
     const text = readFileSync(file, 'utf8');
-    for (const m of text.matchAll(/\b(?:from\s+|import\s*)['"]([^'"]+)['"]/g)) {
+    // 三分支 specifier：static from／dynamic import(…)／裸 side-effect import
+    //（dynamic 分支＝final review F5——漏掉時 export/ 可用 import('../fold/…') 靜默穿越禁區；
+    // import\s*\( 必須排在 import\s* 前——alternation 左先匹配）
+    for (const m of text.matchAll(/\b(?:from\s+|import\s*\(\s*|import\s*)['"]([^'"]+)['"]/g)) {
       const next = resolveImport(file, m[1], root);
       if (next) queue.push(next);
     }

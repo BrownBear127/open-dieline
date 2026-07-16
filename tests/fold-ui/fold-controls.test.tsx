@@ -184,4 +184,23 @@ describe('FoldView controls', () => {
     expect(await screen.findByText(t('fold.webglUnavailable'))).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: t('fold.controls.aria') })).not.toBeInTheDocument();
   });
+
+  it('使用者拖轉（onUserInteract）後自轉 checkbox 同步關閉、可手動重開（final review F3）', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).toBeChecked();
+
+    // fold-scene 在 controls start 事件已自行關 autoRotate 並回呼 onUserInteract——
+    // FoldView state 必須跟上，否則 checkbox 謊報開啟
+    act(() => fake.options[0]!.onUserInteract?.());
+    expect(checkbox).not.toBeChecked();
+
+    // 手動重開走 checkbox → scene.setAutoRotate(true)
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(true);
+  });
 });

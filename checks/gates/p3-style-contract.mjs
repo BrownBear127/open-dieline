@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { transformSync } from 'esbuild';
 import { parseDeclarations } from './g2-vocab.mjs';
 
 const CONTRACT_PATH = 'checks/canonical/p3-style-contract.json';
@@ -13,9 +14,17 @@ function read(root, relativePath) {
   return readFileSync(path.join(root, relativePath), 'utf8');
 }
 
+function readUsageSource(root, relativePath) {
+  // 使用面掃描前先過 esbuild jsx transform（final review F4）：JSX/JS 註解裡的
+  // className 誘餌會被剝除，真使用以 `className: "…"` 屬性形式保留。
+  // 實測陷阱：jsx:'preserve' 不剝 JSX expression container 註解——必須完整 transform；
+  // 因此 token regex 同時吃 `=`（原始 JSX）與 `:`（transform 後屬性）兩形。
+  return transformSync(read(root, relativePath), { loader: 'tsx', jsx: 'automatic' }).code;
+}
+
 function extractClassTokens(source) {
   const tokens = new Set();
-  for (const match of source.matchAll(/className\s*=\s*\{?\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/g)) {
+  for (const match of source.matchAll(/className\s*[:=]\s*\{?\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/g)) {
     const value = match[1] ?? match[2] ?? match[3] ?? '';
     for (const token of value.split(/\s+/)) {
       if (/^[a-z][a-z0-9-]*$/i.test(token)) tokens.add(token);
@@ -30,7 +39,7 @@ function selectorClasses(selector) {
 
 function selectorIsUsed(selector, usageSources) {
   if (selector === 'input[type="range"]') {
-    return usageSources.some((source) => /type\s*=\s*["']range["']/.test(source));
+    return usageSources.some((source) => /type\s*[:=]\s*["']range["']/.test(source));
   }
   const classes = selectorClasses(selector);
   return classes.length > 0 && usageSources.some((source) => {
@@ -123,7 +132,7 @@ export async function run({ root, distDir }) {
   if (contract.length === 0) errs.push('contract 不可為空（sanity check）');
 
   const seenSelectors = new Set();
-  const usageSources = USAGE_FILES.map((file) => read(root, file));
+  const usageSources = USAGE_FILES.map((file) => readUsageSource(root, file));
   const derivedSelectors = [];
 
   for (const entry of contract) {
@@ -170,7 +179,7 @@ export async function run({ root, distDir }) {
 
   const foldOnlyClasses = new Set(derivedSelectors.flatMap(selectorClasses));
   for (const relativePath of DESIGN_CONTEXT_FILES) {
-    const leaked = [...extractClassTokens(read(root, relativePath))].filter((className) => foldOnlyClasses.has(className));
+    const leaked = [...extractClassTokens(readUsageSource(root, relativePath))].filter((className) => foldOnlyClasses.has(className));
     if (leaked.length > 0) errs.push(`design context 洩漏：${relativePath} 使用 ${leaked.map((name) => `.${name}`).join(', ')}`);
   }
 

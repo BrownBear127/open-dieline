@@ -152,6 +152,26 @@ async function expectNonBackgroundFrame(canvas: Locator): Promise<void> {
   ).toBe(true);
 }
 
+// 穩態截圖：連續兩次 locator.screenshot() byte 相等才回傳（自轉關、damping 靜止後成立）。
+// 走 compositor 而非 toDataURL——three 預設 preserveDrawingBuffer:false，渲染停止後
+// toDataURL 回空白（實測：靜止 canvas 的 signature 取樣永不收斂），compositor 截圖
+// 不受 drawing buffer 生命週期影響。供 F6 的 t 態對比使用（final review F6）。
+async function stableShot(canvas: Locator): Promise<Buffer> {
+  let previous: Buffer | null = null;
+  let stable: Buffer | null = null;
+  await expect.poll(
+    async () => {
+      const next = await canvas.screenshot();
+      const isStable = previous !== null && next.equals(previous);
+      previous = next;
+      if (isStable) stable = next;
+      return isStable;
+    },
+    { message: 'fold canvas screenshot must settle', timeout: 10_000 },
+  ).toBe(true);
+  return stable!;
+}
+
 test('fold mode mounts its canvas and transfers the single pressed mode state', async ({ page }) => {
   await gotoReady(page);
 
@@ -196,8 +216,18 @@ test('fold controls use the vocabulary declarations and render the real range th
 test('dragging fold progress to one renders a non-background canvas frame', async ({ page }) => {
   await enterFold(page);
 
+  // final review F6：t=0 與 t=1 的穩態畫面必須互異（雙背景空白 ⇒ 相等 ⇒ 紅），
+  // 否則 updatePose no-op 也能靠「初始任意一張非空白幀」假綠；補 t=1→t=0 反向驗可逆。
+  // 先在自轉開啟（持續渲染）時驗有真內容，再關自轉取穩態對比。
+  const canvas = page.locator('.fold-canvas');
+  await expectNonBackgroundFrame(canvas);
+  await page.locator('.foldbar .compat .tick').uncheck();
+
   const range = page.locator('.foldbar input[type="range"]');
+
   await range.fill('0');
+  const flat = await stableShot(canvas);
+
   const box = await range.boundingBox();
   expect(box, 'fold progress range needs a real layout box').not.toBeNull();
   const y = box!.y + box!.height / 2;
@@ -207,7 +237,12 @@ test('dragging fold progress to one renders a non-background canvas frame', asyn
   await page.mouse.up();
 
   await expect.poll(async () => Number(await range.inputValue())).toBeGreaterThanOrEqual(0.999);
-  await expectNonBackgroundFrame(page.locator('.fold-canvas'));
+  const folded = await stableShot(canvas);
+  expect(folded.equals(flat), 'folded (t=1) frame must differ from the flat (t=0) frame').toBe(false);
+
+  await range.fill('0');
+  const reflattened = await stableShot(canvas);
+  expect(reflattened.equals(folded), 'returning to t=0 must leave the folded frame').toBe(false);
 });
 
 test('zh fold controls use exact dictionary copy and the zh voice classes', async ({ page }) => {
