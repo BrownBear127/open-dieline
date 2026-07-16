@@ -59,6 +59,9 @@ const PROBES = [
   { id: 'g2-inheritance-base-drift', gate: 'g2-vocab',
     run: () => mutate('src/styles/vocab.css', 'font-family: "Fraunces", Georgia, serif;', 'font-family: Arial, sans-serif;'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
+  { id: 'g2-zh-weight', gate: 'g2-vocab',
+    run: () => mutate('src/styles/vocab.css', '.zh .label { font-size: 11px; font-weight: 400; }', '.zh .label { font-size: 11px; font-weight: 600; }'),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-late-override', gate: 'g2-vocab',
     run: () => append('src/index.css', '\n.masthead .wordmark { font-weight: 900; }\n'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
@@ -92,6 +95,9 @@ const PROBES = [
   // — A15 copy inventory —
   { id: 'a15-drift', gate: 'a15-copy',
     run: () => mutate('src/i18n/dict.ts', "'chrome.wordmark': { en: 'Open *Dieline*'", "'chrome.wordmark': { en: 'Open *Dielines*'"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
+  { id: 'a15-value-drift', gate: 'a15-copy',
+    run: () => mutate('src/i18n/dict.ts', "'mode.design': { en: 'Design'", "'mode.design': { en: 'Design drift'"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
 ];
 

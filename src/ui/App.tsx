@@ -89,6 +89,7 @@ import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementMod
 import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
+import { useLang } from '@/i18n/lang';
 import { getLang, t } from '@/i18n/t';
 
 /** 頂部模式切換鈕的兩個狀態（Slice 4 Task 4，spec F6／「組裝」）：`'design'`＝現行的
@@ -106,6 +107,8 @@ function emphasisParts(copy: string): [before: string, emphasis: string, after: 
 }
 
 export function App() {
+  // root 訂閱讓語言變更重繪全樹；後代既有 t()/getLang() 呼叫不需逐點訂閱。
+  useLang();
   const boxes = useMemo(() => listBoxes(), []);
   // boxes[0] 保證存在：上方 side-effect import 讓 RTE 恆註冊，v1 registry 不會是空的。
   const [boxId, setBoxId] = useState<string>(() => boxes[0]!.meta.id);

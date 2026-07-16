@@ -119,11 +119,13 @@ function valuesEqual(manifestValue, builtValue, prop) {
   return false;
 }
 
-// 繼承基底沒有元件自身宣告可補救，且 manifest 若只從 vocab.css 動態產生，來源值與 build 會
-// 同步漂移而假綠。這兩組 selector/property/value 三元組逐字鎖定 mock body:28-35 的核心基底。
-const INHERITANCE_BASE_MANIFEST = [
+// 凍結值若只從 vocab.css 動態產生，來源值與 build 會同步漂移而假綠。以下
+// selector/property/value 三元組獨立鎖定繼承基底與 Spec §7／typography-matrix D11 的值。
+const FROZEN_DECLARATION_MANIFEST = [
   { selector: '.app', prop: 'color', value: 'var(--ink)' },
   { selector: '.app', prop: 'font-family', value: '"Fraunces", Georgia, serif' },
+  { selector: '.app', prop: 'font-synthesis', value: 'none' },
+  { selector: '.zh .label', prop: 'font-weight', value: '400' },
 ];
 
 export async function run({ root, distDir }) {
@@ -131,10 +133,10 @@ export async function run({ root, distDir }) {
   const vocab = parseDeclarations(readFileSync(path.join(root, 'src/styles/vocab.css'), 'utf8'));
   const tokens = parseDeclarations(readFileSync(path.join(root, 'src/styles/tokens.css'), 'utf8'));
   const sourceManifest = [...tokens, ...vocab].map((d) => ({ ...d, selector: normSelector(d.selector) }));
-  const inheritanceBaseKeys = new Set(INHERITANCE_BASE_MANIFEST.map((d) => `${d.selector}\0${d.prop}`));
+  const frozenDeclarationKeys = new Set(FROZEN_DECLARATION_MANIFEST.map((d) => `${d.selector}\0${d.prop}`));
   const manifest = [
-    ...sourceManifest.filter((d) => !inheritanceBaseKeys.has(`${d.selector}\0${d.prop}`)),
-    ...INHERITANCE_BASE_MANIFEST,
+    ...sourceManifest.filter((d) => !frozenDeclarationKeys.has(`${d.selector}\0${d.prop}`)),
+    ...FROZEN_DECLARATION_MANIFEST,
   ];
 
   const assetsDir = path.join(distDir, 'assets');
