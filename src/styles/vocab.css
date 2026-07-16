@@ -31,14 +31,21 @@
   /* — app 外框 — */
   /* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
      line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
-  body { background: var(--paper); }
+  body {
+    min-height: 100dvh;
+    display: flex; justify-content: center; align-items: center;
+    background: var(--paper);
+  }
+  #root { width: 100%; }
   .app {
     color: var(--ink);
     font-family: "Fraunces", Georgia, serif;
     font-optical-sizing: auto;
     -webkit-font-smoothing: antialiased;
     line-height: normal;
-    max-width: 1280px; margin: 0 auto; height: 88vh; min-height: 640px;
+    /* 2026-07-16 法蘭裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂。 */
+    max-width: 1280px; margin: 0 auto;
+    height: calc(100dvh - 2 * clamp(24px, 8vh, 150px)); min-height: 640px;
     border: 1px solid var(--ink);
     display: grid; grid-template-rows: auto auto 1fr auto;
     background: var(--paper);
@@ -131,6 +138,49 @@
   .param input[type="number"]:focus { outline: none; border-bottom-color: var(--ink); }
   .param-select select { padding: 7px 30px 7px 9px; font-size: 15px; }
   .param-select::after { right: 9px; }
+
+  /* 法蘭 2026-07-16 裁決·mock 無 picker 設計=衍生件。 */
+  @supports (appearance: base-select) {
+    .boxsel select,
+    .param-select select {
+      appearance: base-select;
+    }
+    .boxsel select::picker(select) {
+      appearance: base-select;
+      margin: 0;
+      position-area: block-end span-inline-end;
+      background: var(--paper);
+      border: 1px solid var(--ink); border-radius: 0;
+      box-shadow: none;
+    }
+    .param-select select::picker(select) {
+      appearance: base-select;
+      margin: 0;
+      position-area: block-end span-inline-end;
+      background: var(--paper);
+      border: 1px solid var(--ink); border-radius: 0;
+      box-shadow: none;
+    }
+    .boxsel select option,
+    .param-select select option {
+      padding: 9px 14px;
+      font-family: "Fraunces", serif; font-size: 17px; font-weight: 420;
+      font-variation-settings: "opsz" 60;
+      color: var(--ink);
+    }
+    .boxsel select option:hover,
+    .boxsel select option:focus,
+    .param-select select option:hover,
+    .param-select select option:focus { background: var(--ink); color: var(--paper); }
+    .boxsel select option:checked,
+    .param-select select option:checked { box-shadow: inset 3px 0 var(--cut); }
+    .boxsel select option::checkmark { display: none; }
+    .param-select select option::checkmark { display: none; }
+    /* base-select 預設 ::picker-icon 會與 .boxsel::after 的 ▾ 疊出雙箭頭——藏預設、留 vocab ▾ */
+    .boxsel select::picker-icon { display: none; }
+    .param-select select::picker-icon { display: none; }
+  }
+
   .param input.tick {
     -webkit-appearance: none; appearance: none;
     width: 13px; height: 13px; margin: 3px 0 2px;
