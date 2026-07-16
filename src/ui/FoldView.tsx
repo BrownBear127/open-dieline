@@ -54,6 +54,10 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const [autoRotate, setAutoRotate] = useState(true);
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
+  // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 空狀態殼
+  //（final review F2——否則空白或死 UI）。M1 不出新文案（copy checkpoint 前置）；失敗態
+  // 文案 key 提案（fold.loadFailed）待法蘭終裁後補。切走再進＝remount 重試。
+  const [loadFailed, setLoadFailed] = useState(false);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
   const model = useMemo<FoldModel | undefined>(() => builder?.(values), [boxId, values, builder]);
@@ -113,9 +117,14 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
 
   useEffect(() => {
     let cancelled = false;
-    void loadFoldModelRuntime().then((runtime) => {
-      if (!cancelled) setModelRuntime(runtime);
-    });
+    loadFoldModelRuntime()
+      .then((runtime) => {
+        if (!cancelled) setModelRuntime(runtime);
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+        if (!cancelled) setLoadFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -161,6 +170,14 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
         onContextRestored: () => {
           if (!cancelled) setContextLost(false);
         },
+        // 拖轉即停自轉（fold-scene 已自行關 controls.autoRotate）——FoldView state 跟上，
+        // checkbox 不再謊報開啟（final review F3）；使用者可用 checkbox 重新開啟。
+        onUserInteract: () => {
+          if (!cancelled) {
+            autoRotateRef.current = false;
+            setAutoRotate(false);
+          }
+        },
       });
 
       if (cancelled) {
@@ -187,7 +204,8 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     };
 
     void startScene().catch((error: unknown) => {
-      if (!cancelled) console.error(error);
+      console.error(error);
+      if (!cancelled) setLoadFailed(true);
     });
 
     return () => {
@@ -199,6 +217,11 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       }
     };
   }, [canCreateScene, createScene, loadScene]);
+
+  if (loadFailed) {
+    // 無文案的空狀態殼（M1 copy checkpoint 約束）——data-fold-error 供測試/e2e 斷言。
+    return <div className="fold-empty" data-fold-error="true" />;
+  }
 
   if (modelRuntime !== null && (builder === undefined || validationErrors.length > 0)) {
     return <FoldEmpty copy={t('fold.unsupported')} />;

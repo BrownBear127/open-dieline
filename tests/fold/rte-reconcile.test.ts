@@ -61,6 +61,17 @@ function horizontalCreaseInterval(result: GenerateResult, y: number, tag: string
   return [Math.min(...xs), Math.max(...xs)];
 }
 
+function tongueCutInterval(result: GenerateResult, yFold: number): [number, number] {
+  // 插舌 cut path 在 yFold 上恰有兩段肩線（lid.start→xt1／xt2→lid.end·generate() :439/:450）
+  // ——四個端點排序後的內側對＝真 xt1/xt2。從 2D cut 幾何直接抽取，與 builder 的
+  // 「crease ∓ tuckClearance」公式互相獨立（final review F7：期望值不得與 builder 同式自我印證）。
+  const xs = uniqueSorted(lineSegments(taggedPaths(result, 'cut', 'tuckDepth'))
+    .filter(({ y1, y2 }) => isClose(y1, yFold) && isClose(y2, yFold))
+    .flatMap(({ x1, x2 }) => [x1, x2]));
+  expect(xs.length, `tongue shoulder cut endpoints at y=${yFold}`).toBe(4);
+  return [xs[1]!, xs[2]!];
+}
+
 function horizontalCreaseIntervals(result: GenerateResult, y: number, tag: string): [number, number][] {
   return lineSegments(taggedPaths(result, 'crease', tag))
     .filter(({ y1, y2 }) => isClose(y1, y) && isClose(y2, y))
@@ -224,19 +235,16 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
         hingeXInterval(panel(model, 'bottomLid')),
         nominalizeInterval(horizontalCreaseInterval(result, D, 'L'), offsets, [0, 1]),
       );
-      // 插舌 hinge＝2D crease 區間內縮 tuckClearance（M1 B4 接線 2026-07-17）：2D 在 yFold
-      // 畫全跨 crease，但肩部（lid.start..xt1／xt2..lid.end）同座標被插舌 cut 路徑分離，
-      // 實體摺合連接只有 tongue 區間 [xt1, xt2]＝crease 區間 ∓ resolved tuckClearance
-      //（generate() 的 xt1/xt2=lid.start+tInset/lid.end−tInset）。
-      const tuckClearance = params.tuckClearance as number;
-      const insetInterval = ([start, end]: number[]): number[] => [start! + tuckClearance, end! - tuckClearance];
+      // 插舌 hinge＝2D tongue 真實區間（M1 B4 接線 2026-07-17）：2D 在 yFold 畫全跨 crease，
+      // 但肩部（lid.start..xt1／xt2..lid.end）同座標被插舌 cut 路徑分離，實體摺合連接只有
+      // tongue 區間 [xt1, xt2]——直接從 cut path 抽取（不用 builder 同式推導·F7）。
       expectCoordinatesClose(
         hingeXInterval(panel(model, 'topTuck')),
-        insetInterval(nominalizeInterval(horizontalCreaseInterval(result, -W, 'W'), offsets, [2, 3])),
+        nominalizeInterval(tongueCutInterval(result, -W), offsets, [2, 3]),
       );
       expectCoordinatesClose(
         hingeXInterval(panel(model, 'bottomTuck')),
-        insetInterval(nominalizeInterval(horizontalCreaseInterval(result, D + W, 'W'), offsets, [0, 1])),
+        nominalizeInterval(tongueCutInterval(result, D + W), offsets, [0, 1]),
       );
 
       const dustPanelIds = ['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4'];

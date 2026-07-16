@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 22 probes：既有 18 項加上 Phase 3 style contract 三項與 G4 fold import 一項。
+// 共 24 probes：既有 18 項＋Phase 3 style contract 三項＋G4 fold import 一項＋final review F4/F5 兩項。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -96,6 +96,12 @@ const PROBES = [
       '"grid-template-columns": "auto minmax(121px, 1fr) auto"'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
     greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
+  // final review F4：JSX 註解 className 誘餌曾可騙過使用面掃描——esbuild transform 剝註解修後常駐
+  { id: 'p3c-comment-decoy', gate: 'p3-style',
+    run: () => mutate('src/ui/FoldView.tsx',
+      '<canvas className="fold-canvas" ref={canvasRef} />',
+      '<canvas className="canvas" ref={canvasRef} />{/* className="fold-canvas" */}'),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   { id: 'p3c-context-leak', gate: 'p3-style',
     run: () => mutate('src/ui/Canvas.tsx', 'className="bench flex-1 h-full"', 'className="bench foldbar flex-1 h-full"'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
@@ -113,6 +119,11 @@ const PROBES = [
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   { id: 'g4-fold-import', gate: 'g4-export-isolation',
     run: () => append('src/export/svg.ts', "\nimport '../fold/registry';\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // final review F5：dynamic import() 曾可靜默穿越 G4——三分支 specifier 修後常駐紅方向
+  { id: 'g4-fold-dynamic', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import('../fold/registry');\n"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
     greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   // — G5 —
