@@ -89,7 +89,7 @@ import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementMod
 import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
-import { useLang } from '@/i18n/lang';
+import { setLang, useLang } from '@/i18n/lang';
 import { getLang, t } from '@/i18n/t';
 
 /** 頂部模式切換鈕的兩個狀態（Slice 4 Task 4，spec F6／「組裝」）：`'design'`＝現行的
@@ -108,7 +108,7 @@ function emphasisParts(copy: string): [before: string, emphasis: string, after: 
 
 export function App() {
   // root 訂閱讓語言變更重繪全樹；後代既有 t()/getLang() 呼叫不需逐點訂閱。
-  useLang();
+  const lang = useLang();
   const boxes = useMemo(() => listBoxes(), []);
   // boxes[0] 保證存在：上方 side-effect import 讓 RTE 恆註冊，v1 registry 不會是空的。
   const [boxId, setBoxId] = useState<string>(() => boxes[0]!.meta.id);
@@ -227,6 +227,7 @@ export function App() {
   );
 
   const [wordmarkBefore, wordmarkEmphasis, wordmarkAfter] = emphasisParts(t('chrome.wordmark'));
+  const [langEn, langZh] = t('chrome.lang').split(' · ');
   const dimensionParams = mod.params.filter((param) => param.group.id === 'dimensions' && param.unit === 'mm');
   const readoutParams = (
     dimensionParams.length >= 3 ? dimensionParams : mod.params.filter((param) => param.unit === 'mm')
@@ -235,7 +236,7 @@ export function App() {
   const plateNumber = boxes.findIndex((box) => box.meta.id === mod.meta.id) + 1;
 
   return (
-    <div className="app">
+    <div className={lang === 'zh' ? 'app zh' : 'app'}>
       <header className="masthead">
         <h1 className="wordmark">
           {wordmarkBefore}
@@ -244,6 +245,15 @@ export function App() {
         </h1>
         <div className="meta">
           <span className="mono">{t('chrome.folio')}</span>
+          <span className="mono lang">
+            <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>
+              {lang === 'en' ? <b>{langEn}</b> : langEn}
+            </button>
+            {' · '}
+            <button type="button" aria-pressed={lang === 'zh'} onClick={() => setLang('zh')}>
+              {lang === 'zh' ? <b>{langZh}</b> : langZh}
+            </button>
+          </span>
         </div>
       </header>
 
@@ -361,7 +371,7 @@ export function App() {
           )}
         </aside>
 
-        <main className={appMode === 'design' ? 'min-h-0 flex-1 flex' : 'min-h-0 flex-1 flex overflow-y-auto p-6 bg-white'}>
+        <main className="min-h-0 flex-1 flex">
           {appMode === 'design' ? (
             <Canvas
               result={result}
@@ -378,12 +388,10 @@ export function App() {
               onCalibratingChange={setCalibrating}
             />
           ) : (
-            // T4：拼版模式主區改「toolbar 在上、結果卡在下」垂直堆疊，取代 T3 的側欄＋主區
-            // 左右分割（gate 驗收反饋「放在右側預覽區域上方」）。
-            <div className="flex-1 flex flex-col gap-4">
+            <section className="bench">
               <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
               <ImpositionResults result={result} state={impositionState} />
-            </div>
+            </section>
           )}
         </main>
       </div>

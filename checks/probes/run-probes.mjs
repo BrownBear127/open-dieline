@@ -60,7 +60,7 @@ const PROBES = [
     run: () => mutate('src/styles/vocab.css', 'font-family: "Fraunces", Georgia, serif;', 'font-family: Arial, sans-serif;'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-zh-weight', gate: 'g2-vocab',
-    run: () => mutate('src/styles/vocab.css', '.zh .label { font-size: 11px; font-weight: 400; }', '.zh .label { font-size: 11px; font-weight: 600; }'),
+    run: () => mutate('src/styles/vocab.css', '.zh .label { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 400; text-transform: none; }', '.zh .label { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 600; text-transform: none; }'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-late-override', gate: 'g2-vocab',
     run: () => append('src/index.css', '\n.masthead .wordmark { font-weight: 900; }\n'),
@@ -96,8 +96,10 @@ const PROBES = [
   { id: 'a15-drift', gate: 'a15-copy',
     run: () => mutate('src/i18n/dict.ts', "'chrome.wordmark': { en: 'Open *Dieline*'", "'chrome.wordmark': { en: 'Open *Dielines*'"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
+  // 2026-07-16 T0 retarget：mode.design（Tier A 非 lock·B3 期實證用）→ imp.err.default
+  // （B5 家族·本輪逐字化的新覆蓋面）——非 lock 值漂移類覆蓋不變，且常駐驗證附錄 B 消費路徑。
   { id: 'a15-value-drift', gate: 'a15-copy',
-    run: () => mutate('src/i18n/dict.ts', "'mode.design': { en: 'Design'", "'mode.design': { en: 'Design drift'"),
+    run: () => mutate('src/i18n/dict.ts', "'imp.err.default': { en: 'Calculation error.", "'imp.err.default': { en: 'Calculation drift."),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
 ];
 

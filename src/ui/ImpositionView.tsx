@@ -19,28 +19,13 @@
  * domain 錯誤顯示／preview cap 語意等完整契約說明見 `./ImpositionResults.tsx` 檔頭與
  * `computeImpositionView` docblock（現在的實際定義處）。
  *
- * 佈局（T4 定案，取代 T1 側欄直排暫時形態——gate 驗收反饋「放在右側預覽區域上方，把紙張
- * 規格、方向、作業模式改成按鈕形式」）：`ImpositionControls` 是掛在 App 主區、預覽正上方的
- * 橫排 toolbar（件選擇／紙規／方向／裁切／旋轉／咬口／刀線間距，分組＋icon+短 label 按鈕），
- * `ImpositionResults` 緊接在下方（工作尺寸文字＋0°/90° 兩張同等權重卡片，各自內嵌一份真實
- * 輪廓排列預覽＋界線聲明）。Tailwind 樣式沿用既有面板慣例（`LayersPanel.tsx`／
- * `ParamPanel.tsx` 的 zinc 色系、text-xs、uppercase tracking 標題、label+htmlFor 配對）；
- * toolbar 按鈕選中態沿用 `App.tsx` 模式切換鈕的 zinc 選中慣例（見 `toolbarButtonClass`）。
+ * M2 T1 起，`ImpositionControls` 採用 `vocab.css` 的 `.imp-toolbar`／`.imp-group`／`.btn.tog`
+ * 純文字儀器語彙；件選擇維持下拉，紙規、方向、裁切與旋轉的互動語義不變。
  */
 import type { GenerateResult } from '@/core/types';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
-import type { ImpositionFieldError, SheetOrientation } from '@/core/imposition';
-import {
-  IconCutH,
-  IconCutV,
-  IconLandscape,
-  IconPaper2535,
-  IconPaper2739,
-  IconPaper3143,
-  IconPaperCustom,
-  IconPortrait,
-  IconRotate,
-} from './impositionIcons';
+import type { ImpositionFieldError } from '@/core/imposition';
+import { getLang, t } from '@/i18n/t';
 import { computeImpositionView, ImpositionResults } from './ImpositionResults';
 import type { ImpositionState, ImpositionResultsProps } from './ImpositionResults';
 
@@ -60,251 +45,218 @@ export interface ImpositionViewProps {
  *  T4 掛入 App 主區 toolbar 時直接傳同一組三個 props；具名別名純為消費端的可讀性。 */
 export type ImpositionControlsProps = ImpositionViewProps;
 
-const LABEL_CLASS = 'text-[10px] uppercase tracking-wider text-zinc-400';
-const CONTROL_CLASS =
-  'w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors';
-/** toolbar 橫排後數字輸入縮窄用（T4，取代側欄直排時代的 `w-full`）：自訂紙規 W/H／咬口／
- *  gap 四個數字欄在橫排 toolbar 裡不需要、也不該撐滿一整行寬度。 */
-const NUMBER_INPUT_CLASS =
-  'w-20 bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors';
-const ERROR_TEXT_CLASS = 'text-[11px] text-red-600';
-
-const ORIENTATION_OPTIONS: { value: SheetOrientation; label: string }[] = [
-  { value: 'portrait', label: '直放' },
-  { value: 'landscape', label: '橫放' },
-];
-
-/** reason → 使用者看得懂的中文訊息。`below-min` 目前只有 `gap` 欄位會觸發（`MIN_GAP_MM`
- *  是唯一的 below-min 下限來源，見 core/imposition.ts `checkGap`），訊息直接引用該常數。 */
+/** reason → 凍結的 imp.* 字典文案。 */
 function fieldErrorMessage(reason: ImpositionFieldError['reason']): string {
   switch (reason) {
     case 'not-finite':
-      return '請輸入有效數字';
+      return t('imp.err.field.notFinite');
     case 'not-positive':
-      return '必須大於 0';
+      return t('imp.err.field.notPositive');
     case 'below-min':
-      return `不得小於 ${MIN_GAP_MM}mm`;
+      return t('imp.err.field.belowMin', { MIN_GAP_MM: String(MIN_GAP_MM) });
     case 'out-of-range':
-      return '數值超出安全範圍';
+      return t('imp.err.field.outOfRange');
     case 'internal':
-      return '內部計算錯誤';
+      return t('imp.err.field.internal');
   }
 }
 
-/** toolbar 按鈕選中/未選樣式：沿用 `App.tsx` `modeButtonClass` 的 zinc 選中慣例（選中
- *  `bg-zinc-900 text-white`、未選白底＋zinc 邊框／文字），這裡另外固定 icon+label 的橫向
- *  排列與間距。`App.tsx` 的 `modeButtonClass` 未 export，兩處各自定義同構的小函式而非
- *  互相 import——避免在「App 已單向 import ImpositionView」之上再長出反向依賴。 */
-function toolbarButtonClass(isActive: boolean): string {
-  const base = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm border text-xs font-medium whitespace-nowrap transition-colors';
-  return isActive
-    ? `${base} bg-zinc-900 border-zinc-900 text-white`
-    : `${base} bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50`;
-}
-
-/** 紙規 preset id → 對應圖示（見 `impositionIcons.tsx` 檔頭「矩形內小字」現場定案）。
- *  `PAPER_PRESETS` 的 id 是 core 端的 `string`（非字面量聯集，見 `core/imposition.ts`
- *  `PaperPreset` 介面），用 switch 而非 `Record` 查找可以避免 `noUncheckedIndexedAccess`
- *  逼出的 `| undefined` 分支——三個 case 窮舉、default 落回自訂圖示，理論上不會發生
- *  （PAPER_PRESETS 只有這三個 id）但不讓按鈕在假設之外的 id 下整顆圖示消失。 */
-function PaperPresetIcon({ id }: { id: string }) {
+function paperPresetLabel(id: string): string {
   switch (id) {
     case '31x43':
-      return <IconPaper3143 />;
+      return t('imp.sheet.preset.31x43');
     case '25x35':
-      return <IconPaper2535 />;
+      return t('imp.sheet.preset.25x35');
     case '27x39':
-      return <IconPaper2739 />;
+      return t('imp.sheet.preset.27x39');
     default:
-      return <IconPaperCustom />;
+      throw new Error(`Missing imposition preset label: ${id}`);
   }
 }
 
-/** 拼版控制面板：件選擇／紙規／方向／裁切／旋轉／咬口／刀線間距，橫排 toolbar（T4，取代
- *  T1 暫時形態的左側欄直排下拉／checkbox——gate 驗收反饋「放在右側預覽區域上方，把紙張
- *  規格、方向、作業模式改成按鈕形式（繪製好看的SVG）」）。T4 掛入 App 主區、`ImpositionResults`
- *  正上方（spec「組裝」段）；可獨立於 `ImpositionResults` 掛載，唯一互動出口是 `onChange`。
- *  裁切（cutV/cutH）不再走「作業模式」四選一下拉——兩顆獨立 toggle 按鈕直接疊加（四開＝
- *  兩個都按下），`modeValueFromCuts`/`cutsFromModeValue`/`MODE_OPTIONS` 整層映射隨舊下拉
- *  一起退役（T1 docblock 已預告，見 gate round 1 T1 commit）。件選擇維持下拉（清單長度依
- *  盒型片數浮動，按鈕組不適合）；咬口／刀線間距維持數字輸入，僅縮窄寬度。 */
+/** 七群組拼版 toolbar；所有 state 都由呼叫端持有，唯一寫入出口仍是 `onChange`。 */
 export function ImpositionControls({ result, state, onChange }: ImpositionControlsProps) {
   const { pieces, isCustomPaper, errorFor } = computeImpositionView(result, state);
+  const paperWError = errorFor('paperW');
+  const paperHError = errorFor('paperH');
+  const gripperError = errorFor('gripper');
+  const gapError = errorFor('gap');
   const update = <K extends keyof ImpositionState>(key: K, value: ImpositionState[K]): void => {
     onChange({ ...state, [key]: value });
   };
 
   return (
-    <div className="flex flex-col gap-2 p-4 bg-zinc-50 border border-zinc-200 rounded-sm">
-      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">拼版設定</h3>
-
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-        <div className="w-40 shrink-0 flex flex-col gap-1.5">
-          <span className={LABEL_CLASS}>件</span>
+    <div className="imp-toolbar" role="group" aria-label={t('imp.title')}>
+      <div className="imp-group">
+        <span className="k mono">{t('imp.piece')}</span>
+        <div className="row">
           {pieces === undefined ? (
-            <p className="text-sm text-zinc-600">整件</p>
+            <span className="label">{t('imp.piece.whole')}</span>
           ) : (
-            <select
-              aria-label="件"
-              value={state.pieceId ?? ''}
-              onChange={(e) => update('pieceId', e.target.value)}
-              className={CONTROL_CLASS}
-            >
-              {pieces.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label.zh}
-                </option>
-              ))}
-            </select>
+            <div className="boxsel">
+              <select
+                aria-label={t('imp.piece')}
+                value={state.pieceId ?? ''}
+                onChange={(event) => update('pieceId', event.target.value)}
+              >
+                {pieces.map((piece) => (
+                  <option key={piece.id} value={piece.id}>
+                    {piece.label[getLang()]}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
+      </div>
 
-        <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLASS}>紙規</span>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="紙規">
-            {PAPER_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                aria-pressed={state.paperPresetId === p.id}
-                onClick={() => update('paperPresetId', p.id)}
-                className={toolbarButtonClass(state.paperPresetId === p.id)}
-              >
-                <PaperPresetIcon id={p.id} />
-                <span>{p.label}</span>
-              </button>
-            ))}
+      <div className="imp-group">
+        <span className="k mono">{t('imp.sheet')}</span>
+        <div className="row">
+          {PAPER_PRESETS.map((preset) => (
             <button
+              key={preset.id}
               type="button"
-              aria-pressed={isCustomPaper}
-              onClick={() => update('paperPresetId', 'custom')}
-              className={toolbarButtonClass(isCustomPaper)}
+              aria-pressed={state.paperPresetId === preset.id}
+              onClick={() => update('paperPresetId', preset.id)}
+              className={`btn label tog${state.paperPresetId === preset.id ? ' on' : ''}`}
             >
-              <IconPaperCustom />
-              <span>自訂</span>
+              {paperPresetLabel(preset.id)}
             </button>
-          </div>
+          ))}
+          <button
+            type="button"
+            aria-pressed={isCustomPaper}
+            onClick={() => update('paperPresetId', 'custom')}
+            className={`btn label tog${isCustomPaper ? ' on' : ''}`}
+          >
+            {t('imp.sheet.custom')}
+          </button>
+
+          {isCustomPaper && (
+            <>
+              <div>
+                <label htmlFor="imposition-custom-w" className="k mono">
+                  {t('imp.sheet.w')}
+                </label>
+                <input
+                  id="imposition-custom-w"
+                  type="number"
+                  step="any"
+                  value={state.customW}
+                  onChange={(event) => update('customW', Number(event.target.value))}
+                  className="w-20"
+                />
+                {paperWError && <p className="mono err">{fieldErrorMessage(paperWError.reason)}</p>}
+              </div>
+              <div>
+                <label htmlFor="imposition-custom-h" className="k mono">
+                  {t('imp.sheet.h')}
+                </label>
+                <input
+                  id="imposition-custom-h"
+                  type="number"
+                  step="any"
+                  value={state.customH}
+                  onChange={(event) => update('customH', Number(event.target.value))}
+                  className="w-20"
+                />
+                {paperHError && <p className="mono err">{fieldErrorMessage(paperHError.reason)}</p>}
+              </div>
+            </>
+          )}
         </div>
+      </div>
 
-        {isCustomPaper && (
-          <div className="flex gap-2">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="imposition-custom-w" className={LABEL_CLASS}>
-                W (mm)
-              </label>
-              <input
-                id="imposition-custom-w"
-                type="number"
-                step="any"
-                value={state.customW}
-                onChange={(e) => update('customW', Number(e.target.value))}
-                className={NUMBER_INPUT_CLASS}
-              />
-              {errorFor('paperW') && <p className={ERROR_TEXT_CLASS}>{fieldErrorMessage(errorFor('paperW')!.reason)}</p>}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="imposition-custom-h" className={LABEL_CLASS}>
-                H (mm)
-              </label>
-              <input
-                id="imposition-custom-h"
-                type="number"
-                step="any"
-                value={state.customH}
-                onChange={(e) => update('customH', Number(e.target.value))}
-                className={NUMBER_INPUT_CLASS}
-              />
-              {errorFor('paperH') && <p className={ERROR_TEXT_CLASS}>{fieldErrorMessage(errorFor('paperH')!.reason)}</p>}
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLASS}>方向</span>
-          <div className="flex gap-1.5" role="group" aria-label="方向">
-            {ORIENTATION_OPTIONS.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                aria-pressed={state.orientation === o.value}
-                onClick={() => update('orientation', o.value)}
-                className={toolbarButtonClass(state.orientation === o.value)}
-              >
-                {o.value === 'portrait' ? <IconPortrait /> : <IconLandscape />}
-                <span>{o.label}</span>
-              </button>
-            ))}
-          </div>
+      <div className="imp-group">
+        <span className="k mono">{t('imp.orient')}</span>
+        <div className="row">
+          <button
+            type="button"
+            aria-pressed={state.orientation === 'portrait'}
+            onClick={() => update('orientation', 'portrait')}
+            className={`btn label tog${state.orientation === 'portrait' ? ' on' : ''}`}
+          >
+            {t('imp.orient.portrait')}
+          </button>
+          <button
+            type="button"
+            aria-pressed={state.orientation === 'landscape'}
+            onClick={() => update('orientation', 'landscape')}
+            className={`btn label tog${state.orientation === 'landscape' ? ' on' : ''}`}
+          >
+            {t('imp.orient.landscape')}
+          </button>
         </div>
+      </div>
 
-        {/* 裁切：對開 V／對開 H 各自獨立 toggle，可疊加＝四開（取代舊「作業模式」四選一，
-            見上方函式 docblock）。 */}
-        <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLASS}>裁切</span>
-          <div className="flex gap-1.5" role="group" aria-label="裁切">
-            <button
-              type="button"
-              aria-pressed={state.cutV}
-              onClick={() => update('cutV', !state.cutV)}
-              className={toolbarButtonClass(state.cutV)}
-            >
-              <IconCutV />
-              <span>對開 V</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={state.cutH}
-              onClick={() => update('cutH', !state.cutH)}
-              className={toolbarButtonClass(state.cutH)}
-            >
-              <IconCutH />
-              <span>對開 H</span>
-            </button>
-          </div>
+      <div className="imp-group">
+        <span className="k mono">{t('imp.halving')}</span>
+        <div className="row">
+          <button
+            type="button"
+            aria-pressed={state.cutV}
+            onClick={() => update('cutV', !state.cutV)}
+            className={`btn label tog${state.cutV ? ' on' : ''}`}
+          >
+            {t('imp.halving.v')}
+          </button>
+          <button
+            type="button"
+            aria-pressed={state.cutH}
+            onClick={() => update('cutH', !state.cutH)}
+            className={`btn label tog${state.cutH ? ' on' : ''}`}
+          >
+            {t('imp.halving.h')}
+          </button>
         </div>
+      </div>
 
-        {/* 可轉 90°（L 形補排）：單顆 toggle，取代 T1 的 checkbox。 */}
-        <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLASS}>旋轉</span>
+      <div className="imp-group">
+        <span className="k mono">{t('imp.rotate')}</span>
+        <div className="row">
           <button
             type="button"
             aria-pressed={state.allowRotate}
             onClick={() => update('allowRotate', !state.allowRotate)}
-            className={toolbarButtonClass(state.allowRotate)}
+            className={`btn label tog${state.allowRotate ? ' on' : ''}`}
           >
-            <IconRotate />
-            <span>可轉 90°</span>
+            {t('imp.rotate.allow')}
           </button>
         </div>
+      </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="imposition-gripper" className={LABEL_CLASS}>
-            咬口 (mm)
-          </label>
+      <div className="imp-group">
+        <label htmlFor="imposition-gripper" className="k mono">
+          {t('imp.gripper')}
+        </label>
+        <div className="row">
           <input
             id="imposition-gripper"
             type="number"
             step="any"
             value={state.gripper}
-            onChange={(e) => update('gripper', Number(e.target.value))}
-            className={NUMBER_INPUT_CLASS}
+            onChange={(event) => update('gripper', Number(event.target.value))}
+            className="w-20"
           />
-          {errorFor('gripper') && <p className={ERROR_TEXT_CLASS}>{fieldErrorMessage(errorFor('gripper')!.reason)}</p>}
+          {gripperError && <p className="mono err">{fieldErrorMessage(gripperError.reason)}</p>}
         </div>
+      </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="imposition-gap" className={LABEL_CLASS}>
-            刀線間距 (mm)
-          </label>
+      <div className="imp-group">
+        <label htmlFor="imposition-gap" className="k mono">
+          {t('imp.gutter')}
+        </label>
+        <div className="row">
           <input
             id="imposition-gap"
             type="number"
             step="any"
             value={state.gap}
-            onChange={(e) => update('gap', Number(e.target.value))}
-            className={NUMBER_INPUT_CLASS}
+            onChange={(event) => update('gap', Number(event.target.value))}
+            className="w-20"
           />
-          {errorFor('gap') && <p className={ERROR_TEXT_CLASS}>{fieldErrorMessage(errorFor('gap')!.reason)}</p>}
+          {gapError && <p className="mono err">{fieldErrorMessage(gapError.reason)}</p>}
         </div>
       </div>
     </div>

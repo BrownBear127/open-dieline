@@ -752,7 +752,7 @@ const invariants: BoxInvariant[] = [
 export const reverseTuckEnd: BoxModule = {
   meta: {
     id: 'rte',
-    name: { zh: '反插式尾封盒 (Reverse Tuck End, RTE)', en: 'Reverse Tuck End (RTE)' },
+    name: { zh: '反插式尾封盒', en: 'Reverse Tuck End (RTE)' },
     intro: {
       zh: '前後左右四片面板一字排開展開的盒型；上下蓋板各以插舌卡入摩擦扣固定開口，兩側防塵翼摺入遮擋縫隙，免膠帶封口。',
       en: 'Four front, back, left, and right panels arranged in a single flat run; top and bottom closure panels secure each opening with tucks engaged in friction locks, while the side dust flaps fold inward to cover the gaps. No sealing tape required.',
