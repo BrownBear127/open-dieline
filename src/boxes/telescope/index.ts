@@ -1220,7 +1220,7 @@ const invariants: BoxInvariant[] = [
 export const telescope: BoxModule = {
   meta: {
     id: 'telescope',
-    name: { zh: '天地盒 (Telescope Box)', en: 'Telescope Box' },
+    name: { zh: '天地盒', en: 'Telescope Box' },
     intro: {
       zh: '上蓋與下盒共用同一套免膠雙壁 tray 拓撲、上蓋依長短向分別放大套住下盒（Slice 5 F1：lidMarginX／lidMarginY 兩軸獨立，不再是單一等邊放大量）；內襯墊片放進下盒貼底，四翼向下摺成腳架把物品墊高（2026-07-09 T7 gate 反饋重定義：平台式，取代舊圍框版）。',
       en: 'Lid and base share the same glueless double-wall tray topology; the lid expands independently along the long and short axes to fit over the base (Slice 5 F1: separate lidMarginX and lidMarginY, replacing a single equal oversize). The liner pad seats against the base with four flaps folded down as legs to raise the contents, following the 2026-07-09 T7 gate redefinition from the former frame liner.',

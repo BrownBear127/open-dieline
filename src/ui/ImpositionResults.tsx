@@ -58,6 +58,8 @@ import { manufacturingPaths, computeProfileStrides } from '@/core/profile';
 import type { ProfileStrides } from '@/core/profile';
 import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
 import { segmentsToSvgD } from '@/core/path';
+import type { DictKey } from '@/i18n/dict';
+import { t } from '@/i18n/t';
 import { directionInstances, previewPaths, sectionOffsets } from './impositionPreview';
 import type { PreviewInstance } from './impositionPreview';
 
@@ -90,20 +92,16 @@ export interface ImpositionResultsProps {
   state: ImpositionState;
 }
 
-// spec F6 終裁 b（profile-spacing slice T4）：舊文案「外接矩形估算」不再準確——收縮排列下
-// 相鄰件是依輪廓間距靠齊，不是外接矩形；改用這段新措辭（spec 逐字）。
-const DISCLAIMER_TEXT = '以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。';
-
 // ─────────────────────────────────────────────────────────────────────────
 // 預覽 SVG 視覺常數（T3 全紙預覽重寫：紙張外框＋裁切中線＋每子紙咬口/可用區＋instances）
 // ─────────────────────────────────────────────────────────────────────────
 
-const SHEET_FRAME_STROKE = '#a1a1aa'; // zinc-400 附近，全紙外框
-const CUT_LINE_STROKE = '#71717a'; // zinc-500 附近，裁切中線示意
-const CUT_LINE_DASHARRAY = '10 6';
-const GRIPPER_ZONE_FILL = '#f4f4f5'; // zinc-100，咬口淡色區（每子紙全範圍）
-const USABLE_ZONE_FILL = '#ffffff'; // 可用區（扣咬口，instances 實際落點）
-const USABLE_ZONE_STROKE = '#e4e4e7'; // zinc-200
+const SHEET_FRAME_STROKE = 'var(--ink)';
+const CUT_LINE_STROKE = 'var(--hairline)';
+const CUT_LINE_DASHARRAY = '4 4';
+const GRIPPER_ZONE_FILL = 'rgba(25, 23, 18, 0.025)';
+const USABLE_ZONE_FILL = 'var(--paper)';
+const USABLE_ZONE_STROKE = 'var(--hairline)';
 
 /**
  * 紙張結構線（外框／裁切中線／可用區框）的 px 語意線寬——T3 取代舊版
@@ -116,7 +114,7 @@ const USABLE_ZONE_STROKE = '#e4e4e7'; // zinc-200
  * CSS 像素粗細；紙張結構線（不是刀模幾何本身）用獨立一組較粗的常數，純視覺分層，不影響
  * 任何數值計算（cols/rows/count/utilization 皆與這組常數無關）。
  */
-const SHEET_FRAME_STROKE_WIDTH = 2;
+const SHEET_FRAME_STROKE_WIDTH = 1;
 const CUT_LINE_STROKE_WIDTH = 1.5;
 const USABLE_ZONE_STROKE_WIDTH = 1;
 
@@ -162,11 +160,26 @@ function sectionRenders(
  */
 function workingSheetText(sheet: WorkingSheet): string {
   if (!sheet.cutV && !sheet.cutH) {
-    return `工作尺寸：${sheet.w.toFixed(1)} × ${sheet.h.toFixed(1)} mm（可用區 ${sheet.usableW.toFixed(1)} × ${sheet.usableH.toFixed(1)} mm）`;
+    return t('imp.sheet.working', {
+      sheetW: sheet.w.toFixed(1),
+      sheetH: sheet.h.toFixed(1),
+      sheetUsableW: sheet.usableW.toFixed(1),
+      sheetUsableH: sheet.usableH.toFixed(1),
+    });
   }
-  const subLabel = sheet.cutV && sheet.cutH ? '四開子紙' : '半張子紙';
-  const sub = `${sheet.w.toFixed(1)} × ${sheet.h.toFixed(1)} mm（可用 ${sheet.usableW.toFixed(1)} × ${sheet.usableH.toFixed(1)} mm）`;
-  return `全紙 ${sheet.fullW.toFixed(1)} × ${sheet.fullH.toFixed(1)} mm，${subLabel} ${sub}`;
+  const subLabel = t(sheet.cutV && sheet.cutH ? 'imp.sub.quarter' : 'imp.sub.half');
+  const sub = t('imp.sheet.subSize', {
+    sheetW: sheet.w.toFixed(1),
+    sheetH: sheet.h.toFixed(1),
+    sheetUsableW: sheet.usableW.toFixed(1),
+    sheetUsableH: sheet.usableH.toFixed(1),
+  });
+  return t('imp.sheet.workingCut', {
+    sheetFullW: sheet.fullW.toFixed(1),
+    sheetFullH: sheet.fullH.toFixed(1),
+    subLabel,
+    sub,
+  });
 }
 
 /**
@@ -178,11 +191,16 @@ function workingSheetText(sheet: WorkingSheet): string {
  */
 function directionCardText(direction: DirectionResult, sectionsCount: number, isCut: boolean, isQuarter: boolean): string {
   if (isCut) {
-    return `${isQuarter ? '每四開' : '每半張'} ${direction.count} 模 × ${sectionsCount} ＝ ${direction.totalCount} 模`;
+    return t('imp.cut.formula', {
+      per: t(isQuarter ? 'imp.per.quarter' : 'imp.per.half'),
+      count: direction.count,
+      sections: sectionsCount,
+      totalCount: direction.totalCount,
+    });
   }
   const fillCount = (direction.bottomFill?.count ?? 0) + (direction.rightFill?.count ?? 0);
-  const fillSuffix = fillCount > 0 ? ` ＋ 補 ${fillCount}` : '';
-  return `${direction.cols} 列 × ${direction.rows} 行${fillSuffix} ＝ ${direction.count} 模`;
+  const fillSuffix = fillCount > 0 ? t('imp.grid.fillSuffix', { fillCount }) : '';
+  return t('imp.grid.formula', { cols: direction.cols, rows: direction.rows, fillSuffix, count: direction.count });
 }
 
 /**
@@ -193,7 +211,7 @@ function directionCardText(direction: DirectionResult, sectionsCount: number, is
  * telescope 式零收益退化）沿用既有卡片「沒有就不顯示」慣例，與 `fillSuffix` 同一模式。
  */
 function spacingAxisLabel(axis: NonNullable<DirectionResult['spacingAxis']>): string {
-  return axis === 'rows' ? '行距輪廓收縮' : '列距輪廓收縮';
+  return t(axis === 'rows' ? 'imp.spacing.rows' : 'imp.spacing.cols');
 }
 
 /** 單一子紙的 SVG 內容：咬口淡色區＋可用區＋同一份 instances（同版複製，補排件已含在
@@ -247,8 +265,9 @@ function SectionGroup({
 }
 
 /**
- * 單一方向（0°／90°）結果卡：兩卡同等權重、無「最佳／推薦」標記（spec review F9）——
- * 兩張卡呼叫時傳入完全對稱的 props，樣式（class）逐字相同，不因方向而有任何視覺差異。
+ * 單一方向（0°／90°）結果卡。spec review F9 原「無最佳標記」已由 Phase 2 D6
+ * mock 簽核翻案：兩卡均可用且 `totalCount` 嚴格較大時，僅較大卡顯示 ◆ Best yield
+ * 徽章；相等、任一為 0 或拼版不可用時兩卡皆不標。見 plan-m2-imposition-zh。
  *
  * T3 全紙預覽重寫（gate 驗收反饋「一律顯示全紙尺寸,選擇不同的裁切方式用線條加上去
  * 示意,然後要動的只有可落版的區域」）：viewBox 恆為 `fullSheet.w×fullSheet.h`，不因
@@ -260,6 +279,7 @@ function SectionGroup({
 function DirectionCard({
   dirDeg,
   label,
+  isBest,
   direction,
   sections,
   renderedCount,
@@ -272,6 +292,7 @@ function DirectionCard({
 }: {
   dirDeg: 0 | 90;
   label: string;
+  isBest: boolean;
   direction: DirectionResult | null;
   sections: SectionRender[];
   renderedCount: number;
@@ -293,81 +314,87 @@ function DirectionCard({
   const isTruncated = direction !== null && direction.totalCount > renderedCount;
 
   return (
-    <div data-testid={`direction-card-${dirDeg}`} className="flex-1 flex flex-col gap-2 p-3 bg-white border border-zinc-200 rounded-sm">
-      <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">{label}</h4>
+    <div data-testid={`direction-card-${dirDeg}`} className="imp-card">
+      {isBest && <span className="best mono">{t('imp.best')}</span>}
+      <h4>{label}</h4>
 
-      {direction === null ? (
-        <p className="text-lg font-mono text-zinc-400">—</p>
-      ) : direction.count === 0 ? (
-        <p className="text-sm text-zinc-500">放不下</p>
-      ) : (
+      {direction === null && <p className="sub mono">{t('imp.placeholder.dash')}</p>}
+      {direction !== null && direction.count === 0 && <p className="sub mono">{t('imp.noFit')}</p>}
+      {direction !== null && direction.count > 0 && (
         <>
-          <p className="text-base font-mono text-zinc-900">{directionCardText(direction, sectionsCount, isCut, isQuarter)}</p>
-          {/* spec F6 終裁 b：移除利用率百分比（收縮排列下矩形互疊可逾 100%，指標失效，見
-              core `DirectionResult.utilization` docblock）——改顯主格點 footprint 尺寸；
-              spacingAxis 非 null 時另標收縮向（見 `spacingAxisLabel`）。 */}
-          <p className="text-xs text-zinc-500">{`主格點 footprint ${direction.usedW.toFixed(1)} × ${direction.usedH.toFixed(1)} mm`}</p>
-          {direction.spacingAxis && <p className="text-xs text-zinc-500">{spacingAxisLabel(direction.spacingAxis)}</p>}
+          <p className="sub mono">{directionCardText(direction, sectionsCount, isCut, isQuarter)}</p>
+          {direction.spacingAxis && <p className="sub mono">{spacingAxisLabel(direction.spacingAxis)}</p>}
+
+          <div className="sheet">
+            {showPreview && workingSheet && (
+              <svg viewBox={`0 0 ${fullSheet.w} ${fullSheet.h}`} role="img" aria-label={t('imp.preview.aria', { label })}>
+                {/* 全紙外框：恆顯示整張紙尺寸，不因裁切而縮小（gate 驗收反饋「一律顯示全紙尺寸」）。 */}
+                <rect
+                  data-testid="sheet-frame"
+                  x={0}
+                  y={0}
+                  width={fullSheet.w}
+                  height={fullSheet.h}
+                  fill="none"
+                  stroke={SHEET_FRAME_STROKE}
+                  strokeWidth={SHEET_FRAME_STROKE_WIDTH}
+                  vectorEffect="non-scaling-stroke"
+                />
+
+                {/* 裁切中線示意：cutV/cutH 可疊加、各自獨立判斷、四開時兩條同時畫出；中線畫在
+                    fullSheet 正中央，不是子紙邊界（spec「裁切線畫全紙中線」，取代舊版畫在
+                    workingSheet.w/h、只示意一個子紙邊界的寫法）。 */}
+                {cutV && (
+                  <line
+                    data-testid="cut-line-v"
+                    x1={fullSheet.w / 2}
+                    y1={0}
+                    x2={fullSheet.w / 2}
+                    y2={fullSheet.h}
+                    stroke={CUT_LINE_STROKE}
+                    strokeWidth={CUT_LINE_STROKE_WIDTH}
+                    strokeDasharray={CUT_LINE_DASHARRAY}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+                {cutH && (
+                  <line
+                    data-testid="cut-line-h"
+                    x1={0}
+                    y1={fullSheet.h / 2}
+                    x2={fullSheet.w}
+                    y2={fullSheet.h / 2}
+                    stroke={CUT_LINE_STROKE}
+                    strokeWidth={CUT_LINE_STROKE_WIDTH}
+                    strokeDasharray={CUT_LINE_DASHARRAY}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+
+                {sections.map((section, i) => (
+                  <SectionGroup key={i} section={section} workingSheet={workingSheet} gripper={gripper} paths={paths} />
+                ))}
+              </svg>
+            )}
+          </div>
+
+          {isTruncated && <p className="sub mono">{t('imp.previewSimplified')}</p>}
+
+          <div className="imp-stats">
+            <div>
+              <span className="k mono">{t('imp.stats.up')}</span>
+              <span className="v">{direction.totalCount}</span>
+            </div>
+            <div>
+              <span className="k mono">{t('imp.stats.footprint')}</span>
+              <span className="v">
+                {direction.usedW.toFixed(1)} × {direction.usedH.toFixed(1)}
+                <small>mm</small>
+              </span>
+            </div>
+          </div>
         </>
       )}
-
-      {showPreview && workingSheet && (
-        <svg
-          viewBox={`0 0 ${fullSheet.w} ${fullSheet.h}`}
-          role="img"
-          aria-label={`${label} 排列預覽`}
-          className="w-full border border-zinc-100 bg-white"
-        >
-          {/* 全紙外框：恆顯示整張紙尺寸，不因裁切而縮小（gate 驗收反饋「一律顯示全紙尺寸」）。 */}
-          <rect
-            data-testid="sheet-frame"
-            x={0}
-            y={0}
-            width={fullSheet.w}
-            height={fullSheet.h}
-            fill="none"
-            stroke={SHEET_FRAME_STROKE}
-            strokeWidth={SHEET_FRAME_STROKE_WIDTH}
-            vectorEffect="non-scaling-stroke"
-          />
-
-          {/* 裁切中線示意：cutV/cutH 可疊加、各自獨立判斷、四開時兩條同時畫出；中線畫在
-              fullSheet 正中央，不是子紙邊界（spec「裁切線畫全紙中線」，取代舊版畫在
-              workingSheet.w/h、只示意一個子紙邊界的寫法）。 */}
-          {cutV && (
-            <line
-              data-testid="cut-line-v"
-              x1={fullSheet.w / 2}
-              y1={0}
-              x2={fullSheet.w / 2}
-              y2={fullSheet.h}
-              stroke={CUT_LINE_STROKE}
-              strokeWidth={CUT_LINE_STROKE_WIDTH}
-              strokeDasharray={CUT_LINE_DASHARRAY}
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-          {cutH && (
-            <line
-              data-testid="cut-line-h"
-              x1={0}
-              y1={fullSheet.h / 2}
-              x2={fullSheet.w}
-              y2={fullSheet.h / 2}
-              stroke={CUT_LINE_STROKE}
-              strokeWidth={CUT_LINE_STROKE_WIDTH}
-              strokeDasharray={CUT_LINE_DASHARRAY}
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-
-          {sections.map((section, i) => (
-            <SectionGroup key={i} section={section} workingSheet={workingSheet} gripper={gripper} paths={paths} />
-          ))}
-        </svg>
-      )}
-
-      {isTruncated && <p className="text-[11px] text-amber-600">數量過大，預覽已簡化</p>}
     </div>
   );
 }
@@ -541,11 +568,12 @@ export function computeImpositionView(result: GenerateResult, state: ImpositionS
   // 各自標在對應輸入框旁，不會因為這裡改顯示 stalePiece 訊息而遺失資訊。
   // internal（深度防禦分支）與輸入無關，不誤導使用者去「確認輸入」（final review Minor）。
   const hasInternalError = generalErrors.some((e) => e.reason === 'internal');
-  const generalErrorMessage = stalePiece
-    ? '請選擇拼版的件'
-    : hasInternalError
-      ? '系統內部計算錯誤，請重新整理頁面；若持續發生請回報。'
-      : '計算發生錯誤，請確認輸入數值。';
+  let generalErrorKey: DictKey = 'imp.err.default';
+  if (stalePiece) {
+    generalErrorKey = 'imp.err.selectPiece';
+  } else if (hasInternalError) {
+    generalErrorKey = 'imp.err.internal';
+  }
 
   return {
     pieces,
@@ -565,8 +593,14 @@ export function computeImpositionView(result: GenerateResult, state: ImpositionS
     deg0RenderedCount,
     deg90RenderedCount,
     showGeneralError,
-    generalErrorMessage,
+    generalErrorKey,
   };
+}
+
+function getBestDirection(deg0: DirectionResult | null, deg90: DirectionResult | null): 0 | 90 | null {
+  if (deg0 === null || deg90 === null || deg0.totalCount === 0 || deg90.totalCount === 0) return null;
+  if (deg0.totalCount === deg90.totalCount) return null;
+  return deg0.totalCount > deg90.totalCount ? 0 : 90;
 }
 
 /** 拼版結果／預覽：整體錯誤／工作尺寸文字／0°+90° 兩張方向卡片／界線聲明。掛入 App
@@ -575,7 +609,7 @@ export function computeImpositionView(result: GenerateResult, state: ImpositionS
 export function ImpositionResults({ result, state }: ImpositionResultsProps) {
   const {
     showGeneralError,
-    generalErrorMessage,
+    generalErrorKey,
     workingSheet,
     previewPathList,
     deg0,
@@ -586,21 +620,23 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
     deg90RenderedCount,
     fullSheet,
   } = computeImpositionView(result, state);
+  const bestDirection = getBestDirection(deg0, deg90);
 
   return (
-    <div className="flex-1 flex flex-col gap-3">
+    <div className="flex-1 flex flex-col min-h-0">
       {showGeneralError && (
-        <div data-testid="imposition-general-error" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-sm p-2">
-          {generalErrorMessage}
+        <div data-testid="imposition-general-error" className="warnbar mono">
+          {t(generalErrorKey)}
         </div>
       )}
 
-      {workingSheet && <p className="text-xs text-zinc-500">{workingSheetText(workingSheet)}</p>}
+      {workingSheet && <p className="mono px-6 pt-3 opacity-60">{workingSheetText(workingSheet)}</p>}
 
-      <div className="flex gap-3">
+      <div className="imp-results">
         <DirectionCard
           dirDeg={0}
-          label="0°"
+          label={t('imp.card.0')}
+          isBest={bestDirection === 0}
           direction={deg0}
           sections={deg0Sections}
           renderedCount={deg0RenderedCount}
@@ -613,7 +649,8 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
         />
         <DirectionCard
           dirDeg={90}
-          label="90°"
+          label={t('imp.card.90')}
+          isBest={bestDirection === 90}
           direction={deg90}
           sections={deg90Sections}
           renderedCount={deg90RenderedCount}
@@ -626,7 +663,7 @@ export function ImpositionResults({ result, state }: ImpositionResultsProps) {
         />
       </div>
 
-      <p className="text-[11px] text-zinc-400 leading-relaxed">{DISCLAIMER_TEXT}</p>
+      <p className="mono px-6 pb-4 opacity-60">{t('imp.disclaimer')}</p>
     </div>
   );
 }
