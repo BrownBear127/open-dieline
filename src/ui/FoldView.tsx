@@ -5,6 +5,7 @@ import { t } from '@/i18n/t';
 import type { createFoldScene, FoldSceneHandle } from '@/ui/fold-scene';
 
 const defaultLoadScene = () => import('./fold-scene');
+const FOLD_PLAY_DURATION_MS = 2400;
 
 type FoldModelBuilder = (values: ResolvedParams) => FoldModel;
 
@@ -43,7 +44,14 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<FoldSceneHandle | null>(null);
-  const [foldProgress] = useState(1);
+  const animationFrameRef = useRef<number | null>(null);
+  const playbackStartedAtRef = useRef<number | null>(null);
+  const playbackOriginRef = useRef(1);
+  const foldProgressRef = useRef(1);
+  const autoRotateRef = useRef(true);
+  const [foldProgress, setFoldProgress] = useState(1);
+  const [playing, setPlaying] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
@@ -57,6 +65,52 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const modelRef = useRef(model);
   modelRef.current = model;
 
+  const updateFoldProgress = (nextProgress: number): void => {
+    const progress = Math.min(1, Math.max(0, nextProgress));
+    foldProgressRef.current = progress;
+    setFoldProgress(progress);
+    sceneRef.current?.updatePose(progress);
+  };
+
+  const cancelPlaybackFrame = (): void => {
+    if (animationFrameRef.current === null) return;
+    cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+  };
+
+  const stopPlayback = (): void => {
+    cancelPlaybackFrame();
+    playbackStartedAtRef.current = null;
+    setPlaying(false);
+  };
+
+  const advancePlayback = (timestamp: number): void => {
+    animationFrameRef.current = null;
+    playbackStartedAtRef.current ??= timestamp;
+    const elapsed = timestamp - playbackStartedAtRef.current;
+    const progress = Math.min(1, playbackOriginRef.current + elapsed / FOLD_PLAY_DURATION_MS);
+    updateFoldProgress(progress);
+    if (progress >= 1) {
+      playbackStartedAtRef.current = null;
+      setPlaying(false);
+      return;
+    }
+    animationFrameRef.current = requestAnimationFrame(advancePlayback);
+  };
+
+  const togglePlayback = (): void => {
+    if (playing) {
+      stopPlayback();
+      return;
+    }
+    const startProgress = foldProgressRef.current >= 1 ? 0 : foldProgressRef.current;
+    if (startProgress === 0) updateFoldProgress(0);
+    playbackOriginRef.current = startProgress;
+    playbackStartedAtRef.current = null;
+    setPlaying(true);
+    animationFrameRef.current = requestAnimationFrame(advancePlayback);
+  };
+
   useEffect(() => {
     let cancelled = false;
     void loadFoldModelRuntime().then((runtime) => {
@@ -66,6 +120,8 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => () => cancelPlaybackFrame(), []);
 
   useEffect(() => {
     if (validationErrors.length > 0) console.error(validationErrors);
@@ -116,7 +172,8 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       sceneRef.current = nextScene;
       const currentModel = modelRef.current;
       if (currentModel !== undefined) nextScene.replaceModel(currentModel);
-      nextScene.updatePose(foldProgress);
+      nextScene.updatePose(foldProgressRef.current);
+      nextScene.setAutoRotate(autoRotateRef.current);
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver((entries) => {
@@ -141,7 +198,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
         scene.dispose();
       }
     };
-  }, [canCreateScene, createScene, foldProgress, loadScene]);
+  }, [canCreateScene, createScene, loadScene]);
 
   if (modelRuntime !== null && (builder === undefined || validationErrors.length > 0)) {
     return <FoldEmpty copy={t('fold.unsupported')} />;
@@ -156,6 +213,37 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   ) : (
     <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
       <canvas className="fold-canvas" ref={canvasRef} />
+      <div className="foldbar" role="group" aria-label={t('fold.controls.aria')}>
+        <button type="button" className="btn label" onClick={togglePlayback}>
+          {t(playing ? 'fold.pause' : 'fold.play')}
+        </button>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.001"
+          aria-label={t('fold.progress.aria')}
+          value={foldProgress}
+          onChange={(event) => {
+            stopPlayback();
+            updateFoldProgress(Number(event.target.value));
+          }}
+        />
+        <label className="compat mono">
+          <input
+            type="checkbox"
+            className="tick"
+            checked={autoRotate}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              autoRotateRef.current = enabled;
+              setAutoRotate(enabled);
+              sceneRef.current?.setAutoRotate(enabled);
+            }}
+          />
+          {t('fold.autorotate')}
+        </label>
+      </div>
     </section>
   );
 }
