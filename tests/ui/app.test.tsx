@@ -358,7 +358,8 @@ describe('App 冒煙測試', () => {
     const css = readFileSync('src/styles/vocab.css', 'utf8');
 
     expect(css).toContain(`/* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
-     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
+     line-height：mock 未宣告＝UA normal；M3 matrix 修訂顯式 1.2——normal 隨
+     fallback 字體漂移·zh 幾何等式前提·裁決 2026-07-16。 */
   body {
     min-height: 100dvh;
     display: flex; justify-content: center; align-items: center;
@@ -371,7 +372,7 @@ describe('App 冒煙測試', () => {
     font-optical-sizing: auto;
     font-synthesis: none; /* Spec §7：全域防止瀏覽器合成字重與斜體。 */
     -webkit-font-smoothing: antialiased;
-    line-height: normal;`);
+    line-height: 1.2;`);
     expect(css).toContain('height: calc(100dvh - 2 * clamp(24px, 8vh, 150px)); min-height: 640px;');
     expect(css).toContain('2026-07-16 裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂');
   });
