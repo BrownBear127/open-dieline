@@ -1023,11 +1023,12 @@ const invariants: BoxInvariant[] = [
       // FX4：baseLength/baseWidth/lidMarginX/lidMarginY 這些字串本身有效（同時是 index.ts
       // 自己蓋的 dimension path tag，見上方檔頭註解），但真正退化的幾何是插底舌本身，補上
       // 'tongueFlap'（tray.ts buildTongueFlap 的 tag）讓高亮同時點出實際自撞的那段輪廓。
+      // enLabel＝tierb-en-draft.md 附錄 A（2026-07-16 法蘭裁決·left/right・front/back）逐字
       const checks: Array<[string, string, number, string[], number]> = [
-        ['base 片左右壁的插底舌所在邊 baseLength', 'baseLength', baseLength, ['baseLength', 'tongueFlap'], baseLongWallMin],
-        ['base 片前後壁的插底舌所在邊 baseWidth', 'baseWidth', baseWidth, ['baseWidth', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
-        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', 'baseLength+2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap'], lidLongWallMin],
-        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', 'baseWidth+2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
+        ['base 片左右壁的插底舌所在邊 baseLength', 'Tongue edge of the base left/right walls, baseLength', baseLength, ['baseLength', 'tongueFlap'], baseLongWallMin],
+        ['base 片前後壁的插底舌所在邊 baseWidth', 'Tongue edge of the base front/back walls, baseWidth', baseWidth, ['baseWidth', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
+        ['lid 片左右壁的插底舌所在邊 baseLength＋2×lidMarginY', 'Tongue edge of the lid left/right walls, baseLength+2×lidMarginY', baseLength + 2 * lidMarginY, ['baseLength', 'lidMarginY', 'tongueFlap'], lidLongWallMin],
+        ['lid 片前後壁的插底舌所在邊 baseWidth＋2×lidMarginX', 'Tongue edge of the lid front/back walls, baseWidth+2×lidMarginX', baseWidth + 2 * lidMarginX, ['baseWidth', 'lidMarginX', 'tongueFlap'], MIN_TONGUE_PERP_HALF],
       ];
       for (const [zhLabel, enLabel, edge, tags, minPerpHalf] of checks) {
         if (edge / 2 < minPerpHalf) {
