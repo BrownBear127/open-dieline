@@ -1428,7 +1428,12 @@ describe('telescope: pieces 分組（linerEnabled 開關／pieces-identity 防�
       }),
     };
     const inv = telescope.invariants.find((i) => i.id === 'pieces-identity')!;
-    expect(inv.check(params, swapped)).toMatchObject({ ok: false });
+    const outcome = inv.check(params, swapped);
+    expect(outcome).toMatchObject({ ok: false });
+    if (!outcome.ok) {
+      expect(outcome.message.en).not.toMatch(/[一-鿿]/u);
+      expect(outcome.message.en).toMatch(/^baseWidth main panel measures /);
+    }
   });
 });
 
@@ -1931,14 +1936,14 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
       pieces: [
         {
           id: 'base',
-          label: { zh: '下盒' },
+          label: { zh: '下盒', en: 'Base' },
           pathIds: ['b-root-l', 'b-top-l', 'b-root-back', 'b-top-back'],
           textIds: [],
           bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },
         },
         {
           id: 'lid',
-          label: { zh: '上蓋' },
+          label: { zh: '上蓋', en: 'Lid' },
           pathIds: ['b-root-l', 'b-top-l', 'b-root-back', 'b-top-back'],
           textIds: [],
           bounds: { minX: -20, maxX: 5, minY: -8, maxY: 8.3 },

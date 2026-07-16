@@ -84,7 +84,7 @@ describe('manufacturingPaths', () => {
   it('帶 piece 時：額外用 piece.pathIds 縮小子集（同時滿足型別與 pathIds 兩個條件）', () => {
     const piece: DielinePiece = {
       id: 'only-cut-and-dimension',
-      label: { zh: '測試片' },
+      label: { zh: '測試片', en: 'Test piece' },
       pathIds: ['p-cut', 'p-dimension'], // 刻意混一個非幾何型別，驗證型別過濾仍然生效
       textIds: [],
       bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 },

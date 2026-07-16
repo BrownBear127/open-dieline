@@ -29,8 +29,25 @@
      （新 context＝app 側欄/工具列；語彙件逐字、尺寸為衍生值）
      ═══════════════════════════════════════════════════════════════ */
   /* — app 外框 — */
+  /* html 也上 paper：overscroll／彈性回彈區跟著 canvas 底色走，避免 dark mode 黑邊 */
+  html { background: var(--paper); }
+  /* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
+     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
+  body {
+    min-height: 100dvh;
+    display: flex; justify-content: center; align-items: center;
+    background: var(--paper);
+  }
+  #root { width: 100%; }
   .app {
-    max-width: 1280px; margin: 0 auto; height: 88vh; min-height: 640px;
+    color: var(--ink);
+    font-family: "Fraunces", Georgia, serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    line-height: normal;
+    /* 2026-07-16 裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂。 */
+    max-width: 1280px; margin: 0 auto;
+    height: calc(100dvh - 2 * clamp(24px, 8vh, 150px)); min-height: 640px;
     border: 1px solid var(--ink);
     display: grid; grid-template-rows: auto auto 1fr auto;
     background: var(--paper);
@@ -70,6 +87,8 @@
   .mode.on { color: var(--ink); border-bottom-color: var(--cut); } /* 現行模式＝紅 cut 底線 */
   .moderow .readout { color: var(--ink-soft); }
   .moderow .readout b { color: var(--ink); font-weight: 500; }
+  /* M1 T4 裁決：About／Reset all 置於 moderow 右側、緊鄰 readout。 */
+  .moderow .acts { display: inline-flex; align-items: center; gap: 8px; margin-left: 18px; }
 
   /* — 主區：console 側欄 320px＋畫布 — */
   .main { display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
@@ -78,7 +97,9 @@
     overflow-y: auto; min-height: 0;
     display: flex; flex-direction: column;
   }
-  .sect { padding: 16px 20px 18px; border-bottom: 1px dashed var(--hairline); }
+  /* position: relative＝sr-only（absolute）input 的 containing block 錨回自己的 section——
+     否則其 static position 直落 body 座標系、逃出 .console 剪裁，把頁面撐出千px 幽靈捲動 */
+  .sect { padding: 16px 20px 18px; border-bottom: 1px dashed var(--hairline); position: relative; }
   .sect-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
   .sect-head .label { color: var(--ink); }
   .sect-head .mono { color: var(--ink-soft); }
@@ -93,12 +114,85 @@
     font-variation-settings: "opsz" 60;
     color: var(--ink); cursor: pointer;
   }
+  .boxsel select:focus-visible { outline: 1px solid var(--cut); outline-offset: 2px; }
   .boxsel::after { content: "▾"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--ink-soft); pointer-events: none; }
 
   /* 參數件：slice-d console .param 的直排版（label/output 語彙逐字，尺寸衍生） */
   .param { padding: 10px 0 6px; }
   .param + .param { border-top: 1px dashed var(--hairline); }
   .param label { display: block; color: var(--ink-soft); margin-bottom: 4px; }   /* mono 掛 class */
+  .param-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .param-head label { margin-bottom: 0; }
+  .param-reset {
+    flex: none; border: 0; padding: 0; background: transparent;
+    font-family: "IBM Plex Mono", monospace; font-size: 13px; line-height: 1;
+    color: var(--ink-soft); cursor: pointer;
+  }
+  .param-reset:hover, .param-reset:focus-visible { color: var(--cut); }
+  .param-control { color: var(--ink-soft); }
+  .param-control.is-overridden { color: var(--ink); }
+  .param input[type="number"] {
+    width: 100%; padding: 1px 0 7px;
+    border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+    background: transparent;
+    font-family: "Fraunces", serif; font-size: 28px; font-weight: 340;
+    font-variation-settings: "opsz" 60; font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .param input[type="number"]:focus { outline: none; border-bottom-color: var(--ink); }
+  .param-select select { padding: 7px 30px 7px 9px; font-size: 15px; }
+  .param-select::after { right: 9px; }
+
+  /* 2026-07-16 裁決·mock 無 picker 設計=衍生件。 */
+  @supports (appearance: base-select) {
+    .boxsel select,
+    .param-select select {
+      appearance: base-select;
+    }
+    .boxsel select::picker(select) {
+      appearance: base-select;
+      margin: 0;
+      position-area: block-end span-inline-end;
+      background: var(--paper);
+      border: 1px solid var(--ink); border-radius: 0;
+      box-shadow: none;
+    }
+    .param-select select::picker(select) {
+      appearance: base-select;
+      margin: 0;
+      position-area: block-end span-inline-end;
+      background: var(--paper);
+      border: 1px solid var(--ink); border-radius: 0;
+      box-shadow: none;
+    }
+    .boxsel select option,
+    .param-select select option {
+      padding: 9px 14px;
+      font-family: "Fraunces", serif; font-size: 17px; font-weight: 420;
+      font-variation-settings: "opsz" 60;
+      color: var(--ink);
+    }
+    .boxsel select option:hover,
+    .boxsel select option:focus,
+    .param-select select option:hover,
+    .param-select select option:focus { background: var(--ink); color: var(--paper); }
+    .boxsel select option:checked,
+    .param-select select option:checked { box-shadow: inset 3px 0 var(--cut); }
+    .boxsel select option::checkmark { display: none; }
+    .param-select select option::checkmark { display: none; }
+    /* base-select 預設 ::picker-icon 會與 .boxsel::after 的 ▾ 疊出雙箭頭——藏預設、留 vocab ▾ */
+    .boxsel select::picker-icon { display: none; }
+    .param-select select::picker-icon { display: none; }
+  }
+
+  .param input.tick {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; margin: 3px 0 2px;
+    border: 1px solid var(--ink); border-radius: 0;
+    background: transparent; cursor: pointer;
+  }
+  .param input.tick:checked { background: var(--ink); box-shadow: inset 0 0 0 2px var(--paper); }
+  .param input.tick:focus-visible { outline: 1px solid var(--cut); outline-offset: 2px; }
   .param output {
     display: block;
     font-family: "Fraunces", serif;        /* slice-d:185-194（逐字：family/weight/opsz/tabular） */
@@ -146,6 +240,23 @@
     color: var(--cut);
   }
   .warnbar .n { color: var(--ink-soft); }
+  /* M1 T7 裁決：mock 無校準提示條，以 warnbar 的 mono 儀器列幾何衍生。 */
+  .calibrate-bar {
+    display: flex; gap: 18px; align-items: center;
+    padding: 8px 24px;
+    border-bottom: 1px dashed var(--hairline);
+    color: var(--ink);
+  }
+  .calibrate-bar form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .calibrate-bar input {
+    width: 88px; padding: 4px 6px;
+    border: 1px solid var(--hairline); border-radius: 0;
+    background: transparent; color: var(--ink);
+    font: inherit; text-align: right;
+  }
+  .calibrate-bar input:focus { outline: 1px solid var(--cut); outline-offset: 1px; }
+  .calibrate-bar .btn { padding: 5px 9px; }
+  .calibrate-bar .error { color: var(--cut); }
   .drawing { flex: 1; position: relative; padding: 36px; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
   /* 四角量規 — slice-d:163-175（逐字：14px、1px、16px 內距） */
   .drawing::before, .drawing::after,
@@ -160,6 +271,8 @@
   .drawing svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; }
   .plate-label { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: var(--ink-soft); }  /* slice-d:177 */
   .legend { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 24px; color: var(--ink-soft); } /* slice-d:178-180 */
+  /* M1 E2E fix wave 裁決：浮層語意高於可平移／縮放的 SVG，確保控制項不被攔截。 */
+  .plate-label, .legend, .zoom { z-index: 1; }
   .legend i { display: inline-block; width: 26px; height: 0; border-top: 1.5px solid var(--cut); vertical-align: middle; margin-right: 7px; }
   .legend .crease-key i { border-top: 1.5px dashed var(--crease); }
   .zoom { position: absolute; bottom: 20px; right: 24px; color: var(--ink-soft); display: flex; gap: 14px; align-items: center; }
@@ -213,6 +326,15 @@
   }
   .imp-stats .v small { font-size: 0.42em; font-style: italic; font-weight: 400; color: var(--ink-soft); }
 
+  /* M1 T9 衍生件：來源=typography-matrix.md #25（逐字值）。 */
+  .modal-body {
+    font-family: "Fraunces", serif;
+    font-size: 15.5px;
+    font-weight: 400;
+    font-variation-settings: "opsz" 14;
+    line-height: 1.65;
+  }
+
   /* — zh 對照件：幾何全同 EN，只換字面與字型 — */
   .zh .label, .zh .mono-cjk { font-family: "Noto Serif TC", serif; letter-spacing: 0.12em; text-transform: none; }
   .zh .label { font-size: 11px; font-weight: 600; }
@@ -225,4 +347,3 @@
 @font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex-mono.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex-mono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
 @font-face { font-family: "Noto Serif TC"; src: url("/fonts/noto-serif-tc-subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-

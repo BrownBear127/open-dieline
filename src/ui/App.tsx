@@ -89,6 +89,7 @@ import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementMod
 import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
+import { getLang, t } from '@/i18n/t';
 
 /** 頂部模式切換鈕的兩個狀態（Slice 4 Task 4，spec F6／「組裝」）：`'design'`＝現行的
  *  刀模設計流程（ParamPanel＋LayersPanel＋ExportBar＋Canvas）；`'imposition'`＝拼版估算
@@ -96,13 +97,12 @@ import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
  *  docblock「appMode／impositionState」一節的完整說明）。 */
 type AppMode = 'design' | 'imposition';
 
-/** 模式切換鈕樣式：選定＝黑底白字，未選定＝透明底＋zinc 文字——比照 `Canvas.tsx` 的
- *  `switcherButtonClass`（視圖切換鈕）同一種「選定用實心黑」配色慣例，容器另外包一層
- *  zinc-100 底做成 segmented control 觀感，跟旁邊「關於」/「重設全部」的純文字小鈕區分開
- *  （這兩顆是唯一決定側欄下半部與主區渲染內容的鈕，需要比純文字鈕更高的視覺權重）。 */
-function modeButtonClass(isActive: boolean): string {
-  const base = 'flex-1 px-3 py-1.5 rounded-sm text-xs font-medium transition-colors';
-  return isActive ? `${base} bg-black text-white shadow-sm` : `${base} text-zinc-500 hover:text-zinc-900`;
+function emphasisParts(copy: string): [before: string, emphasis: string, after: string] {
+  const match = /^(.*?)\*([^*]+)\*(.*)$/.exec(copy);
+  if (match === null) {
+    throw new Error(`Expected one emphasized segment in copy: ${copy}`);
+  }
+  return [match[1]!, match[2]!, match[3]!];
 }
 
 export function App() {
@@ -121,8 +121,8 @@ export function App() {
     overlayIdCounterRef.current += 1;
     return `overlay-${overlayIdCounterRef.current}`;
   };
-  // v0.2.0 宣告視窗：跟 layersState/selectedPieceId 同一個提升理由——header 的
-  // 「關於」鈕與 modal 本體是平行的兄弟位置（一個在 aside 頂部，一個要蓋在整個畫面上），
+  // v0.2.0 宣告視窗：跟 layersState/selectedPieceId 同一個提升理由——moderow 的
+  // About 鈕與 modal 本體是平行的兄弟位置（一個在頂部 chrome，一個要蓋在整個畫面上），
   // 只能靠共同父層的 state 同步開關。惰性初始值只在掛載當下讀一次 localStorage：
   // 首次訪問（未關過）預設開啟，關過的訪客重新整理後不會再自動彈出。
   const [announcementOpen, setAnnouncementOpen] = useState(() => !isAnnouncementDismissed());
@@ -223,42 +223,40 @@ export function App() {
     [mod, values, result],
   );
 
-  return (
-    <div className="flex h-screen bg-white text-zinc-900 overflow-hidden">
-      <aside className="w-[320px] flex-shrink-0 flex flex-col gap-2.5 overflow-y-auto p-3 border-r border-zinc-200">
-        <div className="flex items-center justify-between">
-          <h1 className="text-sm font-bold uppercase tracking-widest text-zinc-900">open-dieline</h1>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setAnnouncementOpen(true)}
-              title="重新開啟專案介紹"
-              className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-blue-600"
-            >
-              關於
-            </button>
-            <button
-              type="button"
-              onClick={reset}
-              title="清除全部參數覆寫，回到預設值"
-              className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-blue-600"
-            >
-              重設全部
-            </button>
-          </div>
-        </div>
+  const [wordmarkBefore, wordmarkEmphasis, wordmarkAfter] = emphasisParts(t('chrome.wordmark'));
+  const dimensionParams = mod.params.filter((param) => param.group.id === 'dimensions' && param.unit === 'mm');
+  const readoutParams = (
+    dimensionParams.length >= 3 ? dimensionParams : mod.params.filter((param) => param.unit === 'mm')
+  ).slice(0, 3);
+  const readoutDimensions = readoutParams.map((param) => String(values[param.key])).join(' × ');
+  const plateNumber = boxes.findIndex((box) => box.meta.id === mod.meta.id) + 1;
 
-        {/* 模式切換（Slice 4 Task 4，spec「組裝」段）：見檔頭 docblock「appMode／impositionState」
-            一節。進拼版模式額外退出 calibrating（F6「校準互斥」）；離開/返回設計模式沒有任何
-            程式碼路徑把 calibrating 設回 true，故不會「復活」。 */}
-        <div className="flex gap-1 p-1 bg-zinc-100 rounded-sm" role="group" aria-label="模式切換">
+  return (
+    <div className="app">
+      <header className="masthead">
+        <h1 className="wordmark">
+          {wordmarkBefore}
+          <em>{wordmarkEmphasis}</em>
+          {wordmarkAfter}
+        </h1>
+        <div className="meta">
+          <span className="mono">{t('chrome.folio')}</span>
+        </div>
+      </header>
+
+      <div className="moderow">
+        {/* 模式切換（Slice 4 Task 4，spec「組裝」段）：見檔頭 docblock「appMode／
+            impositionState」一節。進拼版模式額外退出 calibrating（F6「校準互斥」）；離開／
+            返回設計模式沒有任何程式碼路徑把 calibrating 設回 true，故不會「復活」。 */}
+        <div className="modes" role="group" aria-label={t('chrome.modeSwitch.aria')}>
+          <span className="k label">{t('chrome.mode')}</span>
           <button
             type="button"
             onClick={() => setAppMode('design')}
             aria-pressed={appMode === 'design'}
-            className={modeButtonClass(appMode === 'design')}
+            className={`mode label${appMode === 'design' ? ' on' : ''}`}
           >
-            刀模設計
+            {t('mode.design')}
           </button>
           <button
             type="button"
@@ -267,57 +265,87 @@ export function App() {
               setCalibrating(false);
             }}
             aria-pressed={appMode === 'imposition'}
-            className={modeButtonClass(appMode === 'imposition')}
+            className={`mode label${appMode === 'imposition' ? ' on' : ''}`}
           >
-            拼版估算
+            {t('mode.imposition')}
           </button>
         </div>
 
-        <div className="flex flex-col gap-1 p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
-          <label htmlFor="box-select" className="text-[10px] uppercase tracking-wider text-zinc-400">
-            盒型
-          </label>
-          <select
-            id="box-select"
-            value={boxId}
-            onChange={(e) => {
-              setBoxId(e.target.value);
-              // 切盒型時視圖重置回全版：不同盒型的 pieces id 集合互不相干，殘留舊 selectedPieceId
-              // 可能剛好對不到任何片（activePiece 防呆會擋下 crash），也可能巧合撞到新盒型裡
-              // 同名的 piece id 卻渲染錯的內容——兩種情況都不是使用者切盒型時預期的行為，直接
-              // 重置最單純。
-              setSelectedPieceId(null);
-              // 拼版件選擇同步失效（review Medium 1 fix round 1）：不能只靠下面 fallback effect
-              // 的 stillValid 檢查決定——若新盒型的非首片剛好沿用舊 id（如天地盒的 'lid'；registry
-              // 是公開擴充介面，未來新增的多片盒型與現有盒型撞 id 不是抽象假設），stillValid 會
-              // 誤判「仍合法」而讓選擇停留在同名新片，違反 F6「切盒即第一片」。「切盒」這個事件
-              // 本身在這裡同步觸發歸位：先清為 null，交給下面的 fallback effect 依新
-              // `result.pieces` 收斂（多片盒型→pieces[0]；RTE→null），不依賴舊 id 巧合失效。
-              setImpositionState((prev) => ({ ...prev, pieceId: null }));
-            }}
-            className="w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors"
-          >
-            {boxes.map((b) => (
-              <option key={b.meta.id} value={b.meta.id}>
-                {b.meta.name.zh}
-              </option>
-            ))}
-          </select>
+        <div className="readout mono">
+          <span>
+            {mod.meta.name[getLang()]} · <b>{readoutDimensions} mm</b>
+          </span>
+          <span className="acts">
+            <button
+              type="button"
+              onClick={() => setAnnouncementOpen(true)}
+              title={t('chrome.about.title')}
+              className="btn label"
+            >
+              {t('chrome.about')}
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              title={t('chrome.resetAll.title')}
+              className="btn label"
+            >
+              {t('chrome.resetAll')}
+            </button>
+          </span>
         </div>
+      </div>
 
-        <ParamPanel
-          params={mod.params}
-          values={values}
-          overriddenKeys={overriddenKeys}
-          onChange={setValue}
-          onResetOne={resetOne}
-          onHighlight={setHighlightTags}
-        />
+      <div className="main">
+        <aside className="console">
+          <section className="sect">
+            <div className="sect-head">
+              <label htmlFor="box-select" className="label">
+                {t('console.boxStyle')}
+              </label>
+              <span className="mono">{t('console.styles.count', { n: boxes.length })}</span>
+            </div>
+            <div className="boxsel">
+              <select
+                id="box-select"
+                value={boxId}
+                onChange={(e) => {
+                  setBoxId(e.target.value);
+                  // 切盒型時視圖重置回全版：不同盒型的 pieces id 集合互不相干，殘留舊 selectedPieceId
+                  // 可能剛好對不到任何片（activePiece 防呆會擋下 crash），也可能巧合撞到新盒型裡
+                  // 同名的 piece id 卻渲染錯的內容——兩種情況都不是使用者切盒型時預期的行為，直接
+                  // 重置最單純。
+                  setSelectedPieceId(null);
+                  // 拼版件選擇同步失效（review Medium 1 fix round 1）：不能只靠下面 fallback effect
+                  // 的 stillValid 檢查決定——若新盒型的非首片剛好沿用舊 id（如天地盒的 'lid'；registry
+                  // 是公開擴充介面，未來新增的多片盒型與現有盒型撞 id 不是抽象假設），stillValid 會
+                  // 誤判「仍合法」而讓選擇停留在同名新片，違反 F6「切盒即第一片」。「切盒」這個事件
+                  // 本身在這裡同步觸發歸位：先清為 null，交給下面的 fallback effect 依新
+                  // `result.pieces` 收斂（多片盒型→pieces[0]；RTE→null），不依賴舊 id 巧合失效。
+                  setImpositionState((prev) => ({ ...prev, pieceId: null }));
+                }}
+              >
+                {boxes.map((box) => (
+                  <option key={box.meta.id} value={box.meta.id}>
+                    {box.meta.name[getLang()]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
 
-        {/* 拼版模式下側欄不再渲染任何拼版專屬元件（T4：`ImpositionControls` 搬到主區
-            toolbar，見下方 `<main>`）——側欄只剩上方共用的 ParamPanel／盒型選擇。 */}
-        {appMode === 'design' && (
-          <>
+          <ParamPanel
+            params={mod.params}
+            values={values}
+            overriddenKeys={overriddenKeys}
+            onChange={setValue}
+            onResetOne={resetOne}
+            onHighlight={setHighlightTags}
+          />
+
+          {/* 拼版模式下側欄不再渲染任何拼版專屬元件（T4：`ImpositionControls` 搬到主區
+              toolbar，見下方 `<main>`）——側欄只剩上方共用的 ParamPanel／盒型選擇。 */}
+          {appMode === 'design' && (
             <LayersPanel
               layers={layersState}
               onLayersChange={setLayersState}
@@ -327,34 +355,39 @@ export function App() {
               onCalibratingChange={setCalibrating}
               createOverlayId={createOverlayId}
             />
+          )}
+        </aside>
 
-            <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
-          </>
-        )}
-      </aside>
+        <main className={appMode === 'design' ? 'min-h-0 flex-1 flex' : 'min-h-0 flex-1 flex overflow-y-auto p-6 bg-white'}>
+          {appMode === 'design' ? (
+            <Canvas
+              result={result}
+              plateNumber={plateNumber}
+              boxName={mod.meta.name}
+              invariantCount={mod.invariants.length}
+              highlightTags={highlightTags}
+              invariantWarnings={invariantWarnings}
+              activePiece={activePiece}
+              onSelectPiece={setSelectedPieceId}
+              layers={layersState}
+              onLayersChange={setLayersState}
+              calibrating={calibrating}
+              onCalibratingChange={setCalibrating}
+            />
+          ) : (
+            // T4：拼版模式主區改「toolbar 在上、結果卡在下」垂直堆疊，取代 T3 的側欄＋主區
+            // 左右分割（gate 驗收反饋「放在右側預覽區域上方」）。
+            <div className="flex-1 flex flex-col gap-4">
+              <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
+              <ImpositionResults result={result} state={impositionState} />
+            </div>
+          )}
+        </main>
+      </div>
 
-      <main className={appMode === 'design' ? 'flex-1 flex' : 'flex-1 flex overflow-y-auto p-6 bg-white'}>
-        {appMode === 'design' ? (
-          <Canvas
-            result={result}
-            highlightTags={highlightTags}
-            invariantWarnings={invariantWarnings}
-            activePiece={activePiece}
-            onSelectPiece={setSelectedPieceId}
-            layers={layersState}
-            onLayersChange={setLayersState}
-            calibrating={calibrating}
-            onCalibratingChange={setCalibrating}
-          />
-        ) : (
-          // T4：拼版模式主區改「toolbar 在上、結果卡在下」垂直堆疊，取代 T3 的側欄＋主區
-          // 左右分割（gate 驗收反饋「放在右側預覽區域上方」）。
-          <div className="flex-1 flex flex-col gap-4">
-            <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
-            <ImpositionResults result={result} state={impositionState} />
-          </div>
-        )}
-      </main>
+      {appMode === 'design' && (
+        <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
+      )}
 
       <AnnouncementModal open={announcementOpen} onClose={() => setAnnouncementOpen(false)} />
     </div>

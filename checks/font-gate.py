@@ -30,10 +30,10 @@
 #     four axes exactly as shipped upstream (frozen baseline).
 #  3. Glyph coverage: every character in charset.json's latin/cjk union must exist in the
 #     cmap of the faces allowed to cover it (latin → Familjen/Plex/Fraunces union; cjk →
-#     Noto). Documented exception: ▾ (U+25BE, vocab.css `.boxsel::after`) — six-face scan
-#     (T8) found no upstream face has this glyph; 2026-07-16 裁決 = accept system-font
-#     fallback (decorative-only, not text content). Skipped from the failure set but
-#     printed, not silently dropped (same lesson as the site version's ✕ precedent).
+#     Noto). Documented exceptions: ▾ (U+25BE, vocab.css `.boxsel::after`) and ◆
+#     (U+25C6, the decorative prefix in `imp.best`) — the six-face scan found no upstream
+#     face has either glyph. System-font fallback is allowed for these decorative-only
+#     marks. They are skipped from the failure set but printed, not silently dropped.
 
 import json
 import re
@@ -73,10 +73,11 @@ FRAUNCES_AXES = {  # tag: (min, default, max) — frozen baseline, both roman an
 
 EXEMPT = {"­", "​", "‌", "‍", "﻿"}  # soft hyphen + zero-widths
 
-# 裁決（2026-07-16）：▾（U+25BE·vocab.css .boxsel::after 下拉箭頭）六 face 全無 glyph
-# （T8 全量掃描實測），核可走系統字體 fallback（純裝飾用途、非文字內容）。coverage 檢查
-# 跳過這個集合的成員，但顯性印出一行，不讓它靜默漏過（同站群 ✕ 教訓）。
-DECORATIVE_FALLBACK_OK = {"▾"}
+# 裁決（2026-07-16）：▾（U+25BE·vocab.css .boxsel::after 下拉箭頭）六 face 全無 glyph，
+# 核可走系統字體 fallback。M1 Task 1 新增：◆（U+25C6）是 inventory `imp.best` 的裝飾前綴，
+# 六 face 同樣全無 glyph；可讀文字「Best yield」仍由指定 face 承載。coverage 檢查跳過這些
+# 裝飾符號，但顯性印出一行，不讓它們靜默漏過。
+DECORATIVE_FALLBACK_OK = {"▾", "◆"}
 
 failures = []
 

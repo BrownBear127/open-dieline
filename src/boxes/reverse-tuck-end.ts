@@ -36,92 +36,107 @@ import { GLUE_CHAMFER, LOCK_CHAMFER, frictionLock, reliefSlot, dimensionLine } f
 const params: BoxParamDef[] = [
   {
     key: 'L',
-    label: { zh: '長度 (L)' },
+    label: { zh: '長度 (L)', en: 'Length (L)' },
     unit: 'mm',
     default: 55,
     min: 20,
     max: 500,
     step: 1,
-    group: { zh: '尺寸與材質' },
-    description: { zh: '成品的長邊內尺寸，決定前後兩片面板（P1、P3）的寬度，是整體外觀比例的主要來源。' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
+    description: {
+      zh: '成品的長邊內尺寸，決定前後兩片面板（P1、P3）的寬度，是整體外觀比例的主要來源。',
+      en: 'Finished long-side inside dimension; sets the width of the front and back panels (P1 and P3) and establishes the box’s overall proportions.',
+    },
     highlightTags: ['L'],
   },
   {
     key: 'W',
-    label: { zh: '寬度 (W)' },
+    label: { zh: '寬度 (W)', en: 'Width (W)' },
     unit: 'mm',
     default: 55,
     min: 20,
     max: 500,
     step: 1,
-    group: { zh: '尺寸與材質' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
     description: {
       zh: '成品的短邊內尺寸，決定左右兩片側板（P2、P4）的寬度；同一個數字也決定上下蓋板要多高才能完全蓋住開口——蓋板高＝W。',
+      en: 'Finished short-side inside dimension; sets the width of the left and right side panels (P2 and P4) and the height required for the top and bottom closure panels to cover the opening fully—panel height = W.',
     },
     highlightTags: ['W'],
   },
   {
     key: 'D',
-    label: { zh: '深度 (D)' },
+    label: { zh: '深度 (D)', en: 'Depth (D)' },
     unit: 'mm',
     default: 117,
     min: 20,
     max: 500,
     step: 1,
-    group: { zh: '尺寸與材質' },
-    description: { zh: '盒身的高度（開口到底部的距離），決定四片主面板與所有直向摺線的長度。' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
+    description: {
+      zh: '盒身的高度（開口到底部的距離），決定四片主面板與所有直向摺線的長度。',
+      en: 'Body depth, measured from the opening to the base; sets the length of all four main panels and every vertical crease.',
+    },
     highlightTags: ['D'],
   },
   {
     key: 'thickness',
-    label: { zh: '紙厚' },
+    label: { zh: '紙厚', en: 'Board caliper' },
     unit: 'mm',
     default: 0.3,
     min: 0,
     max: 0.8,
     step: 0.1,
-    group: { zh: '尺寸與材質' },
+    group: { id: 'dimensions', zh: '尺寸與材質', en: 'Dimensions & board' },
     description: {
       zh: '紙張厚度（caliper）。盒身面板依摺次遞增補償、插舌與讓位間隙隨之調整；設 0 可還原無補償的幾何。',
+      en: 'Board caliper; applies progressive compensation by fold sequence to the body panels and adjusts tuck and relief clearances accordingly. A value of 0 restores uncompensated geometry.',
     },
     highlightTags: ['D', 'tuckDepth', 'flapNotch'],
   },
   {
     key: 'tuckDepth',
-    label: { zh: '插舌深度' },
+    label: { zh: '插舌深度', en: 'Tuck depth' },
     unit: 'mm',
     default: 12,
     min: 0,
     max: 60,
     step: 1,
-    group: { zh: '插舌與鎖扣' },
-    description: { zh: '插舌伸進盒身的深度，決定上蓋抗拉開的力道。' },
+    group: { id: 'tuckLock', zh: '插舌與鎖扣', en: 'Tuck & lock' },
+    description: {
+      zh: '插舌伸進盒身的深度，決定上蓋抗拉開的力道。',
+      en: 'Tuck insertion depth into the body; determines the top closure’s resistance to pull-out.',
+    },
     highlightTags: ['tuckDepth'],
   },
   {
     key: 'tuckRadius',
-    label: { zh: '插舌圓角' },
+    label: { zh: '插舌圓角', en: 'Tuck radius' },
     unit: 'mm',
     default: 3,
     min: 0,
     max: 15,
     step: 1,
-    group: { zh: '插舌與鎖扣' },
+    group: { id: 'tuckLock', zh: '插舌與鎖扣', en: 'Tuck & lock' },
     description: {
       zh: '插舌前緣兩個尖角的導圓半徑；設為 0 時插舌會變成直角矩形（前身在此有明確的兩分支：大於 0 走圓弧、等於 0 走直線）。',
+      en: 'Radius applied to the two leading corners of the tuck; a value above 0 draws arcs, while 0 produces a square-cornered rectangular tuck with straight edges.',
     },
     highlightTags: ['tuckDepth'],
   },
   {
     key: 'tuckClearance',
-    label: { zh: '插舌內縮' },
+    label: { zh: '插舌內縮', en: 'Tuck clearance' },
     unit: 'mm',
     default: 0.5,
     min: 0,
     max: 10,
     step: 0.5,
-    group: { zh: '插舌與鎖扣' },
-    description: { zh: '插舌左右兩側相對蓋板邊緣往內縮的量，讓插舌略窄於開口寬度，插入時才不會卡死。' },
+    group: { id: 'tuckLock', zh: '插舌與鎖扣', en: 'Tuck & lock' },
+    description: {
+      zh: '插舌左右兩側相對蓋板邊緣往內縮的量，讓插舌略窄於開口寬度，插入時才不會卡死。',
+      en: 'Inset on each side of the tuck from the closure-panel edges; keeps the tuck slightly narrower than the opening to prevent binding during insertion.',
+    },
     highlightTags: ['tuckDepth'],
     // 未手動覆寫時隨紙厚即時重算（插舌插入處內空因紙厚縮小，見 spec §4.1）；
     // auto/manual 機制由 core/registry.ts 的 resolveParams 既有支援，這裡只宣告公式。
@@ -129,78 +144,92 @@ const params: BoxParamDef[] = [
   },
   {
     key: 'tuckLock',
-    label: { zh: '摩擦扣寬度' },
+    label: { zh: '摩擦扣寬度', en: 'Friction-lock width' },
     unit: 'mm',
     default: 20,
     min: 0,
     max: 60,
     step: 1,
-    group: { zh: '插舌與鎖扣' },
-    description: { zh: '蓋板摺線中央摩擦扣凸起的寬度；設為 0 會停用摩擦扣，摺線退化回一條完整直線（無凸起卡榫）。' },
+    group: { id: 'tuckLock', zh: '插舌與鎖扣', en: 'Tuck & lock' },
+    description: {
+      zh: '蓋板摺線中央摩擦扣凸起的寬度；設為 0 會停用摩擦扣，摺線退化回一條完整直線（無凸起卡榫）。',
+      en: 'Width of the friction-lock projection at the centre of the closure-panel crease; 0 disables the friction lock and restores a continuous straight crease with no locking projection.',
+    },
     highlightTags: ['tuckLock'],
   },
   {
     key: 'dustFlapDepth',
-    label: { zh: '防塵翼深度' },
+    label: { zh: '防塵翼深度', en: 'Dust-flap depth' },
     unit: 'mm',
     default: 14,
     min: 0,
     max: 60,
     step: 1,
-    group: { zh: '防塵翼與糊邊' },
-    description: { zh: '左右防塵翼向內摺入的深度，摺入後蓋住開口內側縫隙，阻擋灰塵與透光。' },
+    group: { id: 'dustGlue', zh: '防塵翼與糊邊', en: 'Dust flaps & glue' },
+    description: {
+      zh: '左右防塵翼向內摺入的深度，摺入後蓋住開口內側縫隙，阻擋灰塵與透光。',
+      en: 'Inward fold depth of the left and right dust flaps; covers the inner gaps around the opening to block dust and light.',
+    },
     highlightTags: ['dustFlapDepth'],
   },
   {
     key: 'flapNotch',
-    label: { zh: '避讓槽寬' },
+    label: { zh: '避讓槽寬', en: 'Relief-notch width' },
     unit: 'mm',
     default: 3,
     min: 0,
     max: 20,
     step: 0.5,
-    group: { zh: '折線避讓公差' },
-    description: { zh: '防塵翼根部 J 型避讓槽的開口寬度，切開摺線交會處的應力集中點，避免摺紙時把紙纖維撕裂。' },
+    group: { id: 'creaseRelief', zh: '折線避讓公差', en: 'Crease relief' },
+    description: {
+      zh: '防塵翼根部 J 型避讓槽的開口寬度，切開摺線交會處的應力集中點，避免摺紙時把紙纖維撕裂。',
+      en: 'Opening width of the J-shaped relief notch at the dust-flap root; cuts through the stress concentration at the crease intersection to prevent fibre tear during folding.',
+    },
     highlightTags: ['flapNotch'],
   },
   {
     key: 'creaseRelief',
-    label: { zh: '折線避讓間隙' },
+    label: { zh: '折線避讓間隙', en: 'Crease relief gap' },
     unit: 'mm',
     default: 3,
     min: 0,
     max: 20,
     step: 0.5,
-    group: { zh: '折線避讓公差' },
+    group: { id: 'creaseRelief', zh: '折線避讓公差', en: 'Crease relief' },
     description: {
       zh: '與避讓槽寬取兩者較大值，共同決定避讓槽的實際尺寸——這裡預留材料摺疊時需要的額外間隙（材質愈厚，摺線愈需要避讓空間）。',
+      en: 'Crease relief gap; the greater of this value and the relief-notch width sets the actual notch size, reserving the additional clearance required as board caliper increases.',
     },
     highlightTags: ['flapNotch'],
   },
   {
     key: 'glueSize',
-    label: { zh: '糊邊寬度' },
+    label: { zh: '糊邊寬度', en: 'Glue-flap width' },
     unit: 'mm',
     default: 12,
     min: 5,
     max: 60,
     step: 1,
-    group: { zh: '防塵翼與糊邊' },
-    description: { zh: '糊邊（耳仔）的寬度，是黏合面板首尾兩端、把展開圖捲成筒狀盒身所需的多餘寬度。' },
+    group: { id: 'dustGlue', zh: '防塵翼與糊邊', en: 'Dust flaps & glue' },
+    description: {
+      zh: '糊邊（耳仔）的寬度，是黏合面板首尾兩端、把展開圖捲成筒狀盒身所需的多餘寬度。',
+      en: 'Glue-flap width; provides the overlap required to join the first and last body panels and form the flat layout into a tube.',
+    },
     highlightTags: ['glueSize'],
   },
   {
     key: 'glueSide',
-    label: { zh: '糊邊位置' },
+    label: { zh: '糊邊位置', en: 'Glue-flap side' },
     unit: 'enum',
     default: 'left',
     options: [
-      { value: 'left', label: { zh: '左' } },
-      { value: 'right', label: { zh: '右' } },
+      { value: 'left', label: { zh: '左', en: 'Left' } },
+      { value: 'right', label: { zh: '右', en: 'Right' } },
     ],
-    group: { zh: '防塵翼與糊邊' },
+    group: { id: 'dustGlue', zh: '防塵翼與糊邊', en: 'Dust flaps & glue' },
     description: {
       zh: '糊邊黏貼在整排面板的左側或右側（前身 glueOnRight 布林旗標在此改為 enum）；只影響版面鏡像方向，不影響盒子本身結構。',
+      en: 'Glue-flap position on the left or right of the panel run; mirrors the layout without changing the box structure. The former glueOnRight boolean is represented here as an enum.',
     },
     highlightTags: ['glueSize'],
   },
@@ -525,7 +554,10 @@ const invariants: BoxInvariant[] = [
       if (Math.abs(actual - expected) > 0.01) {
         return {
           ok: false,
-          message: { zh: `展開總寬應為 ${expected}mm（含邊距），實際為 ${actual}mm` },
+          message: {
+            zh: `展開總寬應為 ${expected}mm（含邊距），實際為 ${actual}mm`,
+            en: `Total unfolded width should be ${expected}mm including the margin; actual width is ${actual}mm.`,
+          },
           tags: ['L', 'W', 'glueSize', 'thickness'],
         };
       }
@@ -558,6 +590,7 @@ const invariants: BoxInvariant[] = [
           ok: false,
           message: {
             zh: `蓋板側邊鉛直 cut 線應有 4 條（上蓋 2＋下蓋 2，長度皆＝W=${w}mm），實際只找到 ${lidSideCuts.length} 條`,
+            en: `Expected 4 vertical cut lines along the closure-panel sides—2 top and 2 bottom, each W=${w}mm long; found ${lidSideCuts.length}.`,
           },
           tags: ['W'],
         };
@@ -587,7 +620,10 @@ const invariants: BoxInvariant[] = [
       if (tuckLock > 0 && tuckLock > lidWidth) {
         return {
           ok: false,
-          message: { zh: `摩擦扣寬 ${tuckLock}mm 超過蓋板可容納寬度 ${lidWidth.toFixed(2)}mm（已計入 girth 補償），會切出面板外` },
+          message: {
+            zh: `摩擦扣寬 ${tuckLock}mm 超過蓋板可容納寬度 ${lidWidth.toFixed(2)}mm（已計入 girth 補償），會切出面板外`,
+            en: `Friction-lock width ${tuckLock}mm exceeds the available closure-panel width of ${lidWidth.toFixed(2)}mm after girth compensation and will cut outside the panel.`,
+          },
           tags: ['tuckLock', 'L'],
         };
       }
@@ -599,7 +635,10 @@ const invariants: BoxInvariant[] = [
       if (tuckLock > 0 && tuckLock < 2 * LOCK_CHAMFER) {
         return {
           ok: false,
-          message: { zh: `摩擦扣寬 ${tuckLock}mm 小於兩側導角總和 ${2 * LOCK_CHAMFER}mm，卡榫梯形會反折自撞` },
+          message: {
+            zh: `摩擦扣寬 ${tuckLock}mm 小於兩側導角總和 ${2 * LOCK_CHAMFER}mm，卡榫梯形會反折自撞`,
+            en: `Friction-lock width ${tuckLock}mm is less than the combined side chamfers of ${2 * LOCK_CHAMFER}mm; the locking trapezoid will reverse and self-intersect.`,
+          },
           tags: ['tuckLock'],
         };
       }
@@ -612,7 +651,7 @@ const invariants: BoxInvariant[] = [
     check(_params, result) {
       const allSegs = result.paths.flatMap((p) => p.segments);
       if (hasNaN(allSegs)) {
-        return { ok: false, message: { zh: '偵測到 NaN 座標' } };
+        return { ok: false, message: { zh: '偵測到 NaN 座標', en: 'NaN coordinate detected.' } };
       }
       return { ok: true };
     },
@@ -622,7 +661,10 @@ const invariants: BoxInvariant[] = [
     description: { zh: 'v1 尚不支援出血線（bleed）——盒型不得產生 bleed 線型的路徑，避免下游畫布/匯出誤判成尚未支援的線型。' },
     check(_params, result) {
       if (result.paths.some((p) => p.type === 'bleed')) {
-        return { ok: false, message: { zh: '不應出現 bleed 線型路徑（v1 尚未支援）' } };
+        return {
+          ok: false,
+          message: { zh: '不應出現 bleed 線型路徑（v1 尚未支援）', en: 'Bleed paths should not be present; v1 does not support them.' },
+        };
       }
       return { ok: true };
     },
@@ -640,7 +682,10 @@ const invariants: BoxInvariant[] = [
         actual.minY >= result.bounds.minY - EPS &&
         actual.maxY <= result.bounds.maxY + EPS;
       if (!ok) {
-        return { ok: false, message: { zh: 'bounds 未完整涵蓋所有路徑的實際範圍' } };
+        return {
+          ok: false,
+          message: { zh: 'bounds 未完整涵蓋所有路徑的實際範圍', en: 'Bounds do not fully cover the actual extent of all paths.' },
+        };
       }
       return { ok: true };
     },
@@ -669,7 +714,10 @@ const invariants: BoxInvariant[] = [
       if (tuckRadius > limit + EPS) {
         return {
           ok: false,
-          message: { zh: `插舌圓角 ${tuckRadius}mm 超過幾何上限 ${limit.toFixed(2)}mm（受插舌深度/寬度限制，已計入 girth 補償），已鉗制繪製` },
+          message: {
+            zh: `插舌圓角 ${tuckRadius}mm 超過幾何上限 ${limit.toFixed(2)}mm（受插舌深度/寬度限制，已計入 girth 補償），已鉗制繪製`,
+            en: `Tuck radius ${tuckRadius}mm exceeds the geometric limit of ${limit.toFixed(2)}mm, constrained by tuck depth and width after girth compensation; drawing has been clamped.`,
+          },
           tags: ['tuckRadius', 'tuckDepth'],
         };
       }
@@ -684,7 +732,13 @@ const invariants: BoxInvariant[] = [
     check(_params, result) {
       const cutSegments = result.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
       if (hasSelfIntersection(cutSegments)) {
-        return { ok: false, message: { zh: 'cut 路徑偵測到自撞（線段真交叉），幾何已退化成無法裁切的翻折形狀' } };
+        return {
+          ok: false,
+          message: {
+            zh: 'cut 路徑偵測到自撞（線段真交叉），幾何已退化成無法裁切的翻折形狀',
+            en: 'Cut-path self-intersection detected: line segments cross and the geometry has collapsed into an uncuttable folded form.',
+          },
+        };
       }
       return { ok: true };
     },
@@ -698,9 +752,10 @@ const invariants: BoxInvariant[] = [
 export const reverseTuckEnd: BoxModule = {
   meta: {
     id: 'rte',
-    name: { zh: '反插式尾封盒 (Reverse Tuck End, RTE)' },
+    name: { zh: '反插式尾封盒 (Reverse Tuck End, RTE)', en: 'Reverse Tuck End (RTE)' },
     intro: {
       zh: '前後左右四片面板一字排開展開的盒型；上下蓋板各以插舌卡入摩擦扣固定開口，兩側防塵翼摺入遮擋縫隙，免膠帶封口。',
+      en: 'Four front, back, left, and right panels arranged in a single flat run; top and bottom closure panels secure each opening with tucks engaged in friction locks, while the side dust flaps fold inward to cover the gaps. No sealing tape required.',
     },
     topology: 'linear',
   },

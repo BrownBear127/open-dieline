@@ -57,6 +57,7 @@ import type { DielinePiece, GenerateResult, ResolvedParams } from '@/core/types'
 import { scopeResultToPiece } from '@/core/pieces';
 import { toDxfDocument } from '@/export/dxf';
 import { manufacturingBounds, toSvgDocument } from '@/export/svg';
+import { t } from '@/i18n/t';
 
 export interface ExportBarProps {
   boxId: string;
@@ -120,6 +121,20 @@ function buildFilename(boxId: string, values: ResolvedParams, bounds: Bounds, ex
 function fmtDim(v: number): string {
   const s = v.toFixed(2);
   return s === '-0.00' ? '0.00' : s;
+}
+
+function boundsDimensions(bounds: Bounds): { width: string; height: string } {
+  return {
+    width: fmtDim(bounds.maxX - bounds.minX),
+    height: fmtDim(bounds.maxY - bounds.minY),
+  };
+}
+
+function plateReadout(boxId: string, values: ResolvedParams): string {
+  const dimensions = ['L', 'W', 'D'].map((key) => values[key]);
+  return dimensions.every((value) => value !== undefined)
+    ? `${boxId.toUpperCase()} ${dimensions.join(' × ')}`
+    : boxId.toUpperCase();
 }
 
 /**
@@ -188,6 +203,8 @@ function exportFilename(boxId: string, values: ResolvedParams, result: GenerateR
 
 export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps) {
   const hasPieces = result.pieces !== undefined;
+  const blankBounds = activePiece ? pieceManufacturingBounds(result, activePiece) : manufacturingBounds(result);
+  const blankDimensions = boundsDimensions(blankBounds);
   // 製造模式（F7）：預設關，純本檔 state，見本檔開頭 docblock「製造模式 checkbox」段。
   const [manufacturing, setManufacturing] = useState(false);
   // exportResult 在 render 期計算（而非各自 handler 內才算）是 T2（Slice 2）的刻意變更：
@@ -214,37 +231,46 @@ export function ExportBar({ boxId, values, result, activePiece }: ExportBarProps
   };
 
   return (
-    <div className="flex flex-col gap-2 pt-3 border-t border-zinc-200">
-      <label
-        htmlFor="manufacturing-mode"
-        title="僅影響 SVG 匯出：solid／0.25 線寬／round cap-join，排除尺寸標註與文字（DXF 恆排除標註，不受此開關影響）"
-        className="flex items-center gap-2 text-xs text-zinc-600"
-      >
-        <input
-          id="manufacturing-mode"
-          type="checkbox"
-          checked={manufacturing}
-          onChange={(e) => setManufacturing(e.target.checked)}
-          className="h-4 w-4 accent-blue-600"
-        />
-        製造模式
-      </label>
-      <div className="flex gap-2">
+    <footer className="platebar">
+      <div className="status mono">
+        <span>
+          {t('plate.status.plate')} · <b>{plateReadout(boxId, values)}</b>
+        </span>
+        <span>
+          {t('plate.status.blank')} · <b>{blankDimensions.width} × {blankDimensions.height} mm</b>
+        </span>
+        <span>{t('plate.status.scale')}</span>
+      </div>
+      <div className="acts">
+        <label
+          htmlFor="manufacturing-mode"
+          title={t('export.manufacturing.title')}
+          className="compat mono"
+        >
+          <input
+            id="manufacturing-mode"
+            type="checkbox"
+            checked={manufacturing}
+            onChange={(e) => setManufacturing(e.target.checked)}
+            className="tick"
+          />
+          {t('export.manufacturing')}
+        </label>
         <button
           type="button"
           onClick={handleSvgDownload}
-          className="flex-1 bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2 rounded-sm transition-colors"
+          className="btn label"
         >
-          {hasPieces ? '匯出目前視圖' : '下載 SVG'}
+          {t(hasPieces ? 'export.svg.scoped' : 'export.svg')}
         </button>
         <button
           type="button"
           onClick={handleDxfDownload}
-          className="flex-1 bg-black hover:bg-zinc-800 text-white font-medium text-sm py-2 rounded-sm transition-colors"
+          className="btn label"
         >
-          {hasPieces ? '匯出目前視圖（DXF）' : '下載 DXF'}
+          {t(hasPieces ? 'export.dxf.scoped' : 'export.dxf')}
         </button>
       </div>
-    </div>
+    </footer>
   );
 }
