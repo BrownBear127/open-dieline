@@ -71,6 +71,7 @@
   .masthead .meta { display: flex; gap: 22px; align-items: baseline; color: var(--ink-soft); }
   .masthead .meta .lang b { color: var(--ink); font-weight: 500; }
   .masthead .meta .lang span { cursor: default; }
+  .masthead .meta .lang button { background: transparent; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
 
   /* — console 列：模式切換＋現況讀數 — */
   .moderow {
