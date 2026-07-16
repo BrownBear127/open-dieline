@@ -16,3 +16,5 @@
 - [PASS] a2-ci-guard → baseline：目標紅=true、復原全綠=true
 - [PASS] a15-drift → a15-copy：目標紅=true、復原全綠=true
 - [PASS] a15-value-drift → a15-copy：目標紅=true、復原全綠=true
+- [PASS] fold-hinge-break → fold-model：目標紅=true、復原全綠=true
+- [PASS] fold-comp-drift → fold-reconcile：目標紅=true、復原全綠=true
