@@ -1,9 +1,9 @@
-// A15：i18n dict key 集與三份 vendored copy inventory 雙向一致；高確定性家族 EN/zh 逐字一致。
+// A15：i18n dict key 集與三份 vendored copy inventory 雙向一致；全 key EN/zh 逐字一致
+//（2026-07-16 M2 T0：B5 家族逐字化——EN 讀 tierb 附錄 B 終稿表·zh 讀 expansion §B5·key-only 歸零）。
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const VERIFIED_TIER_B_SECTIONS = ['B3', 'B4', 'B6'];
-const KEY_ONLY_TIER_B_SECTIONS = ['B5'];
 
 function cells(line) {
   const result = [];
@@ -220,20 +220,13 @@ function rowsForSection(markdown, section) {
   return markdownRows(headingSection(markdown, section, next)).filter((row) => row.key);
 }
 
-function addTierB(keys, values, keyOnly, expansion, tierBEnglish) {
-  for (const section of [...VERIFIED_TIER_B_SECTIONS, ...KEY_ONLY_TIER_B_SECTIONS]) {
+function addTierB(keys, values, expansion, tierBEnglish) {
+  for (const section of VERIFIED_TIER_B_SECTIONS) {
     const expansionRows = rowsForSection(expansion, section);
     const englishRows = rowsForSection(tierBEnglish, section);
 
     for (const row of [...expansionRows, ...englishRows]) {
       for (const key of expandKeys(row.key)) addKey(keys, key);
-    }
-
-    if (KEY_ONLY_TIER_B_SECTIONS.includes(section)) {
-      for (const row of [...expansionRows, ...englishRows]) {
-        for (const key of expandKeys(row.key)) keyOnly.add(key);
-      }
-      continue;
     }
 
     for (const row of expansionRows) {
@@ -253,23 +246,60 @@ function addTierB(keys, values, keyOnly, expansion, tierBEnglish) {
   }
 }
 
+// B5 家族（2026-07-16 T0 逐字化）：zh＝expansion §B5（原表「zh（逐字／模板）」欄＋
+// M2 追加表 zh/en 欄）；EN＝tierb 附錄 B 終稿表（20 key·值以反引號包殼·殼內逐字，
+// 保前導空白如 imp.grid.fillSuffix）。tierb §B5 原表為 B1 正規化前底稿——僅貢獻 key 集，
+// 值不消費（表面形式非逐字；消費會與附錄 B 衝突直接紅）。
+function appendixBSection(tierBEnglish) {
+  const heading = /^##\s+附錄 B——.*$/m.exec(tierBEnglish);
+  if (!heading) throw new Error('tierb appendix B missing');
+  return tierBEnglish.slice(heading.index + heading[0].length);
+}
+
+function unshell(value, context) {
+  const match = /^`([\s\S]*)`$/.exec(value);
+  if (!match) throw new Error(`appendix B value not backtick-shelled: ${context}`);
+  return match[1];
+}
+
+function addTierB5(keys, values, expansion, tierBEnglish) {
+  const expansionRows = rowsForSection(expansion, 'B5');
+  const englishRows = rowsForSection(tierBEnglish, 'B5');
+  for (const row of [...expansionRows, ...englishRows]) {
+    for (const key of expandKeys(row.key)) addKey(keys, key);
+  }
+
+  for (const row of expansionRows) {
+    const key = expandKeys(row.key)[0];
+    const zh = row['zh（逐字／模板）'] ?? row.zh;
+    if (!key || zh === undefined) throw new Error(`B5 expansion zh missing: ${row.key}`);
+    addValue(values, key, 'zh', zh);
+    if (row.en !== undefined) addValue(values, key, 'en', row.en);
+  }
+
+  for (const row of markdownRows(appendixBSection(tierBEnglish))) {
+    const enCell = row['EN（終稿·dict 逐字）'];
+    if (!row.key || enCell === undefined) continue;
+    const key = expandKeys(row.key)[0];
+    if (!key) throw new Error(`B5 appendix key unparsable: ${row.key}`);
+    addKey(keys, key);
+    addValue(values, key, 'en', unshell(enCell, row.key));
+  }
+}
+
 function inventoryContract(copyInventory, expansion, tierBEnglish) {
   const keys = new Set();
   const values = new Map();
-  const keyOnly = new Set();
 
   addCopyInventory(keys, values, copyInventory);
   addExpansionGaps(keys, values, expansion);
-  addTierB(keys, values, keyOnly, expansion, tierBEnglish);
+  addTierB(keys, values, expansion, tierBEnglish);
+  addTierB5(keys, values, expansion, tierBEnglish);
 
-  const incomplete = [...keys].filter((key) => !keyOnly.has(key)
-    && (values.get(key)?.en === undefined || values.get(key)?.zh === undefined));
+  const incomplete = [...keys].filter((key) => values.get(key)?.en === undefined || values.get(key)?.zh === undefined);
   if (incomplete.length) throw new Error(`value-verified key missing EN/zh source: ${incomplete.sort().join(', ')}`);
 
-  const strayKeyOnly = [...keyOnly].filter((key) => !keys.has(key));
-  if (strayKeyOnly.length) throw new Error(`key-only key missing from inventory: ${strayKeyOnly.sort().join(', ')}`);
-
-  return { keys, values, keyOnly };
+  return { keys, values };
 }
 
 function difference(left, right) {
@@ -291,7 +321,7 @@ export async function run({ root }) {
     if (missingFromDict.length) errs.push(`inventory 有、dict 缺少：${missingFromDict.join(', ')}`);
     if (missingFromInventory.length) errs.push(`dict 有、inventory 缺少：${missingFromInventory.join(', ')}`);
 
-    for (const key of difference(expected.keys, expected.keyOnly)) {
+    for (const key of expected.keys) {
       if (!actual.has(key)) continue;
       for (const locale of ['en', 'zh']) {
         const expectedValue = expected.values.get(key)[locale];
@@ -302,8 +332,7 @@ export async function run({ root }) {
       }
     }
 
-    const valueVerifiedCount = expected.keys.size - expected.keyOnly.size;
-    console.log(`  [a15] value-verified ${valueVerifiedCount} keys／key-only ${expected.keyOnly.size} keys（B5: ${[...expected.keyOnly].sort().join(', ')}）`);
+    console.log(`  [a15] value-verified ${expected.keys.size} keys／key-only 0 keys（B5 逐字化 2026-07-16 T0）`);
     return errs;
   } catch (error) {
     return [`A15 parser failure: ${error instanceof Error ? error.message : String(error)}`];
