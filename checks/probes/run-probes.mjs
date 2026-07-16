@@ -60,7 +60,7 @@ const PROBES = [
     run: () => mutate('src/styles/vocab.css', 'font-family: "Fraunces", Georgia, serif;', 'font-family: Arial, sans-serif;'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-zh-weight', gate: 'g2-vocab',
-    run: () => mutate('src/styles/vocab.css', '.zh .label { font-size: 11px; font-weight: 400; }', '.zh .label { font-size: 11px; font-weight: 600; }'),
+    run: () => mutate('src/styles/vocab.css', '.zh .label { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 400; text-transform: none; }', '.zh .label { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 600; text-transform: none; }'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
   { id: 'g2-late-override', gate: 'g2-vocab',
     run: () => append('src/index.css', '\n.masthead .wordmark { font-weight: 900; }\n'),
