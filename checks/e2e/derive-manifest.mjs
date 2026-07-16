@@ -59,14 +59,24 @@ function groupDeclarations(declarations) {
 }
 
 const declarations = parseDeclarations(readFileSync(vocabPath, 'utf8'));
+// N3 negative control: model a second same-property declaration on an already-excluded
+// selector without touching production CSS. The in-memory duplicate must change the frozen
+// per-selector declaration count even though its selector/property identity is unchanged.
+if (process.env.OD_N3_MUTATION === '1') {
+  const duplicate = declarations.find(
+    ({ selector, prop }) => selector === '.btn:hover' && prop === 'background',
+  );
+  if (!duplicate) throw new Error('OD_N3_MUTATION source declaration not found');
+  declarations.push({ ...duplicate });
+}
 export const allManifest = groupDeclarations(declarations);
 const included = [];
 const excluded = Object.fromEntries(EXCLUSION_RULES.map(({ category }) => [category, 0]));
 // F1（H1）: `classify(selector)` is a pure function of the selector text, so every
 // declaration sharing a selector always lands in the same category — grouping by selector
 // loses no identity information versus a flat per-declaration list, and is far more
-// reviewable. Each entry is a full identity triple: selector, its exclusion category, and
-// the exact set of properties excluded for it.
+// reviewable. Each entry freezes the selector, category, unique properties, and raw
+// declaration count. The count keeps repeated same-property declarations observable.
 const excludedSelectors = new Map();
 
 for (const declaration of declarations) {
@@ -78,10 +88,11 @@ for (const declaration of declarations) {
   excluded[category] += 1;
   let entry = excludedSelectors.get(declaration.selector);
   if (!entry) {
-    entry = { selector: declaration.selector, category, props: new Set() };
+    entry = { selector: declaration.selector, category, props: new Set(), declarationCount: 0 };
     excludedSelectors.set(declaration.selector, entry);
   }
   entry.props.add(declaration.prop);
+  entry.declarationCount += 1;
 }
 
 export const manifest = groupDeclarations(included);
@@ -93,7 +104,12 @@ export const manifestJson = Object.fromEntries(manifest);
 // regression that reclassifies a selector) changes this export and must fail that test until
 // a human reviews and extends the frozen constant.
 export const excludedManifest = [...excludedSelectors.values()]
-  .map(({ selector, category, props }) => ({ selector, category, props: [...props].sort() }))
+  .map(({ selector, category, props, declarationCount }) => ({
+    selector,
+    category,
+    props: [...props].sort(),
+    declarationCount,
+  }))
   .sort((a, b) => (a.selector < b.selector ? -1 : a.selector > b.selector ? 1 : 0));
 
 const tokenDeclarations = parseDeclarations(readFileSync(tokensPath, 'utf8'));

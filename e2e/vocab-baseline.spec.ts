@@ -174,12 +174,10 @@ const SKIPPED = [
 // This is the frozen identity of every currently-excluded selector — machine-derived from
 // src/styles/vocab.css on 2026-07-16 via `node checks/e2e/derive-manifest.mjs` (grouped by
 // selector; `classify()` is a pure function of selector text, so every declaration sharing a
-// selector always lands in the same category, making per-selector grouping a lossless
-// compaction of the selector+prop+category identity triple). Below, `excludedManifest`
-// (computed fresh from the current vocab.css on every run) is asserted to equal this frozen
-// constant exactly. Growing the real exclusion set — a new @supports rule, a new pseudo-
-// class override, anything the regex buckets differently — changes `excludedManifest` and
-// must fail this test until a human reviews the diff and extends the constant below.
+// selector always lands in the same category). Every current property occurs exactly once
+// per selector, so the frozen per-selector declaration count is the frozen props length.
+// `excludedManifest` also carries its independently counted raw declaration total; adding a
+// second declaration of an existing property therefore changes the manifest and fails.
 const FROZEN_EXCLUSION_SET = [
   { selector: '.boxsel select:focus-visible', category: 'pseudoClass', props: ['outline', 'outline-offset'] },
   { selector: '.boxsel::after', category: 'pseudoElement', props: ['color', 'content', 'font-size', 'pointer-events', 'position', 'right', 'top', 'transform'] },
@@ -229,6 +227,11 @@ const FROZEN_EXCLUSION_SET = [
   { selector: 'input[type="range"]::-webkit-slider-thumb', category: 'vendorPrefixedSelector', props: ['-webkit-appearance', 'background', 'border', 'border-radius', 'height', 'margin-top', 'transition', 'width'] },
   { selector: 'input[type="range"]::-webkit-slider-thumb:hover', category: 'vendorPrefixedSelector', props: ['background', 'border-color', 'transform'] },
 ] as const;
+
+const FROZEN_EXCLUSION_MANIFEST = FROZEN_EXCLUSION_SET.map((entry) => ({
+  ...entry,
+  declarationCount: entry.props.length,
+}));
 
 // Stretch goal considered and not pursued (2026-07-16, honest note per brief): the pinned
 // Chromium (1.61.1's bundled build, verified via `CSS.supports('appearance', 'base-select')`
@@ -557,10 +560,9 @@ async function computedMismatches(
   );
 }
 
-// F2（H2）: iterate every matched instance of `selector` (not just index 0), applying the
-// NAMED_OVERRIDES exclusion described above per-instance. Membership in an override pair is
-// checked live against the actual DOM element via Element.matches(), so an instance only
-// gets its overridden longhands excluded when it genuinely carries the more specific class.
+// N2（H2）: iterate every matched instance and expand declarations only from override
+// selectors that the current element actually matches. Different overrides of the same base
+// selector must never donate each other's properties to a shared exclusion union.
 async function allInstanceMismatches(
   page: Page,
   selector: string,
@@ -568,19 +570,22 @@ async function allInstanceMismatches(
   count: number,
 ): Promise<string[]> {
   const overrideSelectors = NAMED_OVERRIDES[selector] ?? [];
-  const overriddenLonghands = overrideSelectors.length
-    ? expandedProperties(overrideSelectors.flatMap((s) => (allManifest.get(s) as Declaration[] | undefined) ?? []))
-    : new Set<string>();
 
   const mismatches: string[] = [];
   for (let index = 0; index < count; index += 1) {
-    const matchesOverride =
-      overrideSelectors.length > 0 &&
-      (await page
-        .locator(selector)
-        .nth(index)
-        .evaluate((element, selectors) => selectors.some((s) => (element as Element).matches(s)), overrideSelectors));
-    const excludeProperties = matchesOverride ? overriddenLonghands : undefined;
+    const matchedOverrideSelectors = overrideSelectors.length
+      ? await page
+          .locator(selector)
+          .nth(index)
+          .evaluate((element, selectors) => selectors.filter((s) => (element as Element).matches(s)), overrideSelectors)
+      : [];
+    const excludeProperties = matchedOverrideSelectors.length
+      ? expandedProperties(
+          matchedOverrideSelectors.flatMap((overrideSelector) =>
+            (allManifest.get(overrideSelector) as Declaration[] | undefined) ?? [],
+          ),
+        )
+      : undefined;
     const instanceMismatches = await computedMismatches(page, selector, declarations, index, undefined, excludeProperties);
     mismatches.push(...instanceMismatches.map((mismatch) => `instance[${index}]: ${mismatch}`));
   }
@@ -598,6 +603,14 @@ test.describe('machine-derived vocabulary baseline', () => {
       // default; exists only in page memory when the env var is set for this run.
       if (process.env.OD_INLINE_MUTATION === '1' && context === 'design') {
         await page.locator('.btn').nth(1).evaluate((element) => {
+          (element as HTMLElement).style.setProperty('background', 'red', 'important');
+        });
+      }
+
+      // N2 negative control: `.btn.quiet` does not match `.btn.tog.on`, so the latter's
+      // background declaration must not hide this base `.btn` mismatch.
+      if (process.env.OD_N2_MUTATION === '1' && context === 'design') {
+        await page.locator('.btn.quiet').first().evaluate((element) => {
           (element as HTMLElement).style.setProperty('background', 'red', 'important');
         });
       }
@@ -623,10 +636,12 @@ test.describe('machine-derived vocabulary baseline', () => {
 
 // F1（H1）: the manifest's exclusion set is frozen, not just counted. This is a pure
 // data-derivation check — no browser needed — but lives in this file (per the brief) beside
-// the manifest it guards. A new selector that falls into any exclusion bucket changes
-// `excludedManifest` and must be reviewed before it is added to FROZEN_EXCLUSION_SET above.
-test('manifest exclusion set is frozen — new exclusions must be reviewed, not silently grown', () => {
-  expect(excludedManifest, 'excludedManifest drifted from the frozen identity set').toEqual(FROZEN_EXCLUSION_SET);
+// the manifest it guards. A new selector/property or a repeated declaration on an existing
+// selector changes `excludedManifest` and must be reviewed before updating the frozen data.
+test('manifest exclusion identity and declaration multiplicity are frozen', () => {
+  expect(excludedManifest, 'excludedManifest identity or per-selector multiplicity drifted').toEqual(
+    FROZEN_EXCLUSION_MANIFEST,
+  );
 });
 
 test('explicit pseudo-element samples', async ({ page }) => {
