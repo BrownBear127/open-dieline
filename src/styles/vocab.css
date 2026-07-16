@@ -31,6 +31,8 @@
   /* — app 外框 — */
   /* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
      line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
+  /* html 也上 paper：overscroll／彈性回彈區跟著 canvas 底色走，避免 dark mode 黑邊 */
+  html { background: var(--paper); }
   body {
     min-height: 100dvh;
     display: flex; justify-content: center; align-items: center;
@@ -95,7 +97,9 @@
     overflow-y: auto; min-height: 0;
     display: flex; flex-direction: column;
   }
-  .sect { padding: 16px 20px 18px; border-bottom: 1px dashed var(--hairline); }
+  /* position: relative＝sr-only（absolute）input 的 containing block 錨回自己的 section——
+     否則其 static position 直落 body 座標系、逃出 .console 剪裁，把頁面撐出千px 幽靈捲動 */
+  .sect { padding: 16px 20px 18px; border-bottom: 1px dashed var(--hairline); position: relative; }
   .sect-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
   .sect-head .label { color: var(--ink); }
   .sect-head .mono { color: var(--ink-soft); }
