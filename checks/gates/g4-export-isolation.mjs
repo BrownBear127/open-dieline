@@ -27,7 +27,7 @@ export async function run({ root }) {
     if (visited.has(file)) continue;
     visited.add(file);
     const text = readFileSync(file, 'utf8');
-    for (const m of text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+    for (const m of text.matchAll(/\b(?:from\s+|import\s*)['"]([^'"]+)['"]/g)) {
       const next = resolveImport(file, m[1], root);
       if (next) queue.push(next);
     }

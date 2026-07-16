@@ -300,8 +300,8 @@
   .platebar .status { color: var(--ink-soft); display: flex; gap: 20px; flex-wrap: wrap; }
   .platebar .status b { color: var(--ink); font-weight: 500; }
   .platebar .acts { display: flex; gap: 10px; align-items: center; }
-  .platebar .compat { display: flex; gap: 8px; align-items: center; color: var(--ink-soft); margin-right: 8px; cursor: default; }
-  .platebar .compat .tick { width: 13px; height: 13px; border: 1px solid var(--ink-soft); }
+  .platebar .compat, .foldbar .compat { display: flex; gap: 8px; align-items: center; color: var(--ink-soft); margin-right: 8px; cursor: default; }
+  .platebar .compat .tick, .foldbar .compat .tick { width: 13px; height: 13px; border: 1px solid var(--ink-soft); }
 
   /* — 拼版模式件 — */
   .imp-toolbar { display: flex; border-bottom: 1px solid var(--ink); flex-wrap: wrap; }
