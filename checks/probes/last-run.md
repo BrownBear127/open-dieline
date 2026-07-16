@@ -4,6 +4,7 @@
 - [PASS] g1-vendored-tamper → g1-parity：目標紅=true、復原全綠=true
 - [PASS] g2-value-drift → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] g2-inheritance-base-drift → g2-vocab：目標紅=true、復原全綠=true
+- [PASS] g2-zh-weight → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] g2-late-override → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] g3-new-utility → g3-utility：目標紅=true、復原全綠=true
 - [PASS] g4-display-import → g4-export-isolation：目標紅=true、復原全綠=true
@@ -13,3 +14,4 @@
 - [PASS] a2-export-color-leak → baseline：目標紅=true、復原全綠=true
 - [PASS] a2-ci-guard → baseline：目標紅=true、復原全綠=true
 - [PASS] a15-drift → a15-copy：目標紅=true、復原全綠=true
+- [PASS] a15-value-drift → a15-copy：目標紅=true、復原全綠=true

@@ -5,6 +5,7 @@ Vendor date: 2026-07-16
 
 # Copy Inventory 擴充——Tier B 逐 key 明細 + mock 作廢清單
 
+> 2026-07-16 M2 前置 B1：B5 佔位符正規化（dotted→平面名·巢狀註記抽 key）·句面文字不變·法蘭授權
 > 原料：`p2-m05-string-audit.md`（208 條編號＋16 條 S1-S5·2026-07-16 @ce72d7e）
 > ＋現行 `copy-inventory.md`（§A 命名慣例）＋凍結 mock `tool-chrome-mock.html`
 > 純機械整理：zh 逐字抄 audit，不創作不改寫。模板變數統一寫 `{expr}` 形（`{expr}` 內
@@ -16,9 +17,9 @@ Vendor date: 2026-07-16
 
 **節首計數**：B1=29（27 desc＋2 meta intro）／B2=24（audit 逐分支重數：RTE 6 own key＋
 telescope 15 own key＋3 條 inv.common 合併 key；`pieces-valid` 為動態委派不佔號，另列說明）
-／B3=8／B4=2／B5=18（含新補 `imp.footprint` 與 5 條欄位錯誤，較舊摘要「×12」多出，
+／B3=8／B4=2／B5=20（含新補 `imp.footprint` 與 5 條欄位錯誤，較舊摘要「×12」多出，
 因舊摘要漏了 `imp.footprint` 且未拆計 `imp.err.internal/.default` 與 `imp.sub.*`/`imp.per.*`
-的雙詞獨立 key）／B6=8／B7=9。**Tier B 合計 98 key**（29+24+8+2+18+8+9）。
+的雙詞獨立 key）／B6=8／B7=9。**Tier B 合計 100 key**（29+24+8+2+20+8+9）。
 
 ### B1 參數 description ×27 ＋ meta.intro ×2（audit §7a/§8a/§7c/§8d）
 
@@ -149,21 +150,23 @@ Tier B key**，此處僅列記錄供對帳，實際文字見 B7。
 
 ---
 
-### B5 拼版句子 ×18（audit §14/§15）
+### B5 拼版句子 ×20（audit §14/§15）
 
 | key | zh（逐字／模板） | audit # | 備註 |
 |---|---|---|---|
 | imp.disclaimer | 以單件輪廓間距估算（單向收縮）；未計交錯、塞角、共刀、絲向及加工限制，不可直接作生產拼版。 | #161 | `DISCLAIMER_TEXT` 常量 |
-| imp.sheet.working | 工作尺寸：{sheet.w.toFixed(1)} × {sheet.h.toFixed(1)} mm（可用區 {sheet.usableW.toFixed(1)} × {sheet.usableH.toFixed(1)} mm） | #162 | `workingSheetText()` 無裁切分支 |
+| imp.sheet.working | 工作尺寸：{sheetW} × {sheetH} mm（可用區 {sheetUsableW} × {sheetUsableH} mm） | #162 | `workingSheetText()` 無裁切分支 |
 | imp.sub.quarter | 四開子紙 | #163 | `subLabel` 三元之一（`cutV&&cutH`） |
 | imp.sub.half | 半張子紙 | #163 | `subLabel` 三元之二 |
-| imp.sheet.workingCut | 全紙 {sheet.fullW.toFixed(1)} × {sheet.fullH.toFixed(1)} mm，{subLabel} {sub}（`sub` = {sheet.w.toFixed(1)} × {sheet.h.toFixed(1)} mm（可用 {sheet.usableW.toFixed(1)} × {sheet.usableH.toFixed(1)} mm）） | #164 | `workingSheetText()` 有裁切分支，內嵌 `imp.sub.*` |
+| imp.sheet.workingCut | 全紙 {sheetFullW} × {sheetFullH} mm，{subLabel} {sub} | #164 | `workingSheetText()` 有裁切分支，內嵌 `imp.sub.*` |
+| imp.sheet.subSize | {sheetW} × {sheetH} mm（可用 {sheetUsableW} × {sheetUsableH} mm） | #164 | |
 | imp.per.quarter | 每四開 | #165 | `directionCardText()` 有裁切分支之三元詞 1；完整句＝`{per} {count} 模 × {sectionsCount} ＝ {totalCount} 模` |
 | imp.per.half | 每半張 | #165 | 三元詞 2 |
-| imp.grid.formula | {direction.cols} 列 × {direction.rows} 行{fillSuffix} ＝ {direction.count} 模（`fillSuffix` = ＋ 補 {fillCount}） | #166 | `directionCardText()` 無裁切分支 |
+| imp.grid.formula | {cols} 列 × {rows} 行{fillSuffix} ＝ {count} 模 | #166 | `directionCardText()` 無裁切分支 |
+| imp.grid.fillSuffix | ＋ 補 {fillCount} | #166 | |
 | imp.spacing.rows | 行距輪廓收縮 | #167 | `spacingAxisLabel()` 三元之一（`axis==='rows'`） |
 | imp.spacing.cols | 列距輪廓收縮 | #167 | 三元之二 |
-| imp.footprint | 主格點 footprint {direction.usedW.toFixed(1)} × {direction.usedH.toFixed(1)} mm | #170 | **SOL 抓的漏項**，現行 §A5 未列 |
+| imp.footprint | 主格點 footprint {usedW} × {usedH} mm | #170 | **SOL 抓的漏項**，現行 §A5 未列 |
 | imp.err.internal | 系統內部計算錯誤，請重新整理頁面；若持續發生請回報。 | #174 | `generalErrorMessage` internal 分支（與 `imp.err.field.internal` #183 不同語境不同 key） |
 | imp.err.default | 計算發生錯誤，請確認輸入數值。 | #175 | `generalErrorMessage` 預設分支 |
 | imp.err.field.notFinite | 請輸入有效數字 | #179 | `fieldErrorMessage('not-finite')` |

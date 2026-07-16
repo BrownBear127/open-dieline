@@ -369,6 +369,7 @@ describe('App 冒煙測試', () => {
     color: var(--ink);
     font-family: "Fraunces", Georgia, serif;
     font-optical-sizing: auto;
+    font-synthesis: none; /* Spec §7：全域防止瀏覽器合成字重與斜體。 */
     -webkit-font-smoothing: antialiased;
     line-height: normal;`);
     expect(css).toContain('height: calc(100dvh - 2 * clamp(24px, 8vh, 150px)); min-height: 640px;');

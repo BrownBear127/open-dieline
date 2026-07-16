@@ -51,6 +51,25 @@ describe('i18n dictionary', () => {
     }
   });
 
+  it('uses only flat named placeholders without nested-note remnants', () => {
+    for (const [key, text] of Object.entries(dict)) {
+      for (const [lang, template] of Object.entries(text)) {
+        const withoutNamedPlaceholders = template.replace(/\{\w+\}/g, '');
+        expect(withoutNamedPlaceholders, `${key}.${lang} has an invalid placeholder`).not.toMatch(/[{}]/);
+        expect(template, `${key}.${lang} has a backtick remnant`).not.toContain('`');
+      }
+    }
+  });
+
+  it('interpolates the normalized imposition sub-size template', () => {
+    expect(t('imp.sheet.subSize', {
+      sheetW: '310.0',
+      sheetH: '430.0',
+      sheetUsableW: '300.0',
+      sheetUsableH: '415.0',
+    })).toBe('310.0 × 430.0 mm (usable 300.0 × 415.0 mm)');
+  });
+
   it('keeps every structural-lock English value byte-for-byte', () => {
     expect(STRUCTURAL_LOCK_KEYS).toEqual(Object.keys(EXPECTED_STRUCTURAL_LOCK_EN));
     for (const key of STRUCTURAL_LOCK_KEYS) {
