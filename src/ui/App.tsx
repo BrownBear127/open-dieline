@@ -85,6 +85,7 @@ import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { LayersPanel } from '@/ui/LayersPanel';
+import { FoldView } from '@/ui/FoldView';
 import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
 import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
@@ -96,7 +97,7 @@ import { getLang, t } from '@/i18n/t';
  *  刀模設計流程（ParamPanel＋LayersPanel＋ExportBar＋Canvas）；`'imposition'`＝拼版估算
  *  （ParamPanel／盒型選擇留用＋`ImpositionControls`／`ImpositionResults`，見上方檔頭
  *  docblock「appMode／impositionState」一節的完整說明）。 */
-type AppMode = 'design' | 'imposition';
+type AppMode = 'design' | 'imposition' | 'fold';
 
 function emphasisParts(copy: string): [before: string, emphasis: string, after: string] {
   const match = /^(.*?)\*([^*]+)\*(.*)$/.exec(copy);
@@ -282,6 +283,17 @@ export function App() {
           >
             {t('mode.imposition')}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAppMode('fold');
+              setCalibrating(false);
+            }}
+            aria-pressed={appMode === 'fold'}
+            className={`mode label${appMode === 'fold' ? ' on' : ''}`}
+          >
+            {t('mode.fold')}
+          </button>
         </div>
 
         <div className="readout mono">
@@ -387,11 +399,13 @@ export function App() {
               calibrating={calibrating}
               onCalibratingChange={setCalibrating}
             />
-          ) : (
+          ) : appMode === 'imposition' ? (
             <section className="bench">
               <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
               <ImpositionResults result={result} state={impositionState} />
             </section>
+          ) : (
+            <FoldView boxId={boxId} values={values} />
           )}
         </main>
       </div>
