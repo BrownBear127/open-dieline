@@ -65,6 +65,25 @@ const PROBES = [
   { id: 'g2-late-override', gate: 'g2-vocab',
     run: () => append('src/index.css', '\n.masthead .wordmark { font-weight: 900; }\n'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }) },
+  // 2026-07-16 M3 T5 常駐化（M2 T4 否證探針的教訓固定下來）：FROZEN_
+  // DECLARATION_MANIFEST 的三條 zh weight 凍結項（.zh .boxsel select／.zh .param-select
+  // select／.zh .imp-card h4·皆 400）漂移必翻紅。前兩者共用同一條 comma-list 規則——
+  // 一次 mutate 同時覆蓋兩個 manifest 項（parseDeclarations 拆解後兩項同時漂移），故兩
+  // 循環蓋三項。單 probe 內部逐循環 mutate→紅→復原，全部紅才算目標紅。
+  { id: 'g2-frozen-zh-weights', gate: 'g2-vocab',
+    run: () => {},
+    check: () => {
+      const cycles = [
+        ['.zh .boxsel select, .zh .param-select select { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 400; }',
+         '.zh .boxsel select, .zh .param-select select { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 600; }'],
+        ['.zh .imp-card h4 { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 400; }',
+         '.zh .imp-card h4 { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 600; }'],
+      ];
+      return cycles.every(([from, to]) => {
+        try { mutate('src/styles/vocab.css', from, to); return shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g2-vocab' }); }
+        finally { revert(); }
+      });
+    } },
   // — G3 家族（新違規＋允許值移位·I3）—
   { id: 'g3-new-utility', gate: 'g3-utility', run: () => mutate('src/ui/App.tsx', 'className="', 'className="text-red-500 '),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g3-utility', GATE_SKIP_BUILD: '1' }) },
