@@ -70,8 +70,8 @@ describe('fold import boundary', () => {
       .map((file) => fs.readFileSync(path.join(foldDir, file), 'utf8'))
       .join('\n');
     const specifiers = [...source.matchAll(
-      /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-    )].map((match) => match[1] ?? match[2]!);
+      /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)|\bimport\s*['"]([^'"]+)['"]/g,
+    )].map((match) => match[1] ?? match[2] ?? match[3]!);
     const forbiddenRoots = ['three', 'react', '@/ui'];
     const forbiddenSpecifiers = specifiers.filter((specifier) => forbiddenRoots.some(
       (root) => specifier === root || specifier.startsWith(`${root}/`),
