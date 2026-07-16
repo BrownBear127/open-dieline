@@ -165,6 +165,47 @@ function expectAllVerticesFinite(geometry: Map<string, Vec3[]>, label: string): 
   }
 }
 
+function expectDustPanelsInsideOpening(
+  model: FoldModel,
+  geometry: Map<string, Vec3[]>,
+  L: number,
+  W: number,
+  label: string,
+): void {
+  for (const panelId of ['topDustP2', 'bottomDustP2', 'topDustP4', 'bottomDustP4']) {
+    const target = model.panels.find(({ id }) => id === panelId);
+    if (target?.hingeLine === undefined) {
+      throw new Error(`${label}: missing flat panel or hinge for ${panelId}`);
+    }
+    const hinge = target.hingeLine;
+    const vertices = worldPanel(geometry, panelId);
+
+    for (const [index, vertex] of vertices.entries()) {
+      expect(vertex.x, `${label}: ${panelId} vertex ${index} opening x lower bound`)
+        .toBeGreaterThanOrEqual(-CLOSURE_TOLERANCE_MM);
+      expect(vertex.x, `${label}: ${panelId} vertex ${index} opening x upper bound`)
+        .toBeLessThanOrEqual(L + CLOSURE_TOLERANCE_MM);
+      expect(vertex.z, `${label}: ${panelId} vertex ${index} opening z lower bound`)
+        .toBeGreaterThanOrEqual(-CLOSURE_TOLERANCE_MM);
+      expect(vertex.z, `${label}: ${panelId} vertex ${index} opening z upper bound`)
+        .toBeLessThanOrEqual(W + CLOSURE_TOLERANCE_MM);
+
+      const flatVertex = target.polygon[index]!;
+      const isHingeVertex = [hinge.a, hinge.b]
+        .some(({ x, y }) => flatVertex.x === x && flatVertex.y === y);
+      if (isHingeVertex) continue;
+
+      if (panelId.endsWith('P2')) {
+        expect(vertex.x, `${label}: ${panelId} non-hinge vertex ${index} folds inward from P2`)
+          .toBeLessThanOrEqual(L + CLOSURE_TOLERANCE_MM);
+      } else {
+        expect(vertex.x, `${label}: ${panelId} non-hinge vertex ${index} folds inward from P4`)
+          .toBeGreaterThanOrEqual(-CLOSURE_TOLERANCE_MM);
+      }
+    }
+  }
+}
+
 function singleParameterCases(): SweepCase[] {
   return reverseTuckEnd.params.flatMap((param): SweepCase[] => {
     if (param.unit === 'enum') {
@@ -234,6 +275,8 @@ describe('RTE world-space closure matrix', () => {
       const glue = worldPanel(folded, 'glue');
       const topLid = worldPanel(folded, 'topLid');
       const bottomLid = worldPanel(folded, 'bottomLid');
+
+      expectDustPanelsInsideOpening(model, folded, L, W, `thickness=${thickness}, glueSide=${glueSide}`);
 
       expectEdgesCoincide([p4[1]!, p4[2]!], [p1[0]!, p1[3]!], 'P4 free edge ↔ P1 fixed edge');
 

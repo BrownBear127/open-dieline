@@ -36,12 +36,20 @@ function taggedPaths(result: GenerateResult, type: DielinePath['type'], tag: str
   return result.paths.filter((path) => path.type === type && path.tags?.includes(tag));
 }
 
-function bodyCreaseXs(result: GenerateResult, D: number): number[] {
-  return lineSegments(result.paths.filter(({ type }) => type === 'crease'))
+function uniqueSorted(values: number[]): number[] {
+  return values
+    .sort((left, right) => left - right)
+    .filter((value, index, sorted) => index === 0 || !isClose(value, sorted[index - 1]!));
+}
+
+function bodyBoundaryXs(result: GenerateResult, D: number): number[] {
+  const bodySegments = lineSegments(
+    result.paths.filter(({ type }) => type === 'crease' || type === 'cut'),
+  );
+  return uniqueSorted(bodySegments
     .filter(({ x1, x2 }) => isClose(x1, x2))
     .filter(({ y1, y2 }) => isClose(Math.min(y1, y2), 0) && isClose(Math.max(y1, y2), D))
-    .map(({ x1 }) => x1)
-    .sort((left, right) => left - right);
+    .map(({ x1 }) => x1));
 }
 
 function horizontalCreaseInterval(result: GenerateResult, y: number, tag: string): [number, number] {
@@ -51,6 +59,13 @@ function horizontalCreaseInterval(result: GenerateResult, y: number, tag: string
   expect(candidates.length, `missing horizontal ${tag} crease at y=${y}`).toBeGreaterThan(0);
   const xs = candidates.flatMap(({ x1, x2 }) => [x1, x2]);
   return [Math.min(...xs), Math.max(...xs)];
+}
+
+function horizontalCreaseIntervals(result: GenerateResult, y: number, tag: string): [number, number][] {
+  return lineSegments(taggedPaths(result, 'crease', tag))
+    .filter(({ y1, y2 }) => isClose(y1, y) && isClose(y2, y))
+    .map(({ x1, x2 }): [number, number] => [Math.min(x1, x2), Math.max(x1, x2)])
+    .sort(([left], [right]) => left - right);
 }
 
 function outerLidHingeY(result: GenerateResult, side: 'top' | 'bottom', D: number): number {
@@ -64,16 +79,15 @@ function outerLidHingeY(result: GenerateResult, side: 'top' | 'bottom', D: numbe
   return first!;
 }
 
-function compensatedBoundaries(L: number, W: number, thickness: number, glueSide: 'left' | 'right'): number[] {
-  const nominal = [0, L, L + W, 2 * L + W, 2 * L + 2 * W];
+function cumulativeCompensationOffsets(thickness: number, glueSide: 'left' | 'right'): number[] {
   const compensation = glueSide === 'right' ? [...GIRTH].reverse() : [...GIRTH];
+  const offsets = [0];
 
-  return nominal.map((x, index) => {
-    const precedingCompensation = compensation
-      .slice(0, index)
-      .reduce<number>((sum, coefficient) => sum + coefficient, 0);
-    return x + precedingCompensation * thickness;
-  });
+  for (const coefficient of compensation) {
+    offsets.push(offsets[offsets.length - 1]! + coefficient * thickness);
+  }
+
+  return offsets;
 }
 
 function expectCoordinatesClose(actual: number[], expected: number[]): void {
@@ -85,8 +99,32 @@ function expectCoordinatesClose(actual: number[], expected: number[]): void {
 
 function panel(model: FoldModel, id: string): FoldPanel {
   const target = model.panels.find((candidate) => candidate.id === id);
-  expect(target, `missing fold panel ${id}`).toBeDefined();
-  return target!;
+  if (target === undefined) throw new Error(`missing fold panel ${id}`);
+  return target;
+}
+
+function foldBodyBoundaryXs(model: FoldModel): number[] {
+  return uniqueSorted(['P1', 'P2', 'P3', 'P4'].flatMap((id) => {
+    const xs = panel(model, id).polygon.map(({ x }) => x);
+    return [Math.min(...xs), Math.max(...xs)];
+  }));
+}
+
+function hingeXInterval(target: FoldPanel): [number, number] {
+  if (target.hingeLine === undefined) throw new Error(`${target.id} must have a hingeLine`);
+  const { a, b } = target.hingeLine;
+  return [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+}
+
+function nominalizeInterval(
+  interval: [number, number],
+  offsets: number[],
+  boundaryIndices: [number, number],
+): [number, number] {
+  return [
+    interval[0] - offsets[boundaryIndices[0]]!,
+    interval[1] - offsets[boundaryIndices[1]]!,
+  ];
 }
 
 function polygonHeight(target: FoldPanel): number {
@@ -110,27 +148,24 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
   for (const { thickness, glueSide } of RECONCILIATION_MATRIX) {
     const label = `thickness=${thickness}, glueSide=${glueSide}`;
 
-    it(`${label}: body crease x coordinates equal nominal boundaries plus cumulative girth compensation`, () => {
+    it(`${label}: fold body boundaries equal compensated 2D boundaries minus cumulative girth compensation`, () => {
       const params = resolveParams(reverseTuckEnd, { thickness, glueSide });
       const result = reverseTuckEnd.generate(params);
-      const L = params.L as number;
-      const W = params.W as number;
+      const model = buildRteFoldModel(params);
       const D = params.D as number;
-      const boundaries = compensatedBoundaries(L, W, thickness, glueSide);
-      const expected = [boundaries[1]!, boundaries[2]!, boundaries[3]!, boundaries[glueSide === 'left' ? 0 : 4]!]
-        .sort((left, right) => left - right);
+      const offsets = cumulativeCompensationOffsets(thickness, glueSide);
+      const nominalized2dBoundaries = bodyBoundaryXs(result, D)
+        .map((x, index) => x - offsets[index]!);
 
-      expectCoordinatesClose(bodyCreaseXs(result, D), expected);
+      expectCoordinatesClose(nominalized2dBoundaries, foldBodyBoundaryXs(model));
     });
 
     it(`${label}: top lid belongs to P3 and bottom lid belongs to P1`, () => {
       const params = resolveParams(reverseTuckEnd, { thickness, glueSide });
       const result = reverseTuckEnd.generate(params);
       const model = buildRteFoldModel(params);
-      const L = params.L as number;
-      const W = params.W as number;
       const D = params.D as number;
-      const [x0, x1, x2, x3] = compensatedBoundaries(L, W, thickness, glueSide);
+      const [x0, x1, x2, x3] = bodyBoundaryXs(result, D);
       const topLid = panel(model, 'topLid');
       const bottomLid = panel(model, 'bottomLid');
 
@@ -173,22 +208,74 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
       expect(bottomDustHeights[1]!).toBeCloseTo(polygonHeight(panel(model, 'bottomDustP4')), 9);
     });
 
-    it(`${label}: glue width equals glueSize in compensated 2D and nominal fold geometry`, () => {
+    it(`${label}: lid, tuck, and dust hinge x spans match compensated 2D creases`, () => {
       const params = resolveParams(reverseTuckEnd, { thickness, glueSide });
       const result = reverseTuckEnd.generate(params);
       const model = buildRteFoldModel(params);
-      const L = params.L as number;
+      const D = params.D as number;
       const W = params.W as number;
+      const offsets = cumulativeCompensationOffsets(thickness, glueSide);
+
+      expectCoordinatesClose(
+        hingeXInterval(panel(model, 'topLid')),
+        nominalizeInterval(horizontalCreaseInterval(result, 0, 'L'), offsets, [2, 3]),
+      );
+      expectCoordinatesClose(
+        hingeXInterval(panel(model, 'bottomLid')),
+        nominalizeInterval(horizontalCreaseInterval(result, D, 'L'), offsets, [0, 1]),
+      );
+      expectCoordinatesClose(
+        hingeXInterval(panel(model, 'topTuck')),
+        nominalizeInterval(horizontalCreaseInterval(result, -W, 'W'), offsets, [2, 3]),
+      );
+      expectCoordinatesClose(
+        hingeXInterval(panel(model, 'bottomTuck')),
+        nominalizeInterval(horizontalCreaseInterval(result, D + W, 'W'), offsets, [0, 1]),
+      );
+
+      const dustPanelIds = ['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4'];
+      const foldDustIntervals = dustPanelIds.map((id) => hingeXInterval(panel(model, id)));
+      const topDustIntervals = horizontalCreaseIntervals(result, 0, 'dustFlapDepth');
+      const bottomDustIntervals = horizontalCreaseIntervals(result, D, 'dustFlapDepth');
+      expect(topDustIntervals).toHaveLength(2);
+      expect(bottomDustIntervals).toHaveLength(2);
+
+      const nominalDustIntervals = [...topDustIntervals, ...bottomDustIntervals]
+        .map((interval, index) => nominalizeInterval(
+          interval,
+          offsets,
+          index % 2 === 0 ? [1, 2] : [3, 4],
+        ));
+      for (const [index, interval] of foldDustIntervals.entries()) {
+        expectCoordinatesClose(interval, nominalDustIntervals[index]!);
+      }
+    });
+
+    it(`${label}: glue width, height, and hinge span match compensated 2D and nominal fold geometry`, () => {
+      const params = resolveParams(reverseTuckEnd, { thickness, glueSide });
+      const result = reverseTuckEnd.generate(params);
+      const model = buildRteFoldModel(params);
+      const D = params.D as number;
       const glueSize = params.glueSize as number;
-      const boundaries = compensatedBoundaries(L, W, thickness, glueSide);
+      const boundaries = bodyBoundaryXs(result, D);
       const glueCreaseX = glueSide === 'left' ? boundaries[0]! : boundaries[4]!;
-      const [outerGlueEdge] = lineSegments(taggedPaths(result, 'cut', 'glueSize'))
+      const gluePaths = taggedPaths(result, 'cut', 'glueSize');
+      const [outerGlueEdge] = lineSegments(gluePaths)
         .filter(({ x1, x2 }) => isClose(x1, x2))
         .map(({ x1 }) => x1);
+      const [glueBounds] = gluePaths.map(({ segments }) => segmentsBounds(segments));
+      const foldGlue = panel(model, 'glue');
 
       expect(outerGlueEdge).toBeDefined();
+      expect(glueBounds).toBeDefined();
       expect(Math.abs(outerGlueEdge! - glueCreaseX)).toBeCloseTo(glueSize, 9);
-      expect(polygonWidth(panel(model, 'glue'))).toBeCloseTo(glueSize, 9);
+      expect(polygonWidth(foldGlue)).toBeCloseTo(glueSize, 9);
+      expect(glueBounds!.maxY - glueBounds!.minY).toBeCloseTo(D, 9);
+      expect(polygonHeight(foldGlue)).toBeCloseTo(D, 9);
+      expectCoordinatesClose(
+        [Math.min(foldGlue.hingeLine!.a.y, foldGlue.hingeLine!.b.y), Math.max(foldGlue.hingeLine!.a.y, foldGlue.hingeLine!.b.y)],
+        [0, D],
+      );
     });
   }
 });

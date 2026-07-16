@@ -5,7 +5,9 @@ export interface FoldPanel {
   parent: string | null;
   hingeLine?: { a: Pt; b: Pt };
   foldAngle: number;          // rad·符號=繞 hinge 軸（a→b 方向）右手定則
-  liftOffset?: number;        // 沿摺合後面板法向·t=1 漸入（step 尾 20% 線性升至全值）
+  // 沿摺合後面板法向的視覺偏移·僅允許 leaf 面板（validate 強制）·M0 幾何語義=
+  // liftOffset×(|angle|/|foldAngle|) 線性漸入（M1 動畫層若改 step 尾 20% 曲線需同步修此註解與 pose3d）。
+  liftOffset?: number;
 }
 export type EaseName = 'linear' | 'powerInOut' | 'backIn';
 export interface FoldStep  { panelIds: string[]; t0: number; t1: number; ease: EaseName }
