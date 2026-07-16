@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { transformSync } from 'esbuild';
+import ts from 'typescript';
 import { parseDeclarations } from './g2-vocab.mjs';
 
 const CONTRACT_PATH = 'checks/canonical/p3-style-contract.json';
@@ -14,38 +14,76 @@ function read(root, relativePath) {
   return readFileSync(path.join(root, relativePath), 'utf8');
 }
 
-function readUsageSource(root, relativePath) {
-  // 使用面掃描前先過 esbuild jsx transform（final review F4）：JSX/JS 註解裡的
-  // className 誘餌會被剝除，真使用以 `className: "…"` 屬性形式保留。
-  // 實測陷阱：jsx:'preserve' 不剝 JSX expression container 註解——必須完整 transform；
-  // 因此 token regex 同時吃 `=`（原始 JSX）與 `:`（transform 後屬性）兩形。
-  return transformSync(read(root, relativePath), { loader: 'tsx', jsx: 'automatic' }).code;
+// TS AST 只收「JSX attribute」的 className/type 字面（re-review N2·取代文字掃描）：
+// JS/JSX 註解、普通 object property（{ className: '…' }）、無關字串天然不算——
+// decoy 族根治。值位收集走白名單節點（string/template/三元/串接），template span 與
+// 三元的「條件」表達式不走訪（避免 appMode === 'fold' 的比較值被誤收為 token）。
+function collectValueStrings(node, sink) {
+  if (node === undefined) return;
+  if (ts.isJsxExpression(node) || ts.isParenthesizedExpression(node)) {
+    collectValueStrings(node.expression, sink);
+    return;
+  }
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    sink(node.text);
+    return;
+  }
+  if (ts.isTemplateExpression(node)) {
+    sink(node.head.text);
+    for (const span of node.templateSpans) {
+      collectValueStrings(span.expression, sink);
+      sink(span.literal.text);
+    }
+    return;
+  }
+  if (ts.isConditionalExpression(node)) {
+    collectValueStrings(node.whenTrue, sink);
+    collectValueStrings(node.whenFalse, sink);
+    return;
+  }
+  if (ts.isBinaryExpression(node)) {
+    collectValueStrings(node.left, sink);
+    collectValueStrings(node.right, sink);
+  }
 }
 
-function extractClassTokens(source) {
+function extractJsxUsage(root, relativePath) {
+  const sourceFile = ts.createSourceFile(
+    relativePath, read(root, relativePath), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+  );
   const tokens = new Set();
-  for (const match of source.matchAll(/className\s*[:=]\s*\{?\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/g)) {
-    const value = match[1] ?? match[2] ?? match[3] ?? '';
-    for (const token of value.split(/\s+/)) {
-      if (/^[a-z][a-z0-9-]*$/i.test(token)) tokens.add(token);
+  let rangeInput = false;
+  const visit = (node) => {
+    if (ts.isJsxAttribute(node)) {
+      const name = node.name.getText(sourceFile);
+      if (name === 'className') {
+        collectValueStrings(node.initializer, (value) => {
+          for (const token of value.split(/\s+/)) {
+            if (/^[a-z][a-z0-9-]*$/i.test(token)) tokens.add(token);
+          }
+        });
+      } else if (name === 'type') {
+        collectValueStrings(node.initializer, (value) => {
+          if (value === 'range') rangeInput = true;
+        });
+      }
     }
-  }
-  return tokens;
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return { tokens, rangeInput };
 }
 
 function selectorClasses(selector) {
   return [...selector.matchAll(/\.([a-z][a-z0-9-]*)/gi)].map((match) => match[1]);
 }
 
-function selectorIsUsed(selector, usageSources) {
+function selectorIsUsed(selector, usages) {
   if (selector === 'input[type="range"]') {
-    return usageSources.some((source) => /type\s*[:=]\s*["']range["']/.test(source));
+    return usages.some(({ rangeInput }) => rangeInput);
   }
   const classes = selectorClasses(selector);
-  return classes.length > 0 && usageSources.some((source) => {
-    const tokens = extractClassTokens(source);
-    return classes.every((className) => tokens.has(className));
-  });
+  return classes.length > 0 && usages.some(({ tokens }) => classes.every((className) => tokens.has(className)));
 }
 
 function ruleStartingAtLine(css, lineNumber) {
@@ -132,7 +170,7 @@ export async function run({ root, distDir }) {
   if (contract.length === 0) errs.push('contract 不可為空（sanity check）');
 
   const seenSelectors = new Set();
-  const usageSources = USAGE_FILES.map((file) => readUsageSource(root, file));
+  const usageSources = USAGE_FILES.map((file) => extractJsxUsage(root, file));
   const derivedSelectors = [];
 
   for (const entry of contract) {
@@ -170,7 +208,7 @@ export async function run({ root, distDir }) {
     derivedSelectors.push(selector);
   }
 
-  const foldViewClasses = [...extractClassTokens(usageSources[0])].filter((className) => FOLD_CLASS_RE.test(className));
+  const foldViewClasses = [...usageSources[0].tokens].filter((className) => FOLD_CLASS_RE.test(className));
   for (const className of foldViewClasses) {
     if (!contract.some(({ selector }) => selectorClasses(selector).includes(className))) {
       errs.push(`FoldView 未登錄 derived selector：.${className}`);
@@ -179,7 +217,7 @@ export async function run({ root, distDir }) {
 
   const foldOnlyClasses = new Set(derivedSelectors.flatMap(selectorClasses));
   for (const relativePath of DESIGN_CONTEXT_FILES) {
-    const leaked = [...extractClassTokens(readUsageSource(root, relativePath))].filter((className) => foldOnlyClasses.has(className));
+    const leaked = [...extractJsxUsage(root, relativePath).tokens].filter((className) => foldOnlyClasses.has(className));
     if (leaked.length > 0) errs.push(`design context 洩漏：${relativePath} 使用 ${leaked.map((name) => `.${name}`).join(', ')}`);
   }
 
