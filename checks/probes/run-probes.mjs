@@ -96,8 +96,10 @@ const PROBES = [
   { id: 'a15-drift', gate: 'a15-copy',
     run: () => mutate('src/i18n/dict.ts', "'chrome.wordmark': { en: 'Open *Dieline*'", "'chrome.wordmark': { en: 'Open *Dielines*'"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
+  // 2026-07-16 T0 retarget：mode.design（Tier A 非 lock·B3 期實證用）→ imp.err.default
+  // （B5 家族·本輪逐字化的新覆蓋面）——非 lock 值漂移類覆蓋不變，且常駐驗證附錄 B 消費路徑。
   { id: 'a15-value-drift', gate: 'a15-copy',
-    run: () => mutate('src/i18n/dict.ts', "'mode.design': { en: 'Design'", "'mode.design': { en: 'Design drift'"),
+    run: () => mutate('src/i18n/dict.ts', "'imp.err.default': { en: 'Calculation error.", "'imp.err.default': { en: 'Calculation drift."),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
 ];
 

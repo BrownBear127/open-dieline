@@ -6,6 +6,8 @@ Vendor date: 2026-07-16
 # Copy Inventory 擴充——Tier B 逐 key 明細 + mock 作廢清單
 
 > 2026-07-16 M2 前置 B1：B5 佔位符正規化（dotted→平面名·巢狀註記抽 key）·句面文字不變·授權
+> 2026-07-16 M2 T0：§B5 追加 2 個簽核新 key（`imp.cut.formula`／`imp.stats.footprint`·簽核
+> 2026-07-16·EN 經產業術語對照）·B5=22·Tier B 合計 102
 > 原料：`p2-m05-string-audit.md`（208 條編號＋16 條 S1-S5·2026-07-16 @ce72d7e）
 > ＋現行 `copy-inventory.md`（§A 命名慣例）＋凍結 mock `tool-chrome-mock.html`
 > 純機械整理：zh 逐字抄 audit，不創作不改寫。模板變數統一寫 `{expr}` 形（`{expr}` 內
@@ -20,6 +22,7 @@ telescope 15 own key＋3 條 inv.common 合併 key；`pieces-valid` 為動態委
 ／B3=8／B4=2／B5=20（含新補 `imp.footprint` 與 5 條欄位錯誤，較舊摘要「×12」多出，
 因舊摘要漏了 `imp.footprint` 且未拆計 `imp.err.internal/.default` 與 `imp.sub.*`/`imp.per.*`
 的雙詞獨立 key）／B6=8／B7=9。**Tier B 合計 100 key**（29+24+8+2+20+8+9）。
+（2026-07-16 M2 T0 追加：B5=20＋2＝22（M2 簽核新 key·見 §B5 追加表）→ Tier B 合計 102。）
 
 ### B1 參數 description ×27 ＋ meta.intro ×2（audit §7a/§8a/§7c/§8d）
 
@@ -174,6 +177,18 @@ Tier B key**，此處僅列記錄供對帳，實際文字見 B7。
 | imp.err.field.belowMin | 不得小於 {MIN_GAP_MM}mm | #181 | `fieldErrorMessage('below-min')` |
 | imp.err.field.outOfRange | 數值超出安全範圍 | #182 | `fieldErrorMessage('out-of-range')` |
 | imp.err.field.internal | 內部計算錯誤 | #183 | `fieldErrorMessage('internal')` |
+
+#### B5 追加——M2 簽核新 key ×2（2026-07-16·簽核·EN 經產業術語對照）
+
+接線 blocker 補殼＋統計列標籤：`imp.cut.formula`＝裁切分支卡片句殼（zh 原硬編碼於
+ImpositionResults.tsx `directionCardText()` 裁切分支、EN 無殼；「N-up」＝印刷業標準
+計數詞·{per} 修飾語前掛＝裁決）；`imp.stats.footprint`＝統計列第二格標籤（維護者
+裁決①·沿用已簽 `imp.footprint` 產品語彙「主格點／Footprint」·「image area」語義過寬棄用）。
+
+| key | en | zh | 聲部 | 用途 |
+|---|---|---|---|---|
+| imp.cut.formula | {count} up {per} × {sections} = {totalCount} up | {per} {count} 模 × {sections} ＝ {totalCount} 模 | mono | 裁切分支卡片句殼（{per}＝`imp.per.quarter`／`imp.per.half` 之值） |
+| imp.stats.footprint | Footprint | 主格點 | mono | 統計列第二格標籤（主格點佔用尺寸） |
 
 ---
 

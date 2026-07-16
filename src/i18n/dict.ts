@@ -106,6 +106,7 @@ export const dict = {
   'imp.stats.up': { en: 'Up', zh: '模數' },
   'imp.stats.yield': { en: 'Yield', zh: '得料率' },
   'imp.stats.waste': { en: 'Waste', zh: '損耗' },
+  'imp.stats.footprint': { en: 'Footprint', zh: '主格點' },
   'imp.noFit': { en: 'Doesn’t fit', zh: '放不下' },
   'imp.previewSimplified': { en: 'Preview simplified for large counts', zh: '數量過大，預覽已簡化' },
   'imp.preview.aria': { en: '{label} layout preview', zh: '{label} 排列預覽' },
@@ -136,6 +137,10 @@ export const dict = {
     zh: '{cols} 列 × {rows} 行{fillSuffix} ＝ {count} 模',
   },
   'imp.grid.fillSuffix': { en: ' + {fillCount} additional up', zh: '＋ 補 {fillCount}' },
+  'imp.cut.formula': {
+    en: '{count} up {per} × {sections} = {totalCount} up',
+    zh: '{per} {count} 模 × {sections} ＝ {totalCount} 模',
+  },
   'imp.spacing.rows': { en: 'Row-spacing outline contraction', zh: '行距輪廓收縮' },
   'imp.spacing.cols': { en: 'Column-spacing outline contraction', zh: '列距輪廓收縮' },
   'imp.footprint': {
