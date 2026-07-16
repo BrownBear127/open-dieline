@@ -361,7 +361,7 @@ export function App() {
           )}
         </aside>
 
-        <main className={appMode === 'design' ? 'min-h-0 flex-1 flex' : 'min-h-0 flex-1 flex overflow-y-auto p-6 bg-white'}>
+        <main className="min-h-0 flex-1 flex">
           {appMode === 'design' ? (
             <Canvas
               result={result}
@@ -378,12 +378,10 @@ export function App() {
               onCalibratingChange={setCalibrating}
             />
           ) : (
-            // T4：拼版模式主區改「toolbar 在上、結果卡在下」垂直堆疊，取代 T3 的側欄＋主區
-            // 左右分割（gate 驗收反饋「放在右側預覽區域上方」）。
-            <div className="flex-1 flex flex-col gap-4">
+            <section className="bench">
               <ImpositionControls result={result} state={impositionState} onChange={setImpositionState} />
               <ImpositionResults result={result} state={impositionState} />
-            </div>
+            </section>
           )}
         </main>
       </div>

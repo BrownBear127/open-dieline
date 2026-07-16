@@ -10,6 +10,8 @@ import { segmentsToSvgD } from '@/core/path';
 import { ImpositionView, ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { DISPLAY_LINE_STYLES } from '@/core/displayStyles';
+import { getLang } from '@/i18n/t';
+import { t } from './helpers/i18n';
 import { Z_NOTCH_SEGMENTS, Z_NOTCH_GAP, POSITIVE_FILL_INPUT, Z_NOTCH_ANCHOR_DEG0, Z_NOTCH_ANCHOR_DEG90 } from './fixtures/z-notch';
 
 // ── fixtures ─────────────────────────────────────────────────────────────
@@ -296,37 +298,72 @@ describe('ImpositionView — 對開模式', () => {
   });
 });
 
-// ── toolbar 按鈕組（T4：紙規／方向／裁切／旋轉全面改按鈕，取代 T1「作業模式」四選一
-// 暫時下拉；裁切改成 cutV/cutH 各自獨立 toggle，可疊加＝四開，不再是四選一映射） ────────
+// ── M2 T1 toolbar：D 語彙結構＋dict 文案；裁切仍是可疊加的獨立 toggle ────────────
 
-describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
+describe('ImpositionControls — M2 T1 toolbar', () => {
+  it('使用 imp-toolbar／7 個 imp-group／row 結構，群組與按鈕套用 D 語彙 class', () => {
+    const { container } = render(
+      <ImpositionControls
+        result={SINGLE_PIECE_RESULT}
+        state={{ ...BASE_STATE, paperPresetId: '31x43', allowRotate: true }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const toolbar = screen.getByRole('group', { name: t('imp.title') });
+    expect(toolbar).toHaveClass('imp-toolbar');
+    const groups = Array.from(toolbar.querySelectorAll(':scope > .imp-group'));
+    expect(groups).toHaveLength(7);
+    expect(groups.every((group) => group.querySelector(':scope > .row') !== null)).toBe(true);
+    expect(Array.from(groups, (group) => group.querySelector(':scope > .k')?.textContent)).toEqual([
+      t('imp.piece'),
+      t('imp.sheet'),
+      t('imp.orient'),
+      t('imp.halving'),
+      t('imp.rotate'),
+      t('imp.gripper'),
+      t('imp.gutter'),
+    ]);
+
+    const buttons = Array.from(container.querySelectorAll('.imp-toolbar button'));
+    expect(buttons).toHaveLength(9);
+    expect(
+      buttons.every(
+        (button) => button.classList.contains('btn') && button.classList.contains('label') && button.classList.contains('tog'),
+      ),
+    ).toBe(true);
+    expect(screen.getByRole('button', { name: t('imp.sheet.preset.31x43') })).toHaveClass('on');
+    expect(screen.getByRole('button', { name: t('imp.orient.portrait') })).toHaveClass('on');
+    expect(screen.getByRole('button', { name: t('imp.rotate.allow') })).toHaveClass('on');
+  });
+
   it('紙規 4 顆按鈕（3 preset＋自訂）：aria-pressed 反映 state.paperPresetId，點擊呼叫 onChange', () => {
     const onChange = vi.fn();
-    render(
+    const { container } = render(
       <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, paperPresetId: '31x43' }} onChange={onChange} />,
     );
 
-    const paperGroup = within(screen.getByRole('group', { name: '紙規' }));
-    expect(paperGroup.getByRole('button', { name: /31/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(paperGroup.getByRole('button', { name: /25/ })).toHaveAttribute('aria-pressed', 'false');
-    expect(paperGroup.getByRole('button', { name: /27/ })).toHaveAttribute('aria-pressed', 'false');
-    expect(paperGroup.getByRole('button', { name: '自訂' })).toHaveAttribute('aria-pressed', 'false');
+    const paperGroup = within(container.querySelectorAll('.imp-group')[1] as HTMLElement);
+    expect(paperGroup.getByRole('button', { name: t('imp.sheet.preset.31x43') })).toHaveAttribute('aria-pressed', 'true');
+    expect(paperGroup.getByRole('button', { name: t('imp.sheet.preset.25x35') })).toHaveAttribute('aria-pressed', 'false');
+    expect(paperGroup.getByRole('button', { name: t('imp.sheet.preset.27x39') })).toHaveAttribute('aria-pressed', 'false');
+    expect(paperGroup.getByRole('button', { name: t('imp.sheet.custom') })).toHaveAttribute('aria-pressed', 'false');
 
-    fireEvent.click(paperGroup.getByRole('button', { name: /25/ }));
+    fireEvent.click(paperGroup.getByRole('button', { name: t('imp.sheet.preset.25x35') }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ paperPresetId: '25x35' }));
 
-    fireEvent.click(paperGroup.getByRole('button', { name: '自訂' }));
+    fireEvent.click(paperGroup.getByRole('button', { name: t('imp.sheet.custom') }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ paperPresetId: 'custom' }));
   });
 
   it('自訂紙規選中時展開 W/H 輸入；選 preset 時收合（isCustomPaper 沿用既有計算，僅觸發方式從 select 改按鈕）', () => {
     const { rerender } = render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(screen.getByLabelText('W (mm)')).toBeInTheDocument(); // BASE_STATE.paperPresetId==='custom'
-    expect(screen.getByLabelText('H (mm)')).toBeInTheDocument();
+    expect(screen.getByLabelText(t('imp.sheet.w'))).toBeInTheDocument(); // BASE_STATE.paperPresetId==='custom'
+    expect(screen.getByLabelText(t('imp.sheet.h'))).toBeInTheDocument();
 
     rerender(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, paperPresetId: '31x43' }} onChange={vi.fn()} />);
-    expect(screen.queryByLabelText('W (mm)')).toBeNull();
-    expect(screen.queryByLabelText('H (mm)')).toBeNull();
+    expect(screen.queryByLabelText(t('imp.sheet.w'))).toBeNull();
+    expect(screen.queryByLabelText(t('imp.sheet.h'))).toBeNull();
   });
 
   it('方向 2 顆按鈕（直放/橫放）：aria-pressed 反映 state.orientation，點擊呼叫 onChange', () => {
@@ -335,11 +372,11 @@ describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
       <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, orientation: 'portrait' }} onChange={onChange} />,
     );
 
-    const orientationGroup = within(screen.getByRole('group', { name: '方向' }));
-    expect(orientationGroup.getByRole('button', { name: '直放' })).toHaveAttribute('aria-pressed', 'true');
-    expect(orientationGroup.getByRole('button', { name: '橫放' })).toHaveAttribute('aria-pressed', 'false');
+    const orientationGroup = within(screen.getByText(t('imp.orient')).closest('.imp-group') as HTMLElement);
+    expect(orientationGroup.getByRole('button', { name: t('imp.orient.portrait') })).toHaveAttribute('aria-pressed', 'true');
+    expect(orientationGroup.getByRole('button', { name: t('imp.orient.landscape') })).toHaveAttribute('aria-pressed', 'false');
 
-    fireEvent.click(orientationGroup.getByRole('button', { name: '橫放' }));
+    fireEvent.click(orientationGroup.getByRole('button', { name: t('imp.orient.landscape') }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ orientation: 'landscape' }));
   });
 
@@ -349,26 +386,26 @@ describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
       <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: false, cutH: false }} onChange={onChange} />,
     );
 
-    const cutGroup = within(screen.getByRole('group', { name: '裁切' }));
-    expect(cutGroup.getByRole('button', { name: '對開 V' })).toHaveAttribute('aria-pressed', 'false');
-    expect(cutGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'false');
+    const cutGroup = within(screen.getByText(t('imp.halving')).closest('.imp-group') as HTMLElement);
+    expect(cutGroup.getByRole('button', { name: t('imp.halving.v') })).toHaveAttribute('aria-pressed', 'false');
+    expect(cutGroup.getByRole('button', { name: t('imp.halving.h') })).toHaveAttribute('aria-pressed', 'false');
 
-    fireEvent.click(cutGroup.getByRole('button', { name: '對開 V' }));
+    fireEvent.click(cutGroup.getByRole('button', { name: t('imp.halving.v') }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV: true, cutH: false }));
 
     // cutH 的點擊不受 cutV 目前是否按下影響（獨立 toggle，不是四選一映射的一部分）。
     rerender(
       <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: true, cutH: false }} onChange={onChange} />,
     );
-    fireEvent.click(within(screen.getByRole('group', { name: '裁切' })).getByRole('button', { name: '對開 H' }));
+    fireEvent.click(within(screen.getByText(t('imp.halving')).closest('.imp-group') as HTMLElement).getByRole('button', { name: t('imp.halving.h') }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV: true, cutH: true }));
 
     rerender(
       <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: true, cutH: true }} onChange={onChange} />,
     );
-    const bothPressedGroup = within(screen.getByRole('group', { name: '裁切' }));
-    expect(bothPressedGroup.getByRole('button', { name: '對開 V' })).toHaveAttribute('aria-pressed', 'true');
-    expect(bothPressedGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'true');
+    const bothPressedGroup = within(screen.getByText(t('imp.halving')).closest('.imp-group') as HTMLElement);
+    expect(bothPressedGroup.getByRole('button', { name: t('imp.halving.v') })).toHaveAttribute('aria-pressed', 'true');
+    expect(bothPressedGroup.getByRole('button', { name: t('imp.halving.h') })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('裁切 (cutV=false, cutH=true) 組合：H 選中、V 未選中兩鈕皆斷言，並從此態點擊 H 驗證回到 (false, false)（review 覆蓋缺口——原本 4 種疊加組合只驗了 3 種）', () => {
@@ -377,11 +414,11 @@ describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
       <ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, cutV: false, cutH: true }} onChange={onChange} />,
     );
 
-    const cutGroup = within(screen.getByRole('group', { name: '裁切' }));
-    expect(cutGroup.getByRole('button', { name: '對開 V' })).toHaveAttribute('aria-pressed', 'false');
-    expect(cutGroup.getByRole('button', { name: '對開 H' })).toHaveAttribute('aria-pressed', 'true');
+    const cutGroup = within(screen.getByText(t('imp.halving')).closest('.imp-group') as HTMLElement);
+    expect(cutGroup.getByRole('button', { name: t('imp.halving.v') })).toHaveAttribute('aria-pressed', 'false');
+    expect(cutGroup.getByRole('button', { name: t('imp.halving.h') })).toHaveAttribute('aria-pressed', 'true');
 
-    fireEvent.click(cutGroup.getByRole('button', { name: '對開 H' }));
+    fireEvent.click(cutGroup.getByRole('button', { name: t('imp.halving.h') }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ cutV: false, cutH: false }));
   });
 
@@ -389,7 +426,7 @@ describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
     const onChange = vi.fn();
     render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, allowRotate: false }} onChange={onChange} />);
 
-    const rotateButton = screen.getByRole('button', { name: /可轉 90/ });
+    const rotateButton = screen.getByRole('button', { name: t('imp.rotate.allow') });
     expect(rotateButton).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(rotateButton);
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ allowRotate: true }));
@@ -397,9 +434,9 @@ describe('ImpositionControls — toolbar 按鈕組（T4）', () => {
 
   it('咬口／刀線間距輸入仍在、欄位錯誤紅字仍在（沿用既有 domain 驗證接線，未受按鈕化影響）', () => {
     render(<ImpositionControls result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, gap: 2.9 }} onChange={vi.fn()} />);
-    expect(screen.getByLabelText('咬口 (mm)')).toBeInTheDocument();
-    expect(screen.getByLabelText('刀線間距 (mm)')).toBeInTheDocument();
-    expect(screen.getByText(`不得小於 ${MIN_GAP_MM}mm`)).toBeInTheDocument();
+    expect(screen.getByLabelText(t('imp.gripper'))).toBeInTheDocument();
+    expect(screen.getByLabelText(t('imp.gutter'))).toBeInTheDocument();
+    expect(screen.getByText(t('imp.err.field.belowMin', { MIN_GAP_MM: String(MIN_GAP_MM) }))).toHaveClass('mono', 'err');
   });
 });
 
@@ -410,7 +447,7 @@ describe('ImpositionView — 輸入 domain 錯誤', () => {
     const state: ImpositionState = { ...BASE_STATE, gap: 2.9 };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
-    expect(screen.getByText(`不得小於 ${MIN_GAP_MM}mm`)).toBeInTheDocument();
+    expect(screen.getByText(t('imp.err.field.belowMin', { MIN_GAP_MM: String(MIN_GAP_MM) }))).toBeInTheDocument();
     expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
     expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
     expect(screen.queryAllByTestId('preview-instance')).toHaveLength(0);
@@ -421,21 +458,22 @@ describe('ImpositionView — 輸入 domain 錯誤', () => {
   it('paperW/paperH 自訂欄位無效（NaN）→ 欄位錯誤標示在對應輸入框旁', () => {
     const state: ImpositionState = { ...BASE_STATE, customW: NaN };
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
-    expect(screen.getByText('請輸入有效數字')).toBeInTheDocument();
+    expect(screen.getByText(t('imp.err.field.notFinite'))).toBeInTheDocument();
   });
 });
 
 // ── 件選擇：多片盒型下拉逐件／RTE 顯示「整件」無下拉 ─────────────────────────
 
 describe('ImpositionView — 件選擇', () => {
-  it('多片盒型：件下拉逐件列出（label.zh），選擇不同片會呼叫 onChange 更新 pieceId', () => {
+  it('多片盒型：件下拉依目前語言逐件列出，選擇不同片會呼叫 onChange 更新 pieceId', () => {
     const onChange = vi.fn();
     const state: ImpositionState = { ...BASE_STATE, pieceId: 'piece-a' };
     render(<ImpositionView result={MULTI_PIECE_RESULT} state={state} onChange={onChange} />);
 
-    const select = screen.getByRole('combobox', { name: '件' });
-    expect(within(select).getByText('下盒')).toBeInTheDocument();
-    expect(within(select).getByText('上蓋')).toBeInTheDocument();
+    const select = screen.getByRole('combobox', { name: t('imp.piece') });
+    expect(select.closest('.boxsel')).not.toBeNull();
+    expect(within(select).getByText(MULTI_PIECE_RESULT.pieces![0]!.label[getLang()])).toBeInTheDocument();
+    expect(within(select).getByText(MULTI_PIECE_RESULT.pieces![1]!.label[getLang()])).toBeInTheDocument();
 
     fireEvent.change(select, { target: { value: 'piece-b' } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ pieceId: 'piece-b' }));
@@ -443,8 +481,8 @@ describe('ImpositionView — 件選擇', () => {
 
   it('RTE（result.pieces 為 undefined）：顯示「整件」，無件下拉', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={BASE_STATE} onChange={vi.fn()} />);
-    expect(screen.getByText('整件')).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: '件' })).toBeNull();
+    expect(screen.getByText(t('imp.piece.whole'))).toHaveClass('label');
+    expect(screen.queryByRole('combobox', { name: t('imp.piece') })).toBeNull();
   });
 });
 
@@ -749,10 +787,10 @@ describe('ImpositionControls／ImpositionResults — 獨立掛載（review Mediu
     const onChange = vi.fn();
     render(<ImpositionControls result={MULTI_PIECE_RESULT} state={{ ...BASE_STATE, pieceId: 'piece-a' }} onChange={onChange} />);
 
-    expect(screen.getByRole('combobox', { name: '件' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: t('imp.piece') })).toBeInTheDocument();
     expect(screen.queryByTestId('direction-card-0')).toBeNull(); // 結果卡不屬於 Controls
 
-    const gapInput = screen.getByLabelText('刀線間距 (mm)');
+    const gapInput = screen.getByLabelText(t('imp.gutter'));
     fireEvent.change(gapInput, { target: { value: '5' } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ gap: 5 }));
   });
@@ -867,7 +905,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
       render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
       expect(spy).not.toHaveBeenCalled();
-      expect(screen.getByText(`不得小於 ${MIN_GAP_MM}mm`)).toBeInTheDocument();
+      expect(screen.getByText(t('imp.err.field.belowMin', { MIN_GAP_MM: String(MIN_GAP_MM) }))).toBeInTheDocument();
       expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
       expect(within(screen.getByTestId('direction-card-90')).getByText('—')).toBeInTheDocument();
     } finally {
@@ -882,7 +920,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
       render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
       expect(spy).not.toHaveBeenCalled();
-      expect(screen.getByText('請輸入有效數字')).toBeInTheDocument();
+      expect(screen.getByText(t('imp.err.field.notFinite'))).toBeInTheDocument();
       expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
     } finally {
       spy.mockRestore();
@@ -896,7 +934,7 @@ describe('ImpositionView — profile 前置驗證：gap/pieceW/H 非法輸入不
       render(<ImpositionView result={SINGLE_PIECE_RESULT} state={state} onChange={vi.fn()} />);
 
       expect(spy).not.toHaveBeenCalled();
-      expect(screen.getByText('請輸入有效數字')).toBeInTheDocument();
+      expect(screen.getByText(t('imp.err.field.notFinite'))).toBeInTheDocument();
       expect(within(screen.getByTestId('direction-card-0')).getByText('—')).toBeInTheDocument();
     } finally {
       spy.mockRestore();
