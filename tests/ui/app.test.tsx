@@ -354,18 +354,43 @@ describe('M1 T5 console sidebar and parameter panel', () => {
 });
 
 describe('App 冒煙測試', () => {
-  it('M1 fix wave 2：vocab 保留 mock body 的 App 繼承基底與來源標記', () => {
+  it('M1 fix wave 2／3：vocab 保留 App 繼承基底並採用置中裁決', () => {
     const css = readFileSync('src/styles/vocab.css', 'utf8');
 
     expect(css).toContain(`/* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
      line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
-  body { background: var(--paper); }
+  body {
+    min-height: 100dvh;
+    display: flex; justify-content: center; align-items: center;
+    background: var(--paper);
+  }
+  #root { width: 100%; }
   .app {
     color: var(--ink);
     font-family: "Fraunces", Georgia, serif;
     font-optical-sizing: auto;
     -webkit-font-smoothing: antialiased;
     line-height: normal;`);
+    expect(css).toContain('height: calc(100dvh - 2 * clamp(24px, 8vh, 150px)); min-height: 640px;');
+    expect(css).toContain('2026-07-16 裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂');
+  });
+
+  it('M1 fix wave 3：兩種 select 只在 base-select 支援時客製 picker', () => {
+    const css = readFileSync('src/styles/vocab.css', 'utf8');
+
+    expect(css).toContain('@supports (appearance: base-select)');
+    expect(css).toContain(`.boxsel select,
+    .param-select select {
+      appearance: base-select;
+    }`);
+    expect(css).toContain(`.boxsel select::picker(select) {
+      appearance: base-select;`);
+    expect(css).toContain(`.param-select select::picker(select) {
+      appearance: base-select;`);
+    expect(css).toContain(`.boxsel select option:checked,
+    .param-select select option:checked { box-shadow: inset 3px 0 var(--cut); }`);
+    expect(css).toContain('.boxsel select option::checkmark { display: none; }');
+    expect(css).toContain('.param-select select option::checkmark { display: none; }');
   });
 
   it('M1 fix wave：platebar 是 app 直屬 footer，且不在 console 側欄內', () => {
