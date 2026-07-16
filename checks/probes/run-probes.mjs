@@ -96,6 +96,9 @@ const PROBES = [
   { id: 'a15-drift', gate: 'a15-copy',
     run: () => mutate('src/i18n/dict.ts', "'chrome.wordmark': { en: 'Open *Dieline*'", "'chrome.wordmark': { en: 'Open *Dielines*'"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
+  { id: 'a15-value-drift', gate: 'a15-copy',
+    run: () => mutate('src/i18n/dict.ts', "'mode.design': { en: 'Design'", "'mode.design': { en: 'Design drift'"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
 ];
 
 let allOk = true;
