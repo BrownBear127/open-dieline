@@ -119,11 +119,23 @@ function valuesEqual(manifestValue, builtValue, prop) {
   return false;
 }
 
+// 繼承基底沒有元件自身宣告可補救，且 manifest 若只從 vocab.css 動態產生，來源值與 build 會
+// 同步漂移而假綠。這兩組 selector/property/value 三元組逐字鎖定 mock body:28-35 的核心基底。
+const INHERITANCE_BASE_MANIFEST = [
+  { selector: '.app', prop: 'color', value: 'var(--ink)' },
+  { selector: '.app', prop: 'font-family', value: '"Fraunces", Georgia, serif' },
+];
+
 export async function run({ root, distDir }) {
   const errs = [];
   const vocab = parseDeclarations(readFileSync(path.join(root, 'src/styles/vocab.css'), 'utf8'));
   const tokens = parseDeclarations(readFileSync(path.join(root, 'src/styles/tokens.css'), 'utf8'));
-  const manifest = [...tokens, ...vocab].map((d) => ({ ...d, selector: normSelector(d.selector) }));
+  const sourceManifest = [...tokens, ...vocab].map((d) => ({ ...d, selector: normSelector(d.selector) }));
+  const inheritanceBaseKeys = new Set(INHERITANCE_BASE_MANIFEST.map((d) => `${d.selector}\0${d.prop}`));
+  const manifest = [
+    ...sourceManifest.filter((d) => !inheritanceBaseKeys.has(`${d.selector}\0${d.prop}`)),
+    ...INHERITANCE_BASE_MANIFEST,
+  ];
 
   const assetsDir = path.join(distDir, 'assets');
   const cssFiles = readdirSync(assetsDir).filter((f) => f.endsWith('.css'));
