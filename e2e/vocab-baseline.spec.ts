@@ -9,10 +9,10 @@ interface Declaration {
   value: string;
 }
 
-type BaselineContext = 'design' | 'imposition' | 'modal' | 'zhDesign' | 'zhImposition' | 'zhModal';
+type BaselineContext = 'design' | 'fold' | 'imposition' | 'modal' | 'zhDesign' | 'zhImposition' | 'zhModal';
 
-// M3 實測 2026-07-16。每個 selector 只在下方 contextFor() 指定的穩定畫面狀態量一次；
-// 0 是顯式基線，表示來源保留該語彙但目前穩態 DOM 沒有對應元件。
+// M3 實測 2026-07-16；fold context 實測 2026-07-17。共享語彙保留原 context 基線，
+// 並在 fold 穩態重測；0 是顯式基線，表示來源保留該語彙但該穩態 DOM 沒有對應元件。
 const EXPECTED_COUNTS = {
   design: {
     'input[type="range"]': 0,
@@ -30,7 +30,7 @@ const EXPECTED_COUNTS = {
     '.moderow': 1,
     '.moderow .modes': 1,
     '.moderow .modes .k': 1,
-    '.mode': 2,
+    '.mode': 3,
     '.mode.on': 1,
     '.moderow .readout': 1,
     '.moderow .readout b': 1,
@@ -94,6 +94,16 @@ const EXPECTED_COUNTS = {
     '.platebar .compat': 1,
     '.platebar .compat .tick': 1,
   },
+  fold: {
+    'input[type="range"]': 1,
+    '.mode': 3,
+    '.mode.on': 1,
+    '.btn': 3,
+    '.btn.quiet': 0,
+    '.btn.tog.on': 0,
+    '.foldbar .compat': 1,
+    '.foldbar .compat .tick': 1,
+  },
   imposition: {
     '.imp-toolbar': 1,
     '.imp-group': 7,
@@ -124,7 +134,7 @@ const EXPECTED_COUNTS = {
     '.modal-body': 1,
   },
   zhDesign: {
-    '.zh .label': 16,
+    '.zh .label': 17,
     '.zh .mono': 32,
     '.zh .boxsel select': 3,
     '.zh .param-select select': 2,
@@ -462,19 +472,36 @@ function countMatchingPixels(png: DecodedPng, target: { r: number; g: number; b:
   return count;
 }
 
-function contextFor(selector: string): BaselineContext {
-  if (selector.startsWith('.zh .imp-')) return 'zhImposition';
-  if (selector.startsWith('.zh .modal-') || selector.startsWith('.zh-note')) return 'zhModal';
-  if (selector.startsWith('.zh ')) return 'zhDesign';
-  if (selector.startsWith('.imp-')) return 'imposition';
-  if (selector.startsWith('.modal-')) return 'modal';
-  return 'design';
+const FOLD_SHARED_SELECTORS = new Set([
+  'input[type="range"]',
+  '.mode',
+  '.mode.on',
+  '.btn',
+  '.btn.quiet',
+  '.btn.tog.on',
+]);
+
+function contextsFor(selector: string): readonly BaselineContext[] {
+  if (selector.startsWith('.foldbar ')) return ['fold'];
+
+  let primary: BaselineContext = 'design';
+  if (selector.startsWith('.zh .imp-')) primary = 'zhImposition';
+  else if (selector.startsWith('.zh .modal-') || selector.startsWith('.zh-note')) primary = 'zhModal';
+  else if (selector.startsWith('.zh ')) primary = 'zhDesign';
+  else if (selector.startsWith('.imp-')) primary = 'imposition';
+  else if (selector.startsWith('.modal-')) primary = 'modal';
+
+  return FOLD_SHARED_SELECTORS.has(selector) ? [primary, 'fold'] : [primary];
 }
 
 async function prepareContext(page: Page, context: BaselineContext): Promise<void> {
   const zh = context.startsWith('zh');
   await gotoReady(page, { lang: zh ? 'zh' : 'en' });
 
+  if (context === 'fold') {
+    await page.locator('.mode').filter({ hasText: 'Fold' }).click();
+    await expect(page.locator('.foldbar')).toBeVisible();
+  }
   if (context === 'imposition' || context === 'zhImposition') {
     await page.locator('.mode').filter({ hasText: zh ? '拼版估算' : 'Imposition' }).click();
   }
@@ -617,7 +644,7 @@ test.describe('machine-derived vocabulary baseline', () => {
 
       const expectedCounts: Record<string, number> = EXPECTED_COUNTS[context];
       for (const [selector, declarations] of manifest as Map<string, Declaration[]>) {
-        if (contextFor(selector) !== context) continue;
+        if (!contextsFor(selector).includes(context)) continue;
         const expectedCount = expectedCounts[selector];
         expect(expectedCount, `Missing frozen count for ${selector}`).not.toBeUndefined();
         await expect(page.locator(selector), `${selector} count`).toHaveCount(expectedCount!);
@@ -628,7 +655,7 @@ test.describe('machine-derived vocabulary baseline', () => {
         }
       }
 
-      const assignedSelectors = [...manifest.keys()].filter((selector) => contextFor(selector) === context);
+      const assignedSelectors = [...manifest.keys()].filter((selector) => contextsFor(selector).includes(context));
       expect(Object.keys(expectedCounts).sort(), `${context} count table coverage`).toEqual(assignedSelectors.sort());
     });
   }
