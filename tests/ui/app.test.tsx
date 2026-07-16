@@ -376,6 +376,23 @@ describe('App 冒煙測試', () => {
     expect(css).toContain('2026-07-16 法蘭裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂');
   });
 
+  it('M2 T4：zh 各聲部逐字採用 typography-matrix 規則 2／3／4(a)', () => {
+    const css = readFileSync('src/styles/vocab.css', 'utf8');
+
+    expect(css).toContain(`  /* — zh 聲部 stack：typography-matrix 規則 2（原聲部 family 前·Noto 後·per-char fallback）
+     ＋規則 3（覆寫僅 family/ls/weight）＋規則 4(a)（zh 恆 400·D11 簽核）。
+     取代 mock:265-266 的 Noto-first 寫法——字體維度以 matrix 為準（D11）；
+     text-transform: none 沿 B2-A 既定鎖值（mock zh 件明文·規則 3 的「transform」
+     按 CSS transform〔幾何〕解讀）。 — */
+  .zh .label { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 400; text-transform: none; }
+  .zh .mono { font-family: "IBM Plex Mono", "Noto Serif TC", monospace; }   /* matrix #5/#9/#12/#14/#16/#19/#20/#23：mono 聲部翻譯內容 CJK 落 Noto·數字單位恆 Plex */
+  .zh .boxsel select, .zh .param-select select { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 400; }  /* matrix #8（param-select=同聲部衍生） */
+  .zh .imp-card h4 { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 400; }  /* matrix #22 */
+  .zh .modal-body { font-family: "Fraunces", "Noto Serif TC", serif; }  /* matrix #25·weight 400 已是基值 */`);
+    expect(css).not.toContain('.mono-cjk');
+    expect(css).toContain('.zh-note p b { color: var(--ink); font-weight: 550; }');
+  });
+
   it('M1 fix wave 3：兩種 select 只在 base-select 支援時客製 picker', () => {
     const css = readFileSync('src/styles/vocab.css', 'utf8');
 

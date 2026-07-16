@@ -6,6 +6,29 @@ import path from 'node:path';
 
 function stripComments(css) { return css.replace(/\/\*[\s\S]*?\*\//g, ''); }
 
+function splitSelectorList(header) {
+  const selectors = [];
+  let start = 0;
+  let depth = 0;
+  let quote = '';
+  for (let i = 0; i < header.length; i++) {
+    const char = header[i];
+    if (quote) {
+      if (char === quote && header[i - 1] !== '\\') quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === '(' || char === '[') depth++;
+    else if (char === ')' || char === ']') depth--;
+    else if (char === ',' && depth === 0) {
+      selectors.push(header.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  selectors.push(header.slice(start).trim());
+  return selectors;
+}
+
 /** 陽春 CSS 解析：頂層 rule 的 selector→[{prop,value}]。@media 等 at-rule 內層遞迴展開，
  *  selector 前綴 `@media …|`（G2 只要求「同 scope 同 selector」不重複宣告）。
  *  `seen`：同一 header 文字的出現次序計數器（見下方無巢狀 at-rule 分支的消歧說明），
@@ -24,10 +47,13 @@ export function parseDeclarations(cssText, scope = '', seen = new Map()) {
     if (header.startsWith('@') && body.includes('{')) {
       out.push(...parseDeclarations(body, `${scope}${header}|`, seen));
     } else if (!header.startsWith('@')) {
+      const selectors = splitSelectorList(header.replace(/\s+/g, ' '));
       for (const decl of body.split(';')) {
         const k = decl.indexOf(':');
         if (k === -1) continue;
-        out.push({ selector: scope + header.replace(/\s+/g, ' '), prop: decl.slice(0, k).trim(), value: decl.slice(k + 1).trim() });
+        for (const selector of selectors) {
+          out.push({ selector: scope + selector, prop: decl.slice(0, k).trim(), value: decl.slice(k + 1).trim() });
+        }
       }
     } else {
       // @font-face 等無巢狀 selector 的 at-rule：header 文字本身可合法重複出現多次（vocab.css
@@ -68,8 +94,10 @@ export function parseDeclarations(cssText, scope = '', seen = new Map()) {
 //   5. pseudo-element 降級：`::before`→`:before`（唯一在 --minify false 下仍發生的 selector 級
 //      轉寫；attribute selector 引號剝除／selector 內逗號-組合子空白剝除已靠關 minify 消除，
 //      不需在此吸收——驗證見 report）
+//   6. 相鄰規則同值時 Lightning CSS 會合併 selector list；parseDeclarations 將來源與產物的
+//      頂層 comma-separated selector 都拆成單一 selector，再逐項比對原本的 prop/value 契約。
 // --- 2 條屬性專屬別名表（非 tokenizer 能推導·各自逐一驗證是否放行前先讀註解）------------------
-//   6. `background: transparent` shorthand ≡ `background: none`（transform-origin 同理，皆是
+//   7. `background: transparent` shorthand ≡ `background: none`（transform-origin 同理，皆是
 //      CSS 規格層級的「省略值→套用該子屬性 initial value」，不是 minifier 的自由發揮）
 const normSelector = (s) => s.replace(/::/g, ':');
 
@@ -126,6 +154,13 @@ const FROZEN_DECLARATION_MANIFEST = [
   { selector: '.app', prop: 'font-family', value: '"Fraunces", Georgia, serif' },
   { selector: '.app', prop: 'font-synthesis', value: 'none' },
   { selector: '.zh .label', prop: 'font-weight', value: '400' },
+  // 2026-07-16 M2 T4 收斂（controller 否證探針揭露）：T4 新增 zh 聲部規則同樣承載
+  // matrix 規則 4(a)「zh 恆 400」（D11 簽核值），比照 .zh .label 入凍結集防同步漂移
+  // 假綠（.zh .modal-body 無 weight 宣告=基值 400 繼承·無從凍結，靠 .app 基底鎖）。
+  // selector 為拆解後單一形（parseDeclarations 已 split comma list）。
+  { selector: '.zh .boxsel select', prop: 'font-weight', value: '400' },
+  { selector: '.zh .param-select select', prop: 'font-weight', value: '400' },
+  { selector: '.zh .imp-card h4', prop: 'font-weight', value: '400' },
 ];
 
 export async function run({ root, distDir }) {
