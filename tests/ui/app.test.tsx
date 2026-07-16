@@ -354,6 +354,20 @@ describe('M1 T5 console sidebar and parameter panel', () => {
 });
 
 describe('App 冒煙測試', () => {
+  it('M1 fix wave 2：vocab 保留 mock body 的 App 繼承基底與來源標記', () => {
+    const css = readFileSync('src/styles/vocab.css', 'utf8');
+
+    expect(css).toContain(`/* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
+     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
+  body { background: var(--paper); }
+  .app {
+    color: var(--ink);
+    font-family: "Fraunces", Georgia, serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    line-height: normal;`);
+  });
+
   it('M1 fix wave：platebar 是 app 直屬 footer，且不在 console 側欄內', () => {
     const { container } = render(<App />);
     const app = container.querySelector('.app');

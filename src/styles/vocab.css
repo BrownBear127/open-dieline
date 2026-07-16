@@ -29,7 +29,15 @@
      （新 context＝app 側欄/工具列；語彙件逐字、尺寸為衍生值）
      ═══════════════════════════════════════════════════════════════ */
   /* — app 外框 — */
+  /* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
+     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
+  body { background: var(--paper); }
   .app {
+    color: var(--ink);
+    font-family: "Fraunces", Georgia, serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    line-height: normal;
     max-width: 1280px; margin: 0 auto; height: 88vh; min-height: 640px;
     border: 1px solid var(--ink);
     display: grid; grid-template-rows: auto auto 1fr auto;
