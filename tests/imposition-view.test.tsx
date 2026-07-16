@@ -266,6 +266,17 @@ describe('ImpositionView — 兩方向卡片', () => {
     render(<ImpositionView result={SINGLE_PIECE_RESULT} state={{ ...BASE_STATE, gap: 2.9 }} onChange={vi.fn()} />);
     expect(screen.queryByText(t('imp.best'))).toBeNull();
   });
+
+  it('Best yield：僅單向可用（另一向放不下）時兩卡都不標', () => {
+    // 同上方長窄件案例：deg0 放不下（totalCount=0）、deg90=7 模——「唯一可用」不等於
+    // 「最佳」（法蘭裁決：任一為 0 即不標，比較無從成立）。防止日後誤標唯一可用卡。
+    const state: ImpositionState = { ...BASE_STATE, customW: 100, customH: 1000 };
+    render(<ImpositionView result={LONG_THIN_RESULT} state={state} onChange={vi.fn()} />);
+
+    expect(screen.getByTestId('direction-card-0').textContent).toContain(t('imp.noFit'));
+    expect(within(screen.getByTestId('direction-card-90')).getByText('7')).toBeInTheDocument();
+    expect(screen.queryByText(t('imp.best'))).toBeNull();
+  });
 });
 
 // ── 卡片文字格式：整紙有補排（T3） ──────────────────────────────────────────
