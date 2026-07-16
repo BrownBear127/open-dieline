@@ -1,4 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
+// 共 18 probes：既有 16 項加上 fold hinge 與 2D 補償對帳兩項。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -120,6 +121,15 @@ const PROBES = [
   { id: 'a15-value-drift', gate: 'a15-copy',
     run: () => mutate('src/i18n/dict.ts', "'imp.err.default': { en: 'Calculation error.", "'imp.err.default': { en: 'Calculation drift."),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
+  // — Fold model / 2D reconciliation —
+  { id: 'fold-hinge-break', gate: 'fold-model',
+    run: () => mutate('src/fold/models/reverse-tuck-end.ts', 'hingeLine: { a: { x: x1, y: 0 }, b: { x: x1, y: D } }', 'hingeLine: { a: { x: x1 + 1, y: 0 }, b: { x: x1 + 1, y: D } }'),
+    check: () => shFails('npx vitest run tests/fold/'),
+    greenCheck: () => !shFails('npx vitest run tests/fold/') },
+  { id: 'fold-comp-drift', gate: 'fold-reconcile',
+    run: () => mutate('tests/fold/rte-reconcile.test.ts', '[0, 1, 1, 2]', '[0, 1, 1, 1]'),
+    check: () => shFails('npx vitest run tests/fold/rte-reconcile.test.ts'),
+    greenCheck: () => !shFails('npx vitest run tests/fold/') },
 ];
 
 let allOk = true;
@@ -127,7 +137,9 @@ const lines = ['## mutation probe 證據（Spec §8.2）', ''];
 for (const p of PROBES) {
   let redOk = false, greenOk = false;
   try { p.run(); redOk = p.check(); } finally { revert(); }
-  greenOk = !shFails('node checks/style-gate.mjs') && !shFails('npx vitest run tests/export/baseline.test.ts');
+  greenOk = !shFails('node checks/style-gate.mjs')
+    && !shFails('npx vitest run tests/export/baseline.test.ts')
+    && (p.greenCheck?.() ?? true);
   const verdict = redOk && greenOk ? 'PASS' : 'FAIL';
   if (verdict === 'FAIL') allOk = false;
   lines.push(`- [${verdict}] ${p.id} → ${p.gate}：目標紅=${redOk}、復原全綠=${greenOk}`);
