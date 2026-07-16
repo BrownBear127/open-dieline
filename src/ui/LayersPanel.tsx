@@ -46,7 +46,6 @@ import type { GenerateResult } from '@/core/types';
 import { parseOverlaySvg } from '@/overlay/parse';
 import { alignOffset } from '@/overlay/state';
 import {
-  GENERATED_LAYER_LABEL,
   GENERATED_LAYER_ORDER,
   createOverlayLayer,
   layerKeyForLineType,
@@ -54,6 +53,8 @@ import {
   updateOverlayLayer,
 } from '@/overlay/layers';
 import type { GeneratedLayerKey, LayersState } from '@/overlay/layers';
+import { t } from '@/i18n/t';
+import type { DictKey } from '@/i18n/dict';
 
 export interface LayersPanelProps {
   layers: LayersState;
@@ -79,17 +80,33 @@ export interface LayersPanelProps {
 type OverlayUnit = 'pt' | 'mm' | 'px';
 
 const UNIT_OPTIONS: OverlayUnit[] = ['pt', 'mm', 'px'];
-const LABEL_CLASS = 'text-[10px] uppercase tracking-wider text-zinc-400';
-
-/** 生成圖層停用提示文字用的完整名稱——GENERATED_LAYER_LABEL 是面板列表的精簡標籤（如
- *  halfcut 顯示「半刀」），三個線型標籤本身已是完整名詞可以直接接「此盒型無」，唯獨
- *  halfcut 的精簡標籤缺一個「線」字，讀起來會變成「此盒型無半刀」，故單獨覆寫這一項。 */
-const DISABLED_TITLE_NAME: Record<GeneratedLayerKey, string> = {
-  cut: GENERATED_LAYER_LABEL.cut,
-  crease: GENERATED_LAYER_LABEL.crease,
-  halfcut: '半刀線',
-  dimensions: GENERATED_LAYER_LABEL.dimensions,
+const GENERATED_LAYER_COPY_KEY: Readonly<Record<GeneratedLayerKey, DictKey>> = {
+  cut: 'layers.cut',
+  crease: 'layers.crease',
+  halfcut: 'layers.halfcut',
+  dimensions: 'layers.dimensions',
 };
+const GENERATED_LAYER_KEY_CLASS: Readonly<Record<GeneratedLayerKey, string>> = {
+  cut: 'key',
+  crease: 'key crease',
+  halfcut: 'key halfcut',
+  dimensions: 'key dim',
+};
+const UNIT_COPY_KEY: Readonly<Record<OverlayUnit, DictKey>> = {
+  pt: 'overlay.unit.pt',
+  mm: 'overlay.unit.mm',
+  px: 'overlay.unit.px',
+};
+
+function disabledLayerName(key: GeneratedLayerKey): string {
+  return key === 'halfcut' ? t('layers.halfcut.full') : t(GENERATED_LAYER_COPY_KEY[key]);
+}
+
+function calibrateTitle(isSelected: boolean, isVisible: boolean): string | undefined {
+  if (!isSelected) return t('overlay.calibrate.needSelect');
+  if (!isVisible) return t('overlay.calibrate.needVisible');
+  return undefined;
+}
 
 export function LayersPanel({
   layers,
@@ -193,45 +210,48 @@ export function LayersPanel({
   };
 
   return (
-    <div className="flex flex-col gap-2 p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
-      <div className="flex flex-col gap-1">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">圖層</h3>
-        <p className="text-[11px] text-zinc-400 leading-relaxed">
-          對照調參用——匯入生產刀模、校準比例後與生成層疊圖比對（特別是 R 角與細部結構）。
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <h4 className={LABEL_CLASS}>生成圖層</h4>
+    <>
+      <section className="sect">
+        <div className="sect-head">
+          <h3 className="label">{t('layers.title')}</h3>
+          <span className="mono">{t('layers.generated')}</span>
+        </div>
         {GENERATED_LAYER_ORDER.map((key) => {
           const hasContent = generatedHasContent[key];
+          const visible = layers.generatedVisible[key];
+          const label = t(GENERATED_LAYER_COPY_KEY[key]);
           return (
             <label
               key={key}
               htmlFor={`generated-visible-${key}`}
-              title={hasContent ? undefined : `此盒型無${DISABLED_TITLE_NAME[key]}`}
-              className={`flex items-center gap-2 text-xs ${hasContent ? 'text-zinc-600' : 'text-zinc-400 cursor-not-allowed'}`}
+              title={hasContent ? undefined : t('layers.disabled.title', { layer: disabledLayerName(key) })}
+              className="layer"
             >
               <input
                 id={`generated-visible-${key}`}
                 type="checkbox"
-                checked={layers.generatedVisible[key]}
+                checked={visible}
                 disabled={!hasContent}
                 onChange={(e) => handleGeneratedVisibleChange(key, e.target.checked)}
-                className="h-4 w-4 accent-blue-600 disabled:opacity-40"
+                className="sr-only"
               />
-              {GENERATED_LAYER_LABEL[key]}
+              <span aria-hidden="true" className={`tick${visible ? ' on' : ''}`} />
+              <i aria-hidden="true" className={GENERATED_LAYER_KEY_CLASS[key]} />
+              <span className="mono">{visible && hasContent ? label : <s>{label}</s>}</span>
             </label>
           );
         })}
-      </div>
+      </section>
 
-      <div className="flex flex-col gap-2 pt-2 border-t border-zinc-200">
-        <h4 className={LABEL_CLASS}>對照圖層</h4>
+      <section className="sect">
+        <div className="sect-head">
+          <h3 className="label">{t('layers.overlays')}</h3>
+        </div>
+        <p>{t('layers.overlays.desc')}</p>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="overlay-file" className={LABEL_CLASS}>
-            匯入生產 SVG
+        <div className="flex flex-wrap gap-2 py-3">
+          <label htmlFor="overlay-file" className="btn label quiet">
+            {t('overlay.import')}
           </label>
           <input
             key={fileInputKey}
@@ -239,26 +259,23 @@ export function LayersPanel({
             type="file"
             accept=".svg"
             onChange={handleFileChange}
-            className="text-xs text-zinc-600"
+            className="sr-only"
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="overlay-unit" className={LABEL_CLASS}>
-            單位
+        <div className="param">
+          <label htmlFor="overlay-unit" className="mono">
+            {t('overlay.unit')}
           </label>
-          <select
-            id="overlay-unit"
-            value={unit}
-            onChange={(e) => setUnit(e.target.value as OverlayUnit)}
-            className="w-full bg-white border border-zinc-200 rounded-sm text-sm py-1.5 px-2 text-zinc-900 focus:outline-none focus:border-black transition-colors"
-          >
-            {UNIT_OPTIONS.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
+          <div className="boxsel param-select">
+            <select id="overlay-unit" value={unit} onChange={(e) => setUnit(e.target.value as OverlayUnit)}>
+              {UNIT_OPTIONS.map((u) => (
+                <option key={u} value={u}>
+                  {t(UNIT_COPY_KEY[u])}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {layers.overlays.length > 0 && (
@@ -269,46 +286,45 @@ export function LayersPanel({
                 <div
                   key={layer.id}
                   data-testid={`overlay-layer-${layer.id}`}
-                  className={`flex flex-col gap-1.5 p-2 rounded-sm border ${
-                    isSelected ? 'border-blue-500 bg-blue-50/40' : 'border-zinc-200 bg-white'
-                  }`}
+                  className="flex flex-col gap-2 py-2"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <button
                       type="button"
                       onClick={() => handleSelectToggle(layer.id)}
                       aria-pressed={isSelected}
-                      title="點擊選中／取消選中此圖層（校準與重新置中的對象）"
-                      className="flex-1 text-left text-xs text-zinc-700 truncate hover:text-blue-600"
+                      title={t('overlay.select.title')}
+                      className={`btn quiet tog${isSelected ? ' on' : ''}`}
                     >
                       {layer.name}
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(layer.id)}
-                      className="text-[10px] uppercase tracking-wider text-zinc-400 hover:text-red-600"
+                      className="btn label quiet"
                     >
-                      刪除
+                      {t('overlay.remove')}
                     </button>
                   </div>
 
-                  <label htmlFor={`overlay-visible-${layer.id}`} className="flex items-center gap-2 text-xs text-zinc-600">
+                  <label htmlFor={`overlay-visible-${layer.id}`} className="layer">
                     <input
                       id={`overlay-visible-${layer.id}`}
                       type="checkbox"
                       checked={layer.visible}
                       onChange={(e) => handleVisibleChange(layer.id, e.target.checked)}
-                      className="h-4 w-4 accent-blue-600"
+                      className="sr-only"
                     />
-                    顯示疊圖
+                    <span aria-hidden="true" className={`tick${layer.visible ? ' on' : ''}`} />
+                    <span className="mono">{t('overlay.show')}</span>
                   </label>
 
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center justify-between">
-                      <label htmlFor={`overlay-opacity-${layer.id}`} className={LABEL_CLASS}>
-                        透明度
+                      <label htmlFor={`overlay-opacity-${layer.id}`} className="mono">
+                        {t('overlay.opacity')}
                       </label>
-                      <span className="text-[10px] font-mono text-zinc-500">{Math.round(layer.opacity * 100)}%</span>
+                      <span className="mono">{Math.round(layer.opacity * 100)}%</span>
                     </div>
                     <input
                       id={`overlay-opacity-${layer.id}`}
@@ -318,7 +334,6 @@ export function LayersPanel({
                       step={1}
                       value={Math.round(layer.opacity * 100)}
                       onChange={(e) => handleOpacityChange(layer.id, e.target.value)}
-                      className="w-full accent-blue-600"
                     />
                   </div>
 
@@ -328,14 +343,14 @@ export function LayersPanel({
                     type="button"
                     onClick={handleCalibrateToggle}
                     disabled={!isSelected || !layer.visible}
-                    title={!isSelected ? '先選取此圖層' : !layer.visible ? '先開啟顯示疊圖' : undefined}
-                    className="w-full px-2 py-1.5 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100 text-xs shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
+                    title={calibrateTitle(isSelected, layer.visible)}
+                    className={`btn label quiet tog${isSelected && calibrating ? ' on' : ''}`}
                   >
-                    {isSelected && calibrating ? '取消校準' : '校準'}
+                    {isSelected && calibrating ? t('overlay.calibrate.exit') : t('overlay.calibrate')}
                   </button>
 
                   {layer.warnings.length > 0 && (
-                    <ul className="flex flex-col gap-0.5 bg-yellow-50 border border-yellow-200 text-yellow-800 text-[11px] rounded-sm p-2">
+                    <ul className="mono">
                       {layer.warnings.map((w, i) => (
                         <li key={i}>{w}</li>
                       ))}
@@ -351,12 +366,12 @@ export function LayersPanel({
           type="button"
           onClick={handleRecenter}
           disabled={layers.selectedOverlayId === null}
-          title={layers.selectedOverlayId === null ? '先選取一個圖層' : undefined}
-          className="w-full px-2 py-1.5 bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100 text-xs shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
+          title={layers.selectedOverlayId === null ? t('overlay.recenter.needSelect') : undefined}
+          className="btn label quiet"
         >
-          重新置中
+          {t('overlay.recenter')}
         </button>
-      </div>
-    </div>
+      </section>
+    </>
   );
 }

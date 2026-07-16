@@ -1,0 +1,3 @@
+{
+  "forbidden": ["core/displayStyles", "i18n/", "ui/"]
+}

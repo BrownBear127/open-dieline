@@ -20,6 +20,14 @@ import { toDxfDocument } from '@/export/dxf';
 const DIR = path.resolve(__dirname, '../baselines/export');
 const MANIFEST = path.join(DIR, 'manifest.json');
 const WRITE = process.env.BASELINE_WRITE === '1';
+const ALLOWED_GENERATED_AT_COMMITS = [
+  'cd2dbb72cf2478963d03f476a6c3a1e7767ed7b4',
+  '9b9944eda07b958c162b24ef1fb5126c991e79d7',
+] as const;
+
+if (WRITE && process.env.CI) {
+  throw new Error('BASELINE_WRITE is forbidden in CI');
+}
 
 /** 合成 fixture：覆蓋全部 6 種 LineType＋line/arc 兩種 segment＋texts（C2：真盒型湊不齊全類） */
 function syntheticAllTypes(): GenerateResult {
@@ -100,6 +108,10 @@ describe('A2 匯出基線 byte-identical', () => {
   }
 
   const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as { generatedAtCommit: string; files: Record<string, string> };
+
+  it('manifest generatedAtCommit is an approved baseline commit', () => {
+    expect(ALLOWED_GENERATED_AT_COMMITS).toContain(manifest.generatedAtCommit);
+  });
 
   for (const c of CASES) {
     it(`${c.name}：SVG（一般＋manufacturing）與 DXF 逐 byte 等於基線`, () => {
