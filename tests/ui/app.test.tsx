@@ -358,7 +358,8 @@ describe('App 冒煙測試', () => {
     const css = readFileSync('src/styles/vocab.css', 'utf8');
 
     expect(css).toContain(`/* 繼承基底 — machine-copy 自 tool-chrome-mock.html:28-35；
-     line-height：mock 未宣告＝UA 預設 normal，顯式抵銷 Tailwind preflight 1.5。 */
+     line-height：mock 未宣告＝UA normal；M3 matrix 修訂顯式 1.2——normal 隨
+     fallback 字體漂移·zh 幾何等式前提·法蘭裁決 2026-07-16。 */
   body {
     min-height: 100dvh;
     display: flex; justify-content: center; align-items: center;
@@ -371,7 +372,7 @@ describe('App 冒煙測試', () => {
     font-optical-sizing: auto;
     font-synthesis: none; /* Spec §7：全域防止瀏覽器合成字重與斜體。 */
     -webkit-font-smoothing: antialiased;
-    line-height: normal;`);
+    line-height: 1.2;`);
     expect(css).toContain('height: calc(100dvh - 2 * clamp(24px, 8vh, 150px)); min-height: 640px;');
     expect(css).toContain('2026-07-16 法蘭裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂');
   });
@@ -385,6 +386,7 @@ describe('App 冒煙測試', () => {
      text-transform: none 沿 B2-A 既定鎖值（mock zh 件明文·規則 3 的「transform」
      按 CSS transform〔幾何〕解讀）。 — */
   .zh .label { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 400; text-transform: none; }
+  .zh .modal-card h2 { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 400; text-transform: none; }  /* modal 標題=label 聲部 zh 形態·同 .zh .label（:361） */
   .zh .mono { font-family: "IBM Plex Mono", "Noto Serif TC", monospace; }   /* matrix #5/#9/#12/#14/#16/#19/#20/#23：mono 聲部翻譯內容 CJK 落 Noto·數字單位恆 Plex */
   .zh .boxsel select, .zh .param-select select { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 400; }  /* matrix #8（param-select=同聲部衍生） */
   .zh .imp-card h4 { font-family: "Fraunces", "Noto Serif TC", serif; font-weight: 400; }  /* matrix #22 */
@@ -1522,6 +1524,11 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
     render(<App />);
     const dialog = await screen.findByRole('dialog');
 
+    expect(dialog.parentElement).toHaveClass('modal-mask');
+    expect(dialog.parentElement).not.toHaveClass('bg-zinc-900/60', 'backdrop-blur-sm');
+    expect(dialog).toHaveClass('modal-card');
+    expect(dialog).not.toHaveClass('bg-white/95', 'border', 'border-zinc-200');
+    expect(dialog.querySelector('h2')).not.toHaveClass('text-lg', 'font-bold', 'tracking-wide', 'text-zinc-900', 'label');
     expect(dialog).toHaveAttribute('aria-label', t('modal.aria'));
     expect(within(dialog).getByRole('button', { name: t('modal.close') })).toBeInTheDocument();
     expect(within(dialog).getByText(t('modal.version', { version: pkg.version }))).toBeInTheDocument();
@@ -1562,6 +1569,26 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
     font-variation-settings: "opsz" 14;
     line-height: 1.65;
   }`);
+  });
+
+  it('M3 T1：modal 殼逐字採用法蘭簽核的 D 語彙衍生值', () => {
+    const css = readFileSync('src/styles/vocab.css', 'utf8');
+    expect(css).toContain(`  /* M3 T1 衍生件：mock 無 modal 殼 canonical（grep 證）——法蘭 HTML 對照簽核 2026-07-16。
+     scrim=微墨（GRIPPER_ZONE_FILL 同色系 rgba(25,23,18,…)·濃度沿現行 60% 視覺近似）；
+     卡=紙面＋髮線；h2=label 聲部（family/weight/ls/transform 逐字自 tokens.css:13-17
+     .label 基形·13px 為 dialog 標題衍生級）。圓角/陰影/尺寸 Tailwind 佈局類保留（G3 不掃佈局）。 */
+  .modal-mask { background: rgba(25, 23, 18, 0.55); backdrop-filter: blur(4px); }
+  .modal-card { background: var(--paper); border: 1px solid var(--hairline); }
+  .modal-card h2 {
+    font-family: "Familjen Grotesk", sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }`);
+    expect(css).toContain(
+      '  .zh .modal-card h2 { font-family: "Familjen Grotesk", "Noto Serif TC", sans-serif; letter-spacing: 0.12em; font-weight: 400; text-transform: none; }  /* modal 標題=label 聲部 zh 形態·同 .zh .label（:361） */',
+    );
   });
 
   it('首次訪問（localStorage 無 dismiss key）自動顯示，含 role=dialog/aria-modal/aria-label 基本盤', async () => {

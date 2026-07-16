@@ -6,6 +6,7 @@
 - [PASS] g2-inheritance-base-drift → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] g2-zh-weight → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] g2-late-override → g2-vocab：目標紅=true、復原全綠=true
+- [PASS] g2-frozen-zh-weights → g2-vocab：目標紅=true、復原全綠=true
 - [PASS] g3-new-utility → g3-utility：目標紅=true、復原全綠=true
 - [PASS] g4-display-import → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-rename → g4-export-isolation：目標紅=true、復原全綠=true
