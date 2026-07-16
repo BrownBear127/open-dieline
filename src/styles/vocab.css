@@ -43,6 +43,7 @@
     color: var(--ink);
     font-family: "Fraunces", Georgia, serif;
     font-optical-sizing: auto;
+    font-synthesis: none; /* Spec §7：全域防止瀏覽器合成字重與斜體。 */
     -webkit-font-smoothing: antialiased;
     line-height: normal;
     /* 2026-07-16 裁決：上下對稱視口比例置中·取代 mock 88vh 貼頂。 */
@@ -337,7 +338,8 @@
 
   /* — zh 對照件：幾何全同 EN，只換字面與字型 — */
   .zh .label, .zh .mono-cjk { font-family: "Noto Serif TC", serif; letter-spacing: 0.12em; text-transform: none; }
-  .zh .label { font-size: 11px; font-weight: 600; }
+  /* typography-matrix D11·2026-07-16 M2 前置清償：zh 恆 400，mock 600 作廢。 */
+  .zh .label { font-size: 11px; font-weight: 400; }
   .zh-note p b { color: var(--ink); font-weight: 550; }
 
 /* ═══ @font-face manifest（font-gate REQUIRED_FACES 對象·family/file/weight/style 精確集） ═══ */
