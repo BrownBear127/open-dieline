@@ -87,3 +87,26 @@ test('A14.5 an invalid stored language falls back to English', async ({ page }) 
   // readStoredLang guards the runtime state; it deliberately does not rewrite storage.
   expect(await page.evaluate((key) => localStorage.getItem(key), LANG_STORAGE_KEY)).toBe('xx');
 });
+
+// F8（I4·裁決版）: a JSON-shaped value simulates a plausible future storage schema (e.g. a
+// versioned payload from a later build) leaking into today's build — a rollback, a shared
+// localStorage origin across app versions, or a stale tab from a not-yet-released format.
+// `isLang()` (src/i18n/lang.ts) only accepts the exact literal strings 'en'/'zh', so any
+// structured/object-shaped value is already rejected and falls back safely; this locks that
+// behavior in as an explicit Playwright case instead of leaving it as an untested
+// implication of A14.5's plain-invalid-string case. controller 裁決（2026-07-16，M3 fix
+// wave）：不修改 `src/i18n/` 加版本欄位——`isLang` 型別守衛已滿足「未知格式安全回退 EN」的
+// 契約，版本化 payload 是 YAGNI（目前只有一種格式，沒有第二種格式需要相互區分/遷移）。
+test('A14.6 a JSON-shaped (future-format) stored value falls back to English', async ({ page }) => {
+  const jsonShapedValue = '{"v":1,"lang":"zh"}';
+  await page.evaluate(
+    ({ key, value }) => localStorage.setItem(key, value),
+    { key: LANG_STORAGE_KEY, value: jsonShapedValue },
+  );
+  await page.reload();
+  await waitUntilReady(page);
+
+  await expectLanguage(page, 'en');
+  // Same guard behavior as A14.5: readStoredLang does not rewrite storage on rejection.
+  expect(await page.evaluate((key) => localStorage.getItem(key), LANG_STORAGE_KEY)).toBe(jsonShapedValue);
+});

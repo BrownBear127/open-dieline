@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { allManifest, manifest, tokenValues } from '../checks/e2e/derive-manifest.mjs';
+import { inflateSync } from 'node:zlib';
+import { allManifest, excludedManifest, manifest, tokenValues } from '../checks/e2e/derive-manifest.mjs';
 import { gotoReady } from './helpers';
 
 interface Declaration {
@@ -160,6 +161,90 @@ const SKIPPED = [
   },
 ] as const;
 
+// F1（H1）: derive-manifest.mjs's EXCLUSION_RULES drop a selector from `manifest` (and this
+// spec's Playwright coverage) whenever it cannot be addressed as a plain DOM locator —
+// @font-face, @media/@supports-scoped rules, vendor-prefixed pseudo-elements, pseudo-
+// elements, and pseudo-classes. That is a legitimate architectural boundary (required
+// representatives — hover states, the range thumb, base-select picker rules — are sampled
+// explicitly elsewhere in this file), but the exclusion previously only accumulated a
+// per-category *count*: any new rule that happened to match one of those regexes (a new
+// `@supports` block, a new `:focus-visible`, a minifier quirk that reclassifies a selector)
+// would silently disappear from coverage with no failing test to catch it.
+//
+// This is the frozen identity of every currently-excluded selector — machine-derived from
+// src/styles/vocab.css on 2026-07-16 via `node checks/e2e/derive-manifest.mjs` (grouped by
+// selector; `classify()` is a pure function of selector text, so every declaration sharing a
+// selector always lands in the same category, making per-selector grouping a lossless
+// compaction of the selector+prop+category identity triple). Below, `excludedManifest`
+// (computed fresh from the current vocab.css on every run) is asserted to equal this frozen
+// constant exactly. Growing the real exclusion set — a new @supports rule, a new pseudo-
+// class override, anything the regex buckets differently — changes `excludedManifest` and
+// must fail this test until a human reviews the diff and extends the constant below.
+const FROZEN_EXCLUSION_SET = [
+  { selector: '.boxsel select:focus-visible', category: 'pseudoClass', props: ['outline', 'outline-offset'] },
+  { selector: '.boxsel::after', category: 'pseudoElement', props: ['color', 'content', 'font-size', 'pointer-events', 'position', 'right', 'top', 'transform'] },
+  { selector: '.btn.quiet:hover', category: 'pseudoClass', props: ['background', 'border-color', 'color'] },
+  { selector: '.btn:hover', category: 'pseudoClass', props: ['background', 'color'] },
+  { selector: '.calibrate-bar input:focus', category: 'pseudoClass', props: ['outline', 'outline-offset'] },
+  { selector: '.drawing .rb::after', category: 'pseudoElement', props: ['border-bottom-width', 'border-color', 'border-right-width', 'border-style', 'border-width', 'bottom', 'content', 'height', 'position', 'right', 'width'] },
+  { selector: '.drawing .rb::before', category: 'pseudoElement', props: ['border-bottom-width', 'border-color', 'border-left-width', 'border-style', 'border-width', 'bottom', 'content', 'height', 'left', 'position', 'width'] },
+  { selector: '.drawing::after', category: 'pseudoElement', props: ['border-color', 'border-right-width', 'border-style', 'border-top-width', 'border-width', 'content', 'height', 'position', 'right', 'top', 'width'] },
+  { selector: '.drawing::before', category: 'pseudoElement', props: ['border-color', 'border-left-width', 'border-style', 'border-top-width', 'border-width', 'content', 'height', 'left', 'position', 'top', 'width'] },
+  { selector: '.imp-card:last-child', category: 'pseudoClass', props: ['border-right'] },
+  { selector: '.imp-group input[type="number"]:focus', category: 'pseudoClass', props: ['border-bottom-color', 'outline'] },
+  { selector: '.imp-group:last-child', category: 'pseudoClass', props: ['border-right'] },
+  { selector: '.layer .tick.on::after', category: 'pseudoElement', props: ['background', 'content', 'inset', 'position'] },
+  { selector: '.param input.tick:checked', category: 'pseudoClass', props: ['background', 'box-shadow'] },
+  { selector: '.param input.tick:focus-visible', category: 'pseudoClass', props: ['outline', 'outline-offset'] },
+  { selector: '.param input[type="number"]:focus', category: 'pseudoClass', props: ['border-bottom-color', 'outline'] },
+  { selector: '.param-reset:focus-visible', category: 'pseudoClass', props: ['color'] },
+  { selector: '.param-reset:hover', category: 'pseudoClass', props: ['color'] },
+  { selector: '.param-select::after', category: 'pseudoElement', props: ['right'] },
+  { selector: '.zoom .zbtn:hover', category: 'pseudoClass', props: ['background', 'border-color', 'color'] },
+  { selector: '@font-face#0', category: 'fontFace', props: ['font-display', 'font-family', 'font-style', 'font-weight', 'src'] },
+  { selector: '@font-face#1', category: 'fontFace', props: ['font-display', 'font-family', 'font-style', 'font-weight', 'src'] },
+  { selector: '@font-face#2', category: 'fontFace', props: ['font-display', 'font-family', 'font-style', 'font-weight', 'src'] },
+  { selector: '@font-face#3', category: 'fontFace', props: ['font-display', 'font-family', 'font-style', 'font-weight', 'src'] },
+  { selector: '@font-face#4', category: 'fontFace', props: ['font-display', 'font-family', 'font-style', 'font-weight', 'src'] },
+  { selector: '@font-face#5', category: 'fontFace', props: ['font-display', 'font-family', 'font-style', 'font-weight', 'src'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select', category: 'scopedAtRule', props: ['appearance'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select option', category: 'scopedAtRule', props: ['color', 'font-family', 'font-size', 'font-variation-settings', 'font-weight', 'padding'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select option::checkmark', category: 'scopedAtRule', props: ['display'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select option:checked', category: 'scopedAtRule', props: ['box-shadow'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select option:focus', category: 'scopedAtRule', props: ['background', 'color'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select option:hover', category: 'scopedAtRule', props: ['background', 'color'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select::picker(select)', category: 'scopedAtRule', props: ['appearance', 'background', 'border', 'border-radius', 'box-shadow', 'margin', 'position-area'] },
+  { selector: '@supports (appearance: base-select)|.boxsel select::picker-icon', category: 'scopedAtRule', props: ['display'] },
+  { selector: '@supports (appearance: base-select)|.param-select select', category: 'scopedAtRule', props: ['appearance'] },
+  { selector: '@supports (appearance: base-select)|.param-select select option', category: 'scopedAtRule', props: ['color', 'font-family', 'font-size', 'font-variation-settings', 'font-weight', 'padding'] },
+  { selector: '@supports (appearance: base-select)|.param-select select option::checkmark', category: 'scopedAtRule', props: ['display'] },
+  { selector: '@supports (appearance: base-select)|.param-select select option:checked', category: 'scopedAtRule', props: ['box-shadow'] },
+  { selector: '@supports (appearance: base-select)|.param-select select option:focus', category: 'scopedAtRule', props: ['background', 'color'] },
+  { selector: '@supports (appearance: base-select)|.param-select select option:hover', category: 'scopedAtRule', props: ['background', 'color'] },
+  { selector: '@supports (appearance: base-select)|.param-select select::picker(select)', category: 'scopedAtRule', props: ['appearance', 'background', 'border', 'border-radius', 'box-shadow', 'margin', 'position-area'] },
+  { selector: '@supports (appearance: base-select)|.param-select select::picker-icon', category: 'scopedAtRule', props: ['display'] },
+  { selector: 'input[type="range"]::-moz-range-thumb', category: 'vendorPrefixedSelector', props: ['background', 'border', 'border-radius', 'height', 'width'] },
+  { selector: 'input[type="range"]::-moz-range-track', category: 'vendorPrefixedSelector', props: ['background', 'height'] },
+  { selector: 'input[type="range"]::-webkit-slider-runnable-track', category: 'vendorPrefixedSelector', props: ['background', 'height'] },
+  { selector: 'input[type="range"]::-webkit-slider-thumb', category: 'vendorPrefixedSelector', props: ['-webkit-appearance', 'background', 'border', 'border-radius', 'height', 'margin-top', 'transition', 'width'] },
+  { selector: 'input[type="range"]::-webkit-slider-thumb:hover', category: 'vendorPrefixedSelector', props: ['background', 'border-color', 'transform'] },
+] as const;
+
+// Stretch goal considered and not pursued (2026-07-16, honest note per brief): the pinned
+// Chromium (1.61.1's bundled build, verified via `CSS.supports('appearance', 'base-select')`
+// === true) does satisfy the `@supports (appearance: base-select)` condition, so the block's
+// plain-element declarations (`.boxsel select { appearance: base-select }` etc.) are in
+// principle reachable. But most of the block's content targets `::picker(select)`,
+// `::picker-icon`, and `option`/`option::checkmark` inside that native picker — a top-layer
+// UA popover that only exists in the DOM while the picker is actually open, is not a normal
+// document element, and is not something this file's computed-style techniques (inline-style
+// force-set, or a detached probe span) can address without materially new test
+// infrastructure. Promoting only the plain-element declarations while leaving their sibling
+// picker rules excluded would split one `@supports` block across two coverage regimes for no
+// real gain — the frozen exclusion set above already closes H1's actual complaint (silent,
+// unbounded growth of the excluded set); it does not by itself require testing the picker's
+// internals.
+
 // Shorthands are checked through explicit representative longhands. Insets expand
 // to all four sides; border shorthands expand to width/style/color for that side;
 // font and flex expand to the minimum behavior-bearing set used by this vocabulary.
@@ -171,33 +256,91 @@ const SHORTHAND_EXPANSIONS: Record<string, readonly string[]> = {
   'border-bottom': ['border-bottom-width', 'border-bottom-style', 'border-bottom-color'],
   'border-left': ['border-left-width', 'border-left-style', 'border-left-color'],
   'border-color': ['border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'],
+  'border-style': ['border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style'],
+  'border-width': ['border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'],
   padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
   margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
   font: ['font-family', 'font-size', 'font-style', 'font-weight', 'line-height'],
   flex: ['flex-grow', 'flex-shrink', 'flex-basis'],
 };
 
-// The first .mode is intentionally also .mode.on. Use the inactive peer when
-// validating the base rule so the state-specific override is not mistaken for drift.
-const REPRESENTATIVE_INDEX: Readonly<Record<string, number>> = {
-  '.mode': 1,
+// F2（H2）: every matched instance of a selector is checked, not just one representative.
+// A handful of manifest selectors legitimately share elements with a higher-specificity
+// manifest selector (a real cascade override, e.g. the first `.mode` is also `.mode.on`).
+// For those specific pairs, the overridden instance still gets checked — only the exact
+// longhand properties the more specific selector declares are excluded, because they are
+// independently verified when that selector's own manifest entry runs through this same
+// loop. This is a named, narrow exclusion (not a blanket skip of the instance or selector),
+// matching every other property against the base rule as usual. Membership in each pair is
+// resolved dynamically per instance via a real `Element.matches()` call — not a hardcoded
+// index — so it stays correct if DOM order ever changes.
+const NAMED_OVERRIDES: Readonly<Record<string, readonly string[]>> = {
+  '.mode': ['.mode.on'],
+  '.btn': ['.btn.quiet', '.btn.tog.on'],
+  '.legend i': ['.legend .crease-key i'],
+  '.param': ['.param + .param'],
+  '.imp-stats div': ['.imp-stats div + div'],
+  // `.boxsel` and `.param-select` co-occur on the same wrapper (e.g. LayersPanel's overlay
+  // unit select), so one `.boxsel select` instance also matches `.param-select select`.
+  '.boxsel select': ['.param-select select'],
+  // `:last-child` is excluded from `manifest` (EXCLUSION_RULES pseudoClass) but the override
+  // is real; look it up in `allManifest` (allInstanceMismatches always reads override
+  // declarations from allManifest, independent of the base selector's own inclusion).
+  '.imp-group': ['.imp-group:last-child'],
+  '.imp-card': ['.imp-card:last-child'],
+  // The enum-type param control (glueSide) is a `<select>` inside `.boxsel`, so it also
+  // matches `.boxsel select` — a compound class+type selector that outranks `.param-control`
+  // (a single class selector) in specificity regardless of source order. `.boxsel select`'s
+  // `color` genuinely wins the real cascade there; it is independently verified by that
+  // selector's own manifest entry.
+  '.param-control': ['.boxsel select'],
+  '.layer .key': ['.layer .key.crease', '.layer .key.halfcut', '.layer .key.dim'],
 };
 
+function expandedProperties(declarations: readonly Declaration[]): Set<string> {
+  const props = new Set<string>();
+  for (const { prop } of declarations) {
+    for (const longhand of SHORTHAND_EXPANSIONS[prop] ?? [prop]) props.add(longhand);
+  }
+  return props;
+}
+
+// F6（I2）: each sample now checks every observable longhand its machine-derived
+// declarations cover (via SHORTHAND_EXPANSIONS), not a hand-picked subset — the previous
+// list checked as few as 3 of 8 declared properties for `.boxsel::after`.
 const PSEUDO_SAMPLES = [
-  { selector: '.drawing', pseudo: '::before', properties: ['content', 'color', 'width', 'height', 'border-top-color'] },
-  { selector: '.drawing', pseudo: '::after', properties: ['content', 'color', 'width', 'height', 'border-top-color'] },
-  { selector: '.drawing .rb', pseudo: '::before', properties: ['content', 'color', 'width', 'height', 'border-bottom-color'] },
-  { selector: '.drawing .rb', pseudo: '::after', properties: ['content', 'color', 'width', 'height', 'border-bottom-color'] },
-  { selector: '.boxsel', pseudo: '::after', properties: ['content', 'color', 'font-size'] },
+  { selector: '.drawing', pseudo: '::before' },
+  { selector: '.drawing', pseudo: '::after' },
+  { selector: '.drawing .rb', pseudo: '::before' },
+  { selector: '.drawing .rb', pseudo: '::after' },
+  { selector: '.boxsel', pseudo: '::after' },
 ] as const;
 
+// Declared longhands that this probe-span technique cannot compare meaningfully. Every
+// other declared longhand for every sample above is checked; nothing else is implicitly
+// skipped. Each entry must carry a reason — see the loop below for how this is enforced.
+const PSEUDO_SKIPPED: Readonly<Record<string, string>> = {
+  // Empirically verified 2026-07-16: with every other declared longhand checked (content,
+  // position, right, top, font-size, color, pointer-events), `.boxsel::after`'s `transform`
+  // is the one property that cannot be compared this way. `translateY(-50%)` resolves
+  // against the participating box's own line-box height, which the bare probe `<span>`
+  // does not reproduce identically to the real pseudo-element (host: matrix(1,0,0,1,0,-6.6),
+  // probe: matrix(1,0,0,1,0,0)) even though the declaration is unchanged — a probe-technique
+  // limitation, not a missing/incorrect declaration. `right`/`top`/`font-size` already prove
+  // the positioning and sizing declarations reached the real pseudo-element.
+  transform: 'height-relative percentage transform does not resolve identically on a bare probe span; see comment above.',
+};
+for (const [prop, reason] of Object.entries(PSEUDO_SKIPPED)) {
+  if (!reason || reason.trim().length < 10) throw new Error(`PSEUDO_SKIPPED.${prop} needs a real reason (reason required)`);
+}
+
+// F3（H3）: the slider thumb sample moved out of this array — see the dedicated pixel-fixture
+// test below. Its previous entry here drove a synthetic `<span>` proxy built from the same
+// machine-parsed base/hover rules used as the expected value, which only proved "the source
+// text can be applied to a generic element." It never touched the real minified build's
+// `input[type="range"]::-webkit-slider-thumb:hover` selector or the real UA thumb, so a
+// removed/broken selector in production CSS would not have failed it.
 const HOVER_SAMPLES = [
-  {
-    name: 'slider thumb',
-    elementSelector: '[data-testid="slider-thumb-probe"]',
-    sourceSelector: 'input[type="range"]::-webkit-slider-thumb:hover',
-    properties: ['background-color', 'border-top-color', 'transform'],
-  },
   {
     name: 'button reverse',
     elementSelector: '.moderow .acts .btn:first-child',
@@ -205,6 +348,116 @@ const HOVER_SAMPLES = [
     properties: ['background-color', 'color'],
   },
 ] as const;
+
+// F3（H3）: `--cut` (tokens.css) is the hover color declared for the real
+// `input[type="range"]::-webkit-slider-thumb:hover` rule.
+const CUT_RGB = { r: 0xc9, g: 0x3a, b: 0x2b } as const;
+// Anti-aliased edge pixels blend --cut with the --paper background; a generous per-channel
+// tolerance still cannot match --paper (#FAF7F0 ≈ 250,247,240 — over 45 off on every channel
+// from --cut), so this stays discriminating.
+const PIXEL_COLOR_TOLERANCE = 24;
+// More than a single stray anti-aliased pixel, comfortably less than the ~13×13px thumb.
+const MIN_MATCHING_PIXELS = 4;
+
+interface DecodedPng {
+  width: number;
+  height: number;
+  channels: number;
+  data: Uint8Array;
+}
+
+function paeth(a: number, b: number, c: number): number {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+
+// Minimal PNG decoder for exactly what Playwright's own screenshot() produces (8-bit,
+// non-interlaced RGB/RGBA). No project or transitive dependency ships a PNG decoder, and
+// this fix wave's whole point is judgment about test *discrimination* — writing ~50 lines
+// against the small, stable PNG chunk/filter spec (using only node:zlib for the DEFLATE
+// stream) is more auditable here than reaching for a new devDependency for one assertion.
+function decodePng(buffer: Buffer): DecodedPng {
+  const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!buffer.subarray(0, 8).equals(SIGNATURE)) throw new Error('Not a PNG buffer');
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let colorType = -1;
+  const idatChunks: Buffer[] = [];
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      const bitDepth = data.readUInt8(8);
+      colorType = data.readUInt8(9);
+      const interlace = data.readUInt8(12);
+      if (bitDepth !== 8) throw new Error(`Unsupported PNG bit depth ${bitDepth} (expected 8)`);
+      if (interlace !== 0) throw new Error('Unsupported interlaced PNG');
+    } else if (type === 'IDAT') {
+      idatChunks.push(Buffer.from(data));
+    } else if (type === 'IEND') {
+      break;
+    }
+    offset += 8 + length + 4; // length(4) + type(4) + data(N) + crc(4)
+  }
+
+  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : null;
+  if (channels === null) throw new Error(`Unsupported PNG color type ${colorType} (expected RGB=2 or RGBA=6)`);
+
+  const raw = inflateSync(Buffer.concat(idatChunks));
+  const stride = width * channels;
+  const data = new Uint8Array(height * stride);
+  let rawOffset = 0;
+  let prevRow = new Uint8Array(stride);
+  for (let y = 0; y < height; y += 1) {
+    const filterType = raw[rawOffset]!;
+    rawOffset += 1;
+    const row = new Uint8Array(stride);
+    for (let x = 0; x < stride; x += 1) {
+      const rawByte = raw[rawOffset + x]!;
+      const a = x >= channels ? row[x - channels]! : 0;
+      const b = prevRow[x]!;
+      const c = x >= channels ? prevRow[x - channels]! : 0;
+      let predicted: number;
+      switch (filterType) {
+        case 0: predicted = 0; break;
+        case 1: predicted = a; break;
+        case 2: predicted = b; break;
+        case 3: predicted = Math.floor((a + b) / 2); break;
+        case 4: predicted = paeth(a, b, c); break;
+        default: throw new Error(`Unsupported PNG filter type ${filterType}`);
+      }
+      row[x] = (rawByte + predicted) & 0xff;
+    }
+    data.set(row, y * stride);
+    rawOffset += stride;
+    prevRow = row;
+  }
+
+  return { width, height, channels, data };
+}
+
+function countMatchingPixels(png: DecodedPng, target: { r: number; g: number; b: number }, tolerance: number): number {
+  let count = 0;
+  for (let i = 0; i < png.data.length; i += png.channels) {
+    const r = png.data[i]!;
+    const g = png.data[i + 1]!;
+    const b = png.data[i + 2]!;
+    if (Math.abs(r - target.r) <= tolerance && Math.abs(g - target.g) <= tolerance && Math.abs(b - target.b) <= tolerance) {
+      count += 1;
+    }
+  }
+  return count;
+}
 
 function contextFor(selector: string): BaselineContext {
   if (selector.startsWith('.zh .imp-')) return 'zhImposition';
@@ -231,13 +484,16 @@ async function computedMismatches(
   page: Page,
   selector: string,
   declarations: readonly Declaration[],
+  index: number,
   onlyProperties?: readonly string[],
+  excludeProperties?: ReadonlySet<string>,
 ): Promise<string[]> {
-  return page.locator(selector).nth(REPRESENTATIVE_INDEX[selector] ?? 0).evaluate(
+  return page.locator(selector).nth(index).evaluate(
     (element, args) => {
       const target = element as HTMLElement | SVGElement;
       const skipped = new Set<string>(args.skippedProperties);
       const requested = args.onlyProperties ? new Set(args.onlyProperties) : null;
+      const excluded = new Set<string>(args.excludeProperties ?? []);
 
       function resolveTokens(raw: string): string {
         let value = raw;
@@ -260,7 +516,8 @@ async function computedMismatches(
       for (const declaration of args.declarations) {
         if (skipped.has(declaration.prop)) continue;
         const properties = args.expansions[declaration.prop] ?? [declaration.prop];
-        const checkedProperties = requested ? properties.filter((property) => requested.has(property)) : properties;
+        const requestedProperties = requested ? properties.filter((property) => requested.has(property)) : properties;
+        const checkedProperties = requestedProperties.filter((property) => !excluded.has(property));
         if (checkedProperties.length === 0) continue;
 
         const actualStyle = getComputedStyle(target);
@@ -295,14 +552,55 @@ async function computedMismatches(
       skippedProperties: SKIPPED.filter((entry) => !('selector' in entry) || entry.selector === selector).map(({ prop }) => prop),
       tokens: tokenValues,
       onlyProperties,
+      excludeProperties: excludeProperties ? [...excludeProperties] : undefined,
     },
   );
+}
+
+// F2（H2）: iterate every matched instance of `selector` (not just index 0), applying the
+// NAMED_OVERRIDES exclusion described above per-instance. Membership in an override pair is
+// checked live against the actual DOM element via Element.matches(), so an instance only
+// gets its overridden longhands excluded when it genuinely carries the more specific class.
+async function allInstanceMismatches(
+  page: Page,
+  selector: string,
+  declarations: readonly Declaration[],
+  count: number,
+): Promise<string[]> {
+  const overrideSelectors = NAMED_OVERRIDES[selector] ?? [];
+  const overriddenLonghands = overrideSelectors.length
+    ? expandedProperties(overrideSelectors.flatMap((s) => (allManifest.get(s) as Declaration[] | undefined) ?? []))
+    : new Set<string>();
+
+  const mismatches: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const matchesOverride =
+      overrideSelectors.length > 0 &&
+      (await page
+        .locator(selector)
+        .nth(index)
+        .evaluate((element, selectors) => selectors.some((s) => (element as Element).matches(s)), overrideSelectors));
+    const excludeProperties = matchesOverride ? overriddenLonghands : undefined;
+    const instanceMismatches = await computedMismatches(page, selector, declarations, index, undefined, excludeProperties);
+    mismatches.push(...instanceMismatches.map((mismatch) => `instance[${index}]: ${mismatch}`));
+  }
+  return mismatches;
 }
 
 test.describe('machine-derived vocabulary baseline', () => {
   for (const context of Object.keys(EXPECTED_COUNTS) as BaselineContext[]) {
     test(`${context}: exact counts and computed declarations`, async ({ page }) => {
       await prepareContext(page, context);
+
+      // F9（OD_INLINE_MUTATION）: standing negative control for F2 (H2) — an inline
+      // override on the second (non-first) `.btn` instance must fail only the `.btn`
+      // check, proving every matched instance is compared, not just index 0. Off by
+      // default; exists only in page memory when the env var is set for this run.
+      if (process.env.OD_INLINE_MUTATION === '1' && context === 'design') {
+        await page.locator('.btn').nth(1).evaluate((element) => {
+          (element as HTMLElement).style.setProperty('background', 'red', 'important');
+        });
+      }
 
       const expectedCounts: Record<string, number> = EXPECTED_COUNTS[context];
       for (const [selector, declarations] of manifest as Map<string, Declaration[]>) {
@@ -312,8 +610,8 @@ test.describe('machine-derived vocabulary baseline', () => {
         await expect(page.locator(selector), `${selector} count`).toHaveCount(expectedCount!);
 
         if (expectedCount! > 0) {
-          const mismatches = await computedMismatches(page, selector, declarations);
-          expect(mismatches, `${selector} computed declarations`).toEqual([]);
+          const mismatches = await allInstanceMismatches(page, selector, declarations, expectedCount!);
+          expect(mismatches, `${selector} computed declarations (all ${expectedCount} instances)`).toEqual([]);
         }
       }
 
@@ -323,12 +621,21 @@ test.describe('machine-derived vocabulary baseline', () => {
   }
 });
 
+// F1（H1）: the manifest's exclusion set is frozen, not just counted. This is a pure
+// data-derivation check — no browser needed — but lives in this file (per the brief) beside
+// the manifest it guards. A new selector that falls into any exclusion bucket changes
+// `excludedManifest` and must be reviewed before it is added to FROZEN_EXCLUSION_SET above.
+test('manifest exclusion set is frozen — new exclusions must be reviewed, not silently grown', () => {
+  expect(excludedManifest, 'excludedManifest drifted from the frozen identity set').toEqual(FROZEN_EXCLUSION_SET);
+});
+
 test('explicit pseudo-element samples', async ({ page }) => {
   await gotoReady(page);
 
   for (const sample of PSEUDO_SAMPLES) {
     const declarations = allManifest.get(`${sample.selector}${sample.pseudo}`) as Declaration[] | undefined;
     expect(declarations, `Missing source declarations for ${sample.selector}${sample.pseudo}`).toBeDefined();
+    const properties = [...expandedProperties(declarations!)].filter((property) => !(property in PSEUDO_SKIPPED));
 
     const mismatches = await page.locator(sample.selector).first().evaluate(
       (element, args) => {
@@ -350,7 +657,7 @@ test('explicit pseudo-element samples', async ({ page }) => {
         probe.remove();
         return failures;
       },
-      { pseudo: sample.pseudo, properties: sample.properties, declarations: declarations!, tokens: tokenValues },
+      { pseudo: sample.pseudo, properties, declarations: declarations!, tokens: tokenValues },
     );
 
     expect(mismatches, `${sample.selector}${sample.pseudo}`).toEqual([]);
@@ -360,36 +667,59 @@ test('explicit pseudo-element samples', async ({ page }) => {
 test('explicit hover samples', async ({ page }) => {
   await gotoReady(page);
 
-  // Chromium exposes no computed-style handle for its user-agent range thumb.
-  // Build a measurable surrogate from the machine-parsed base and hover rules;
-  // this keeps the selector/value source authoritative and exercises a real hover.
-  const sliderBase = allManifest.get('input[type="range"]::-webkit-slider-thumb') as Declaration[];
-  const sliderHover = allManifest.get(HOVER_SAMPLES[0].sourceSelector) as Declaration[];
-  await page.evaluate(
-    ({ base, hover }) => {
-      const resolve = (value: string) => value.replace(/var\((--[\w-]+)\)/g, (_match, name: string) =>
-        getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
-      );
-      const probe = document.createElement('span');
-      probe.dataset.testid = 'slider-thumb-probe';
-      for (const { prop, value } of base) probe.style.setProperty(prop, resolve(value));
-      Object.assign(probe.style, { position: 'fixed', left: '100px', top: '100px', display: 'block' });
-      const style = document.createElement('style');
-      style.textContent = `[data-testid="slider-thumb-probe"]:hover { ${hover
-        .map(({ prop, value }) => `${prop}: ${resolve(value)} !important;`)
-        .join(' ')} }`;
-      document.head.append(style);
-      document.body.append(probe);
-    },
-    { base: sliderBase, hover: sliderHover },
-  );
-
   for (const sample of HOVER_SAMPLES) {
     const declarations = allManifest.get(sample.sourceSelector) as Declaration[] | undefined;
     expect(declarations, `Missing hover source ${sample.sourceSelector}`).toBeDefined();
     await page.hover(sample.elementSelector);
     await page.waitForTimeout(200);
-    const mismatches = await computedMismatches(page, sample.elementSelector, declarations!, sample.properties);
+    const mismatches = await computedMismatches(page, sample.elementSelector, declarations!, 0, sample.properties);
     expect(mismatches, sample.name).toEqual([]);
   }
+});
+
+// F3（H3）: real `<input type="range">` fixture, verified with a pixel diff instead of a
+// computed-style comparison — Chromium exposes no computed-style handle for the UA slider
+// thumb pseudo-element at all, but it does render real, screenshottable pixels for it. A
+// one-time disposable fixture, appended into a real `.param` container and removed after the
+// assertion (same convention as the `.param output` font probe in zh-geometry.spec.ts), lets
+// the actual production stylesheet — not a hand-rebuilt proxy — style a genuine native thumb.
+// This is the only technique in this file that can catch: (1) the compiled selector being
+// dropped/mismangled by minification, (2) the selector failing to match the real element
+// (wrong specificity, wrong pseudo-element name for the shipped browser target), and (3) the
+// hover style not being visually applied at all — none of which the previous synthetic-span
+// proxy could detect, since it built both "expected" and "actual" from the same source text.
+test('slider thumb hover changes the real UA thumb color (pixel fixture)', async ({ page }) => {
+  await gotoReady(page);
+
+  const testId = 'slider-thumb-fixture';
+  await page.locator('.param').first().evaluate((param, id) => {
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = '0';
+    input.max = '100';
+    input.value = '50'; // midpoint: the WebKit thumb travel formula centers the thumb
+    // horizontally in the track at the midpoint value regardless of thumb width, so a plain
+    // hover() (which targets the element's bounding-box center) lands on the real thumb.
+    input.dataset.testid = id;
+    param.append(input);
+  }, testId);
+
+  const input = page.getByTestId(testId);
+  await expect(input).toBeVisible();
+
+  const beforeScreenshot = await input.screenshot();
+  await input.hover();
+  await page.waitForTimeout(200);
+  const afterScreenshot = await input.screenshot();
+
+  const beforeMatches = countMatchingPixels(decodePng(beforeScreenshot), CUT_RGB, PIXEL_COLOR_TOLERANCE);
+  const afterMatches = countMatchingPixels(decodePng(afterScreenshot), CUT_RGB, PIXEL_COLOR_TOLERANCE);
+  console.log(`SLIDER-THUMB-PIXELS before=${beforeMatches} after=${afterMatches}`);
+
+  await input.evaluate((element) => element.remove());
+
+  expect(beforeMatches, 'no --cut-colored pixels before hover (default thumb is --paper)').toBe(0);
+  expect(afterMatches, 'hovering the real range input must paint --cut-colored pixels on the real UA thumb').toBeGreaterThanOrEqual(
+    MIN_MATCHING_PIXELS,
+  );
 });
