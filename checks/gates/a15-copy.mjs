@@ -1,16 +1,41 @@
-// A15：i18n dict key 集與 vendored copy inventory 雙向一致；structural-lock EN 逐字一致。
+// A15：i18n dict key 集與三份 vendored copy inventory 雙向一致；高確定性家族 EN/zh 逐字一致。
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+const VERIFIED_TIER_B_SECTIONS = ['B3', 'B4', 'B6'];
+const KEY_ONLY_TIER_B_SECTIONS = ['B5'];
+
 function cells(line) {
-  return line.slice(1, -1).split('|').map((cell) => cell.trim());
+  const result = [];
+  let cell = '';
+  let inCode = false;
+
+  for (let index = 1; index < line.length - 1; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '\\' && (next === '|' || next === '\\')) {
+      cell += next;
+      index += 1;
+    } else if (char === '`') {
+      inCode = !inCode;
+      cell += char;
+    } else if (char === '|' && !inCode) {
+      result.push(cell.trim());
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+  result.push(cell.trim());
+  return result;
 }
 
 function markdownRows(markdown) {
   const rows = [];
   let headers = null;
 
-  for (const line of markdown.split('\n')) {
+  for (const rawLine of markdown.split('\n')) {
+    const line = rawLine.trimEnd();
     if (!line.startsWith('|') || !line.endsWith('|')) {
       headers = null;
       continue;
@@ -22,11 +47,23 @@ function markdownRows(markdown) {
       continue;
     }
     if (values.every((value) => /^:?-{3,}:?$/.test(value))) continue;
+    if (values.length !== headers.length) {
+      throw new Error(`markdown table column mismatch: ${line}`);
+    }
 
-    rows.push(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])));
+    rows.push(Object.fromEntries(headers.map((header, index) => [header, values[index]])));
   }
 
   return rows;
+}
+
+function headingSection(markdown, start, end) {
+  const startMatch = new RegExp(`^#{2,4}\\s+${start}\\b.*$`, 'm').exec(markdown);
+  if (!startMatch) throw new Error(`inventory section missing: ${start}`);
+  const remainder = markdown.slice(startMatch.index + startMatch[0].length);
+  const endMatch = new RegExp(`^#{2,4}\\s+${end}\\b.*$`, 'm').exec(remainder);
+  if (!endMatch) throw new Error(`inventory section missing: ${start} … ${end}`);
+  return remainder.slice(0, endMatch.index);
 }
 
 function between(markdown, start, end) {
@@ -36,80 +73,203 @@ function between(markdown, start, end) {
   return markdown.slice(from, to);
 }
 
-function cleanMarkdown(value) {
-  return value.replaceAll('`', '').trim();
+function stripCodeFormatting(value) {
+  return value.replace(/`([^`]*)`/g, '$1').trim();
 }
 
-function expandInventoryEntry(keyCell, valueCell) {
-  const key = cleanMarkdown(keyCell);
-  const values = cleanMarkdown(valueCell).split('／').map((value) => value.trim());
+function expandKeys(keyCell, enCell = '') {
+  const key = stripCodeFormatting(keyCell);
+  if (!key || key.endsWith('.*')) return [];
 
   if (key === 'imp.sheet.preset.{i}') {
-    return values.map((value) => {
-      const match = value.match(/^(\d+)"×(\d+)"$/);
+    return enCell.split('／').map((value) => {
+      const match = value.trim().match(/^(\d+)"×(\d+)"$/);
       if (!match) throw new Error(`cannot expand inventory preset: ${value}`);
-      return [`imp.sheet.preset.${match[1]}x${match[2]}`, value];
+      return `imp.sheet.preset.${match[1]}x${match[2]}`;
     });
   }
-  if (key.endsWith('.*')) return [];
 
-  const keyParts = key.split('/').map((part) => part.trim());
-  if (keyParts.length === 1) return [[key, values[0]]];
+  const parts = key.split('/').map((part) => stripCodeFormatting(part));
+  if (parts.length === 1) return parts;
 
-  const first = keyParts[0];
-  const prefix = first.slice(0, first.lastIndexOf('.') + 1);
-  const expandedKeys = keyParts.map((part, index) => {
+  const prefix = parts[0].slice(0, parts[0].lastIndexOf('.') + 1);
+  return parts.map((part, index) => {
     if (index === 0) return part;
-    return part.startsWith('.') ? `${prefix}${part.slice(1)}` : `${prefix}${part}`;
+    return `${prefix}${part.startsWith('.') ? part.slice(1) : part}`;
   });
-  if (values.length !== expandedKeys.length) {
-    throw new Error(`inventory key/value expansion mismatch: ${keyCell} ↔ ${valueCell}`);
-  }
-  return expandedKeys.map((expandedKey, index) => [expandedKey, values[index]]);
 }
 
-function addRows(target, rows, keyHeader, valueHeaders) {
-  for (const row of rows) {
-    const keyCell = row[keyHeader];
-    if (!keyCell) continue;
-    const value = valueHeaders.map((header) => row[header]).find((candidate) => candidate !== undefined) ?? '';
-    for (const [key, en] of expandInventoryEntry(keyCell, value)) {
-      const previous = target.get(key);
-      if (previous && en && previous !== en && !previous.startsWith('— Tier B')) {
-        throw new Error(`conflicting inventory values for ${key}: ${previous} ↔ ${en}`);
-      }
-      if (!previous || previous.startsWith('— Tier B')) target.set(key, en);
-    }
+function expandValues(valueCell, count) {
+  if (count === 1) return [valueCell.trim()];
+  const values = valueCell.split('／').map((value) => value.trim());
+  if (values.length !== count) {
+    throw new Error(`inventory grouped value count mismatch: ${valueCell} (${values.length} values for ${count} keys)`);
   }
+  return values;
 }
 
-function inventoryEntries(copyInventory, expansion) {
-  const entries = new Map();
-  addRows(entries, markdownRows(copyInventory), 'key', ['EN（終稿）', 'EN']);
-
-  const dictTierB = between(expansion, '### B3 ', '### B7 ');
-  addRows(entries, markdownRows(dictTierB), 'key', ['EN', 'zh（逐字）', 'zh（逐字／模板）']);
-
-  const gaps = between(expansion, '## 節 2：', '## 節 3：');
-  const gapRows = markdownRows(gaps).filter((row) => row['類型']?.startsWith('缺 key'));
-  addRows(entries, gapRows, 'key／項目', ['值']);
-  return entries;
+function sameAsEnglish(value) {
+  return value === '—' || value.startsWith('—（') || value.startsWith('骨架 lock');
 }
 
 function dictEntries(source) {
   const entries = new Map();
-  const entryPattern = /^\s*'([^']+)':\s*\{\s*en:\s*'((?:\\.|[^'\\])*)'/gm;
+  const entryPattern = /^\s*'([^']+)':\s*\{\s*en:\s*'((?:\\.|[^'\\])*)',\s*zh:\s*'((?:\\.|[^'\\])*)',?\s*\}/gm;
   for (const match of source.matchAll(entryPattern)) {
-    const en = match[2].replace(/\\(['\\])/g, '$1').replace(/\\n/g, '\n');
-    entries.set(match[1], en);
+    if (entries.has(match[1])) throw new Error(`duplicate dict key: ${match[1]}`);
+    entries.set(match[1], {
+      en: decodeSingleQuoted(match[2]),
+      zh: decodeSingleQuoted(match[3]),
+    });
   }
+
+  const declaredKeys = [...source.matchAll(/^\s*'([^']+)':\s*\{/gm)].map((match) => match[1]);
+  const unparsed = declaredKeys.filter((key) => !entries.has(key));
+  if (unparsed.length) throw new Error(`cannot parse dict values: ${unparsed.join(', ')}`);
   return entries;
 }
 
-function structuralLockKeys(source) {
-  const match = source.match(/export const STRUCTURAL_LOCK_KEYS = \[([\s\S]*?)\] as const/);
-  if (!match) throw new Error('STRUCTURAL_LOCK_KEYS declaration missing');
-  return [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1]);
+function decodeSingleQuoted(value) {
+  let decoded = '';
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '\\') {
+      decoded += value[index];
+      continue;
+    }
+
+    const escaped = value[index + 1];
+    const simpleEscapes = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', '0': '\0' };
+    if (escaped in simpleEscapes) decoded += simpleEscapes[escaped];
+    else if (escaped === "'" || escaped === '"' || escaped === '\\') decoded += escaped;
+    else throw new Error(`unsupported dict string escape: \\${escaped}`);
+    index += 1;
+  }
+  return decoded;
+}
+
+function addKey(target, key) {
+  if (key) target.add(key);
+}
+
+function addValue(target, key, locale, value) {
+  const locales = target.get(key) ?? {};
+  const previous = locales[locale];
+  if (previous !== undefined && previous !== value) {
+    throw new Error(`conflicting ${locale} inventory values for ${key}: ${JSON.stringify(previous)} ↔ ${JSON.stringify(value)}`);
+  }
+  locales[locale] = value;
+  target.set(key, locales);
+}
+
+function addCopyInventory(keys, values, copyInventory) {
+  for (const row of markdownRows(copyInventory)) {
+    const keyCell = row.key;
+    const enCell = row['EN（終稿）'] ?? row.EN;
+    if (!keyCell || enCell === undefined) continue;
+
+    const expandedKeys = expandKeys(keyCell, enCell);
+    for (const key of expandedKeys) addKey(keys, key);
+    if (!expandedKeys.length || enCell.startsWith('— Tier B')) continue;
+
+    const enValues = expandValues(enCell, expandedKeys.length);
+    let zhValues = sameAsEnglish(row.zh) ? enValues : expandValues(row.zh, expandedKeys.length);
+
+    if (expandedKeys.length === 1 && expandedKeys[0] === 'canvas.legend.crease') {
+      const decision = row.lock?.match(/裁決=統一用「([^」]+)」/);
+      if (!decision) throw new Error('canvas.legend.crease final zh decision missing');
+      zhValues = [decision[1]];
+    }
+
+    expandedKeys.forEach((key, index) => {
+      addValue(values, key, 'en', enValues[index]);
+      if (key !== 'overlay.select.title') addValue(values, key, 'zh', zhValues[index]);
+    });
+  }
+}
+
+function addExpansionGaps(keys, values, expansion) {
+  const gaps = between(expansion, '## 節 2：', '## 節 3：');
+  for (const row of markdownRows(gaps)) {
+    const type = row['類型'];
+    const keyCell = row['key／項目'];
+    const valueCell = row['值'];
+    if (!type || !keyCell || valueCell === undefined) continue;
+
+    if (type.startsWith('缺 key')) {
+      const expandedKeys = expandKeys(keyCell, valueCell);
+      const expandedValues = expandValues(valueCell, expandedKeys.length);
+      expandedKeys.forEach((key, index) => {
+        addKey(keys, key);
+        addValue(values, key, 'en', expandedValues[index]);
+        addValue(values, key, 'zh', expandedValues[index]);
+      });
+    } else if (type === 'zh 逐字訂正') {
+      const correctedKey = keyCell.match(/`([^`]+)`/)?.[1] ?? keyCell;
+      const expandedKeys = expandKeys(correctedKey);
+      const corrected = valueCell.match(/<br>應為（[^）]+）：(.+)$/);
+      if (expandedKeys.length !== 1 || !corrected) {
+        throw new Error(`cannot parse zh correction: ${keyCell} ↔ ${valueCell}`);
+      }
+      addValue(values, expandedKeys[0], 'zh', corrected[1].replaceAll('**', ''));
+    }
+  }
+}
+
+function rowsForSection(markdown, section) {
+  const next = `B${Number(section.slice(1)) + 1}`;
+  return markdownRows(headingSection(markdown, section, next)).filter((row) => row.key);
+}
+
+function addTierB(keys, values, keyOnly, expansion, tierBEnglish) {
+  for (const section of [...VERIFIED_TIER_B_SECTIONS, ...KEY_ONLY_TIER_B_SECTIONS]) {
+    const expansionRows = rowsForSection(expansion, section);
+    const englishRows = rowsForSection(tierBEnglish, section);
+
+    for (const row of [...expansionRows, ...englishRows]) {
+      for (const key of expandKeys(row.key)) addKey(keys, key);
+    }
+
+    if (KEY_ONLY_TIER_B_SECTIONS.includes(section)) {
+      for (const row of [...expansionRows, ...englishRows]) {
+        for (const key of expandKeys(row.key)) keyOnly.add(key);
+      }
+      continue;
+    }
+
+    for (const row of expansionRows) {
+      const key = expandKeys(row.key)[0];
+      const zh = row['zh（逐字）'] ?? row['zh（逐字／模板）'];
+      if (!key || zh === undefined) throw new Error(`${section} expansion value missing: ${row.key}`);
+      addValue(values, key, 'zh', zh);
+    }
+    for (const row of englishRows) {
+      const key = expandKeys(row.key)[0];
+      const en = row['EN（英文稿）'];
+      const zh = row['zh（照抄·對照用）'];
+      if (!key || en === undefined || zh === undefined) throw new Error(`${section} Tier B value missing: ${row.key}`);
+      addValue(values, key, 'en', en);
+      addValue(values, key, 'zh', zh);
+    }
+  }
+}
+
+function inventoryContract(copyInventory, expansion, tierBEnglish) {
+  const keys = new Set();
+  const values = new Map();
+  const keyOnly = new Set();
+
+  addCopyInventory(keys, values, copyInventory);
+  addExpansionGaps(keys, values, expansion);
+  addTierB(keys, values, keyOnly, expansion, tierBEnglish);
+
+  const incomplete = [...keys].filter((key) => !keyOnly.has(key)
+    && (values.get(key)?.en === undefined || values.get(key)?.zh === undefined));
+  if (incomplete.length) throw new Error(`value-verified key missing EN/zh source: ${incomplete.sort().join(', ')}`);
+
+  const strayKeyOnly = [...keyOnly].filter((key) => !keys.has(key));
+  if (strayKeyOnly.length) throw new Error(`key-only key missing from inventory: ${strayKeyOnly.sort().join(', ')}`);
+
+  return { keys, values, keyOnly };
 }
 
 function difference(left, right) {
@@ -121,24 +281,29 @@ export async function run({ root }) {
     const dictSource = readFileSync(path.join(root, 'src/i18n/dict.ts'), 'utf8');
     const copyInventory = readFileSync(path.join(root, 'checks/canonical/copy-inventory.md'), 'utf8');
     const expansion = readFileSync(path.join(root, 'checks/canonical/inventory-expansion.md'), 'utf8');
+    const tierBEnglish = readFileSync(path.join(root, 'checks/canonical/tierb-en-draft.md'), 'utf8');
     const actual = dictEntries(dictSource);
-    const expected = inventoryEntries(copyInventory, expansion);
+    const expected = inventoryContract(copyInventory, expansion, tierBEnglish);
     const errs = [];
 
-    const missingFromDict = difference(expected.keys(), actual);
-    const missingFromInventory = difference(actual.keys(), expected);
+    const missingFromDict = difference(expected.keys, actual);
+    const missingFromInventory = difference(actual.keys(), expected.keys);
     if (missingFromDict.length) errs.push(`inventory 有、dict 缺少：${missingFromDict.join(', ')}`);
     if (missingFromInventory.length) errs.push(`dict 有、inventory 缺少：${missingFromInventory.join(', ')}`);
 
-    for (const key of structuralLockKeys(dictSource)) {
-      if (!expected.has(key)) {
-        errs.push(`STRUCTURAL_LOCK_KEYS 未見於 inventory：${key}`);
-        continue;
-      }
-      if (actual.get(key) !== expected.get(key)) {
-        errs.push(`structural-lock EN 漂移：${key}（dict=${JSON.stringify(actual.get(key))}，inventory=${JSON.stringify(expected.get(key))}）`);
+    for (const key of difference(expected.keys, expected.keyOnly)) {
+      if (!actual.has(key)) continue;
+      for (const locale of ['en', 'zh']) {
+        const expectedValue = expected.values.get(key)[locale];
+        const actualValue = actual.get(key)[locale];
+        if (actualValue !== expectedValue) {
+          errs.push(`${locale} value 漂移：${key}（dict=${JSON.stringify(actualValue)}，inventory=${JSON.stringify(expectedValue)}）`);
+        }
       }
     }
+
+    const valueVerifiedCount = expected.keys.size - expected.keyOnly.size;
+    console.log(`  [a15] value-verified ${valueVerifiedCount} keys／key-only ${expected.keyOnly.size} keys（B5: ${[...expected.keyOnly].sort().join(', ')}）`);
     return errs;
   } catch (error) {
     return [`A15 parser failure: ${error instanceof Error ? error.message : String(error)}`];
