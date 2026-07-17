@@ -209,6 +209,36 @@ function boundsDiagonal(bounds: GeometryBounds): number {
   );
 }
 
+export interface CameraFrame {
+  /** 自轉／注視軸心＝摺合完成（t=1）的盒體中心（2026-07-17 法蘭 E2E 裁決）。 */
+  target: Vec3;
+  /** 取景對角線＝攤平（t=0）極端外廓——相機距離／far／maxDistance 以此定，全程不出框。 */
+  fitDiagonal: number;
+  /** 聚焦對角線＝盒體外廓——near／minDistance 以此定，近縮放不被大紙鎖死。 */
+  focusDiagonal: number;
+}
+
+/**
+ * 相機框架與「當下 pose」解耦：軸心永遠是盒體中心，不隨 replaceModel 當下的
+ * t 漂移（舊行為在 scene 初始 t=0 時把軸心定在攤平大紙中心，自轉變成繞行）。
+ */
+export function computeCameraFrame(model: FoldModel): CameraFrame | null {
+  const foldedBounds = boundsForGeometry(worldGeometry(model, foldPose(1, model)));
+  const flatBounds = boundsForGeometry(worldGeometry(model, foldPose(0, model)));
+  if (!foldedBounds || !flatBounds) return null;
+
+  const focusDiagonal = boundsDiagonal(foldedBounds);
+  return {
+    target: {
+      x: (foldedBounds.minX + foldedBounds.maxX) / 2,
+      y: (foldedBounds.minY + foldedBounds.maxY) / 2,
+      z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+    },
+    fitDiagonal: Math.max(boundsDiagonal(flatBounds), focusDiagonal),
+    focusDiagonal,
+  };
+}
+
 /**
  * Creates a FoldModel-driven Three.js scene with an on-demand render loop.
  */
@@ -340,24 +370,22 @@ export function createFoldScene(
     return bounds;
   };
 
-  const fitCamera = (bounds: GeometryBounds): void => {
-    const diagonal = Math.max(boundsDiagonal(bounds), MIN_SCENE_SCALE);
-    const centerX = (bounds.minX + bounds.maxX) / 2;
-    const centerY = (bounds.minY + bounds.maxY) / 2;
-    const centerZ = (bounds.minZ + bounds.maxZ) / 2;
-    const cameraDistance = diagonal * CAMERA_FIT_DISTANCE_FACTOR;
+  const fitCamera = (frame: CameraFrame): void => {
+    const fitDiagonal = Math.max(frame.fitDiagonal, MIN_SCENE_SCALE);
+    const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
+    const cameraDistance = fitDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
 
-    controls.target.set(centerX, centerY, centerZ);
+    controls.target.set(frame.target.x, frame.target.y, frame.target.z);
     camera.position.set(
-      centerX,
-      centerY + diagonal * CAMERA_ELEVATION_FACTOR,
-      centerZ + cameraDistance,
+      frame.target.x,
+      frame.target.y + fitDiagonal * CAMERA_ELEVATION_FACTOR,
+      frame.target.z + cameraDistance,
     );
-    camera.near = Math.max(diagonal * CAMERA_NEAR_FACTOR, 0.01);
-    camera.far = Math.max(diagonal * CAMERA_FAR_FACTOR, 100);
+    camera.near = Math.max(focusDiagonal * CAMERA_NEAR_FACTOR, 0.01);
+    camera.far = Math.max(fitDiagonal * CAMERA_FAR_FACTOR, 100);
     camera.updateProjectionMatrix();
-    controls.minDistance = diagonal * 0.2;
-    controls.maxDistance = diagonal * 6;
+    controls.minDistance = focusDiagonal * 0.2;
+    controls.maxDistance = fitDiagonal * 6;
     controls.update();
   };
 
@@ -477,8 +505,9 @@ export function createFoldScene(
       currentModel = model;
       disposePanelTree();
       buildPanelTree(model);
-      const bounds = updateModelPose();
-      if (bounds) fitCamera(bounds);
+      updateModelPose();
+      const frame = computeCameraFrame(model);
+      if (frame) fitCamera(frame);
       markNeedsRender();
     },
     setAutoRotate(on) {

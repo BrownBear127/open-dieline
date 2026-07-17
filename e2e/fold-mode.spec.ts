@@ -236,7 +236,8 @@ test('fold controls use the vocabulary declarations and render the real range th
 
   expect(await computedDeclarationMismatches(button, '.btn', ['border', 'padding']), '.btn border/padding').toEqual([]);
   expect(await computedDeclarationMismatches(tick, '.foldbar .compat .tick'), '.foldbar .compat .tick').toEqual([]);
-  await expect(tick).toBeChecked();
+  // 自轉預設關閉（2026-07-17 法蘭 E2E 裁決）：進場靜止、由使用者主動開啟。
+  await expect(tick).not.toBeChecked();
 
   await range.fill('0');
   const atMinimum = await range.screenshot();
@@ -253,8 +254,10 @@ test('dragging fold progress to one renders a non-background canvas frame', asyn
 
   // final review F6：t=0 與 t=1 的穩態畫面必須互異（雙背景空白 ⇒ 相等 ⇒ 紅），
   // 否則 updatePose no-op 也能靠「初始任意一張非空白幀」假綠；補 t=1→t=0 反向驗可逆。
-  // 先在自轉開啟（持續渲染）時驗有真內容，再關自轉取穩態對比。
+  // 先開自轉（持續渲染·預設已關）驗有真內容，再關回自轉取穩態對比——
+  // toDataURL 取樣依賴持續渲染（preserveDrawingBuffer:false）。
   const canvas = page.locator('.fold-canvas');
+  await page.locator('.foldbar .compat .tick').check();
   await expectNonBackgroundFrame(canvas);
   await page.locator('.foldbar .compat .tick').uncheck();
 
@@ -314,6 +317,8 @@ test('fold mode makes no request outside the localhost origin', async ({ page })
   });
 
   await enterFold(page);
+  // 開自轉讓 toDataURL 取樣有持續渲染可取——勾 checkbox 不產生網路請求，斷言面不變。
+  await page.locator('.foldbar .compat .tick').check();
   await expectNonBackgroundFrame(page.locator('.fold-canvas'));
 
   const localhostOrigin = new URL(page.url()).origin;
@@ -336,6 +341,8 @@ test('fold mode survives synthetic WebGL context loss and resumes auto-rotation 
   const foldView = page.locator('.fold-view');
   const canvas = page.locator('.fold-canvas');
   const autoRotate = page.locator('.foldbar .compat .tick');
+  // 預設關——使用者主動開啟後，自轉狀態必須跨 context loss/restore 存活（原測試意圖）。
+  await autoRotate.check();
   await expect(autoRotate).toBeChecked();
   await expectNonBackgroundFrame(canvas);
 
