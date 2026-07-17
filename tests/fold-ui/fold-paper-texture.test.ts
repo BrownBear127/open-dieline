@@ -1,24 +1,33 @@
-import { CanvasTexture, MeshStandardMaterial, RepeatWrapping } from 'three';
+import {
+  CanvasTexture,
+  ClampToEdgeWrapping,
+  MeshStandardMaterial,
+  SRGBColorSpace,
+} from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PAPER_PRESETS,
   configurePaperMaterial,
+  createPaperAlbedoTexture,
   createPaperBumpTexture,
-  createPaperRoughnessTexture,
   paperHeightAt,
+  paperTextureCoordinatesAt,
   type PaperParams,
 } from '@/ui/fold-scene';
 
 const PAPER_PARAM_KEYS = [
-  'fiberStrength',
-  'fiberScale',
-  'grainStrength',
-  'crumpleStrength',
-  'crumpleScale',
-  'bumpScale',
-  'roughnessBase',
-  'roughnessVariation',
+  'contrast',
+  'roughness',
+  'fiber',
+  'fiberSize',
+  'crumples',
+  'crumpleSize',
+  'folds',
+  'foldCount',
+  'drops',
+  'fade',
   'seed',
+  'bumpScale',
 ] satisfies Array<keyof PaperParams>;
 
 afterEach(() => {
@@ -43,33 +52,52 @@ describe('paperHeightAt', () => {
     }
   });
 
-  it('joins exactly across the 512-pixel horizontal and vertical tile boundaries', () => {
-    for (const coordinate of [0, 31.5, 173.25, 511.75]) {
-      expect(paperHeightAt(0, coordinate, PAPER_PRESETS.standard)).toBeCloseTo(
-        paperHeightAt(512, coordinate, PAPER_PRESETS.standard),
-        6,
-      );
-      expect(paperHeightAt(coordinate, 0, PAPER_PRESETS.standard)).toBeCloseTo(
-        paperHeightAt(coordinate, 512, PAPER_PRESETS.standard),
-        6,
-      );
-    }
+  it('does not force opposite edges to repeat', () => {
+    const left = [31.5, 173.25, 411.75].map((y) => paperHeightAt(0, y, PAPER_PRESETS.standard));
+    const right = [31.5, 173.25, 411.75]
+      .map((y) => paperHeightAt(512, y, PAPER_PRESETS.standard));
+
+    expect(right).not.toEqual(left);
+  });
+});
+
+describe('paper texture coordinates', () => {
+  it('maps the full texture width to five pattern units', () => {
+    expect(paperTextureCoordinatesAt(-0.5, -0.5)).toMatchObject({
+      patternX: -2.5,
+      patternY: -2.5,
+    });
+    expect(paperTextureCoordinatesAt(511.5, 511.5)).toMatchObject({
+      patternX: 2.5,
+      patternY: 2.5,
+    });
+  });
+
+  it('keeps roughness coordinates in texture-pixel space', () => {
+    const first = paperTextureCoordinatesAt(100, 200);
+    const nextPixel = paperTextureCoordinatesAt(101, 201);
+
+    expect(nextPixel.roughnessX - first.roughnessX).toBeCloseTo(1.5, 12);
+    expect(nextPixel.roughnessY - first.roughnessY).toBeCloseTo(1.5, 12);
   });
 });
 
 describe('PAPER_PRESETS', () => {
-  it('defines complete finite subtle, standard, and coarse parameter sets', () => {
+  it('defines complete finite subtle, standard, and coarse v2 parameter sets', () => {
     expect(Object.keys(PAPER_PRESETS)).toEqual(['subtle', 'standard', 'coarse']);
 
     for (const params of Object.values(PAPER_PRESETS)) {
       expect(Object.keys(params)).toEqual(PAPER_PARAM_KEYS);
       expect(PAPER_PARAM_KEYS.every((key) => Number.isFinite(params[key]))).toBe(true);
+      expect(params.foldCount).toBeGreaterThanOrEqual(1);
+      expect(params.foldCount).toBeLessThanOrEqual(15);
+      expect(Number.isInteger(params.foldCount)).toBe(true);
     }
   });
 });
 
 describe('paper texture writers', () => {
-  it('writes repeatable 512px grayscale bump and roughness textures to canvas', () => {
+  it('writes a 512px sRGB albedo map and a non-repeating grayscale bump map', () => {
     const writtenImages: ImageData[] = [];
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
       createImageData: (width: number, height: number) => ({
@@ -81,38 +109,59 @@ describe('paper texture writers', () => {
       putImageData: (imageData: ImageData) => writtenImages.push(imageData),
     }) as unknown as CanvasRenderingContext2D);
 
+    const albedo = createPaperAlbedoTexture(PAPER_PRESETS.standard, 0xc86432);
     const bump = createPaperBumpTexture(PAPER_PRESETS.standard);
-    const roughness = createPaperRoughnessTexture({
-      ...PAPER_PRESETS.standard,
-      roughnessBase: 0.75,
-      roughnessVariation: 0,
-    });
 
+    expect(albedo.image).toMatchObject({ width: 512, height: 512 });
     expect(bump.image).toMatchObject({ width: 512, height: 512 });
-    expect(roughness.image).toMatchObject({ width: 512, height: 512 });
-    expect([bump.wrapS, bump.wrapT, roughness.wrapS, roughness.wrapT]).toEqual([
-      RepeatWrapping,
-      RepeatWrapping,
-      RepeatWrapping,
-      RepeatWrapping,
+    expect(albedo.colorSpace).toBe(SRGBColorSpace);
+    expect([albedo.wrapS, albedo.wrapT, bump.wrapS, bump.wrapT]).toEqual([
+      ClampToEdgeWrapping,
+      ClampToEdgeWrapping,
+      ClampToEdgeWrapping,
+      ClampToEdgeWrapping,
     ]);
     expect(writtenImages).toHaveLength(2);
-    expect([...writtenImages[1]!.data.slice(0, 8)]).toEqual([
-      191, 191, 191, 255,
-      191, 191, 191, 255,
-    ]);
+    expect(writtenImages[0]!.data[0]).toBeGreaterThan(0);
+    expect(writtenImages[0]!.data[1]).toBeGreaterThan(0);
+    expect(writtenImages[0]!.data[2]).toBeGreaterThan(0);
+    expect(writtenImages[0]!.data[0]).toBeGreaterThan(writtenImages[0]!.data[1]!);
+    expect(writtenImages[0]!.data[1]).toBeGreaterThan(writtenImages[0]!.data[2]!);
+    expect(writtenImages[1]!.data[0]).toBe(writtenImages[1]!.data[1]);
+    expect(writtenImages[1]!.data[1]).toBe(writtenImages[1]!.data[2]);
   });
 
-  it('configures the material maps, bump scale, and roughness multiplier', () => {
-    const material = new MeshStandardMaterial({ roughness: 0.2 });
+  it('adds centered paper modulation visibly on black card stock', () => {
+    const writtenImages: ImageData[] = [];
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
+      createImageData: (width: number, height: number) => ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+        colorSpace: 'srgb',
+      }),
+      putImageData: (imageData: ImageData) => writtenImages.push(imageData),
+    }) as unknown as CanvasRenderingContext2D);
+
+    createPaperAlbedoTexture(PAPER_PRESETS.standard, 0x1c1a17);
+
+    const redValues = writtenImages[0]!.data.filter((_, index) => index % 4 === 0);
+    expect(redValues.some((value) => value > 0x1c)).toBe(true);
+    expect(redValues.some((value) => value < 0x1c)).toBe(true);
+  });
+
+  it('configures baked albedo, white material tint, and weak bump assistance', () => {
+    const material = new MeshStandardMaterial({ color: 0x123456, roughness: 0.82 });
+    const albedo = new CanvasTexture(document.createElement('canvas'));
     const bump = new CanvasTexture(document.createElement('canvas'));
-    const roughness = new CanvasTexture(document.createElement('canvas'));
 
-    configurePaperMaterial(material, PAPER_PRESETS.standard, bump, roughness);
+    configurePaperMaterial(material, PAPER_PRESETS.standard, albedo, bump);
 
+    expect(material.map).toBe(albedo);
+    expect(material.color.getHex()).toBe(0xffffff);
     expect(material.bumpMap).toBe(bump);
-    expect(material.roughnessMap).toBe(roughness);
+    expect(material.roughnessMap).toBeNull();
     expect(material.bumpScale).toBe(PAPER_PRESETS.standard.bumpScale);
-    expect(material.roughness).toBe(1);
+    expect(material.roughness).toBe(0.82);
   });
 });

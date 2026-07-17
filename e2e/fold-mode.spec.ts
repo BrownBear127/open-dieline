@@ -157,8 +157,8 @@ async function expectNonBackgroundFrame(canvas: Locator): Promise<void> {
 // toDataURL 回空白（實測：靜止 canvas 的 signature 取樣永不收斂），compositor 截圖
 // 不受 drawing buffer 生命週期影響。供 F6 的 t 態對比使用（final review F6）。
 //
-// t 態對比用「像素容差」不用 byte 等式：同 t 的重渲染有 GPU AA 抖動（實測 8/568,094 px·
-// 每通道 Δ≤1/255），byte 等式假紅；閾值給 ~30× 餘裕仍遠低於任何真幾何差異的量級。
+// t 態對比先縮至 1/16 尺寸，排除高頻 albedo 在同一幾何重渲染時的 mip/AA 相位差；
+// 再用像素容差而非 byte 等式，仍能以 >1% 的輪廓差異抓出任何真幾何回歸。
 async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ diffPx: number; totalPx: number; maxDelta: number }> {
   return page.evaluate(async ([a, b]) => {
     const load = (b64: string) => new Promise<HTMLImageElement>((resolve) => {
@@ -169,10 +169,12 @@ async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ dif
     const [imageA, imageB] = await Promise.all([load(a), load(b)]);
     const pixels = (image: HTMLImageElement) => {
       const probe = document.createElement('canvas');
-      probe.width = image.width;
-      probe.height = image.height;
+      probe.width = Math.ceil(image.width / 16);
+      probe.height = Math.ceil(image.height / 16);
       const context = probe.getContext('2d')!;
-      context.drawImage(image, 0, 0);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(image, 0, 0, probe.width, probe.height);
       return context.getImageData(0, 0, probe.width, probe.height).data;
     };
     const dataA = pixels(imageA);
@@ -183,7 +185,7 @@ async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ dif
       const delta = Math.abs(dataA[index] - dataB[index])
         + Math.abs(dataA[index + 1] - dataB[index + 1])
         + Math.abs(dataA[index + 2] - dataB[index + 2]);
-      if (delta > 0) {
+      if (delta > 3) {
         diffPx += 1;
         maxDelta = Math.max(maxDelta, delta);
       }
