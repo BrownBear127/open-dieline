@@ -6,7 +6,12 @@ import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import type { ArtworkLayout } from '@/ui/artwork-layout';
 import { deriveArtworkLayout } from '@/ui/artwork-layout';
 import { panelSolidUvs } from '@/ui/fold-scene';
-import { buildTemplateFilename, buildTemplateSvg } from '@/ui/fold-template';
+import {
+  LAYER_SCRIPT_FILENAME,
+  LAYER_SCRIPT_JSX,
+  buildTemplateFilename,
+  buildTemplateSvg,
+} from '@/ui/fold-template';
 
 function layoutFor(overrides: Record<string, number | string | boolean>): ArtworkLayout {
   const model = buildRteFoldModel(resolveParams(reverseTuckEnd, overrides));
@@ -27,16 +32,6 @@ function parseSvg(svg: string): Document {
 function elementsByAttr(doc: Document, tag: string, attr: string, value?: string): Element[] {
   return Array.from(doc.getElementsByTagName(tag)).filter((el) =>
     (value === undefined ? el.hasAttribute(attr) : el.getAttribute(attr) === value));
-}
-
-function parsePoints(pointsAttr: string): { x: number; y: number }[] {
-  return pointsAttr
-    .trim()
-    .split(/\s+/)
-    .map((pair) => {
-      const [x, y] = pair.split(',').map(Number);
-      return { x: x!, y: y! };
-    });
 }
 
 function uvFromXY(point: { x: number; y: number }, frame: ArtworkLayout['frame']): { u: number; v: number } {
@@ -103,11 +98,13 @@ describe('buildTemplateSvg — line style 白名單（模板只含 cut/crease）
     }
   });
 
-  it('panel 外緣 stroke/width 與 LINE_STYLES.cut 同源；hinge 摺線 stroke/width/dasharray 與 LINE_STYLES.crease 同源', () => {
+  it('panel 外緣 cut 邊 stroke/width 與 LINE_STYLES.cut 同源；hinge 摺線 stroke/width/dasharray 與 LINE_STYLES.crease 同源', () => {
     const doc = parseSvg(svgFor({}));
-    const panelOutline = elementsByAttr(doc, 'polygon', 'data-panel-id', 'P1')[0]!;
-    expect(panelOutline.getAttribute('stroke')).toBe(LINE_STYLES.cut.stroke);
-    expect(Number(panelOutline.getAttribute('stroke-width'))).toBe(LINE_STYLES.cut.strokeWidth);
+    // C9 修法 A 後 cut 以逐邊 <line data-panel-id> 輸出（共享邊 dedup），hinge 線用
+    // data-hinge-panel-id——兩個屬性不相交，data-panel-id 命中的必為 cut 邊。
+    const cutEdge = elementsByAttr(doc, 'line', 'data-panel-id', 'P1')[0]!;
+    expect(cutEdge.getAttribute('stroke')).toBe(LINE_STYLES.cut.stroke);
+    expect(Number(cutEdge.getAttribute('stroke-width'))).toBe(LINE_STYLES.cut.strokeWidth);
 
     const hingeLine = elementsByAttr(doc, 'line', 'data-hinge-panel-id', 'P2')[0]!;
     expect(hingeLine.getAttribute('stroke')).toBe(LINE_STYLES.crease.stroke);
@@ -190,13 +187,13 @@ describe('buildTemplateSvg — <g id="ARTWORK"> 空殼＋角落指示文字', ()
     const textOf = (svg: string): string | null =>
       elementsByAttr(parseSvg(svg), 'text', 'data-role', 'instructions')[0]?.textContent ?? null;
 
+    // C9 修正版字面（2026-07-18）：不再教「畫進 ARTWORK」（Illustrator 群組不可直接
+    // 作畫·實測），只講兩件硬需求＋附帶腳本提示。zh 避字見 fold-template.ts 註解。
     expect(textOf(svgFor({}, 'en'))).toBe(
-      'Paint in the ARTWORK layer. Hide TEMPLATE_GUIDES before exporting and keep the full square page.',
+      'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page. Run the companion script for real layers.',
     );
-    // zh 避字「隱」（U+96B1，不在 noto-serif-tc-subset.woff2 cmap 內·font-gate 實抓）：
-    // 見 fold-template.ts TEMPLATE_INSTRUCTIONS 註解，改用「關閉…顯示」保留原意。
     expect(textOf(svgFor({}, 'zh'))).toBe(
-      '請在 ARTWORK 圖層作畫，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。',
+      '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。可使用附帶腳本建立真圖層結構。',
     );
   });
 });
@@ -211,15 +208,45 @@ describe('buildTemplateFilename', () => {
 });
 
 describe('buildTemplateSvg — C1 對位同源（TEMPLATE 與 3D UV 消費同一 ArtworkLayout，非只斷言共用 frame 函式）', () => {
-  it('SVG 面板外緣的每個角點與 ArtworkLayout 原始座標逐點相同（同一份幾何、無獨立複製一份）', () => {
+  it('SVG cut 邊端點與 ArtworkLayout 原始座標逐 bit 相同，且恰為「全 panel 邊集中恰出現一次」的邊（測試端獨立重算 oracle）', () => {
     const layout = layoutFor({});
     const doc = parseSvg(buildTemplateSvg(layout, { boxId: 'rte', label: 'RTE', lang: 'en' }));
 
+    // 獨立 oracle：測試端自行重算 canonical 邊次數，不呼叫實作的 dedup。fmt 的最短
+    // 可逆表示保證 Number↔String 逐 bit 可逆，key 用原始 number 字串化即可對上。
+    const canonical = (a: { x: number; y: number }, b: { x: number; y: number }): string => {
+      const ka = `${a.x},${a.y}`;
+      const kb = `${b.x},${b.y}`;
+      return ka <= kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+    };
+    const counts = new Map<string, number>();
+    const owner = new Map<string, string>();
     for (const panel of layout.panels) {
-      const el = elementsByAttr(doc, 'polygon', 'data-panel-id', panel.id)[0]!;
-      const parsed = parsePoints(el.getAttribute('points')!);
-      expect(parsed).toEqual(panel.polygon);
+      const polygon = panel.polygon;
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i]!;
+        const b = polygon[(i + 1) % polygon.length]!;
+        if (a.x === b.x && a.y === b.y) continue;
+        const key = canonical(a, b);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+        owner.set(key, panel.id);
+      }
     }
+    const expectedUnique = new Set(
+      Array.from(counts.entries()).filter(([, count]) => count === 1).map(([key]) => key),
+    );
+
+    const emitted = new Set<string>();
+    for (const el of elementsByAttr(doc, 'line', 'data-panel-id')) {
+      const a = { x: Number(el.getAttribute('x1')), y: Number(el.getAttribute('y1')) };
+      const b = { x: Number(el.getAttribute('x2')), y: Number(el.getAttribute('y2')) };
+      const key = canonical(a, b);
+      expect(emitted.has(key)).toBe(false); // 每邊至多輸出一次
+      emitted.add(key);
+      expect(expectedUnique.has(key)).toBe(true); // 只輸出唯一邊（共享邊不畫）
+      expect(el.getAttribute('data-panel-id')).toBe(owner.get(key)); // 歸屬＝唯一所屬 panel
+    }
+    expect(emitted.size).toBe(expectedUnique.size); // 唯一邊全數輸出、無漏
   });
 
   it('SVG hinge 端點與 ArtworkLayout hinge 逐值相同；中點換算 UV 落在 [0,1] 且與獨立第二條路徑（panelSolidUvs 對同一頂點算出的 UV）一致', () => {
@@ -286,5 +313,95 @@ describe('buildTemplateSvg — C1 對位同源（TEMPLATE 與 3D UV 消費同一
       expect(centerUv.v).toBeGreaterThanOrEqual(vMin - 1e-9);
       expect(centerUv.v).toBeLessThanOrEqual(vMax + 1e-9);
     }
+  });
+});
+
+// C9 問題 1 迴歸鎖（2026-07-18 裁定修法 A）：C9 真實流程在 Illustrator 發現
+// 上下蓋各多兩條縱向刀線——tuckLock 分片（L/C/R）的內部邊界被相鄰分片各畫一次、
+// 裸露成 cut，2D 正式 dieline 沒有這些線。鎖住「分片共享邊不出現在模板 cut 中」。
+describe('buildTemplateSvg — C9 分片內部邊不輸出（edge dedup 迴歸鎖）', () => {
+  function cutEdgeKeys(doc: Document): Set<string> {
+    const keys = new Set<string>();
+    for (const el of elementsByAttr(doc, 'line', 'data-panel-id')) {
+      const ka = `${el.getAttribute('x1')},${el.getAttribute('y1')}`;
+      const kb = `${el.getAttribute('x2')},${el.getAttribute('y2')}`;
+      keys.add(ka <= kb ? `${ka}|${kb}` : `${kb}|${ka}`);
+    }
+    return keys;
+  }
+
+  function polygonEdgeKeys(layout: ArtworkLayout, panelId: string): Set<string> {
+    const panel = layout.panels.find((entry) => entry.id === panelId)!;
+    const keys = new Set<string>();
+    const polygon = panel.polygon;
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i]!;
+      const b = polygon[(i + 1) % polygon.length]!;
+      if (a.x === b.x && a.y === b.y) continue;
+      const ka = `${a.x},${a.y}`;
+      const kb = `${b.x},${b.y}`;
+      keys.add(ka <= kb ? `${ka}|${kb}` : `${kb}|${ka}`);
+    }
+    return keys;
+  }
+
+  function sharedKeys(layout: ArtworkLayout, idA: string, idB: string): Set<string> {
+    const keysA = polygonEdgeKeys(layout, idA);
+    return new Set(Array.from(polygonEdgeKeys(layout, idB)).filter((key) => keysA.has(key)));
+  }
+
+  it('default（tuckLock=20 分片）：lid 分片間共享邊存在於幾何、但不出現在模板 cut（使用者看到的多餘刀線）', () => {
+    const layout = layoutFor({});
+    const doc = parseSvg(buildTemplateSvg(layout, { boxId: 'rte', label: 'RTE', lang: 'en' }));
+    const emitted = cutEdgeKeys(doc);
+
+    for (const [idA, idB] of [
+      ['topLidL', 'topLidC'],
+      ['topLidC', 'topLidR'],
+      ['bottomLidL', 'bottomLidC'],
+      ['bottomLidC', 'bottomLidR'],
+    ] as const) {
+      const shared = sharedKeys(layout, idA, idB);
+      expect(shared.size).toBeGreaterThan(0); // fixture 有效性：分片邊界確實成對存在
+      for (const key of shared) {
+        expect(emitted.has(key)).toBe(false); // 共享邊不畫＝多餘刀線消失
+      }
+    }
+  });
+
+  it('body 真摺邊（P1/P2 共享邊）cut 不畫、hinge crease 仍畫（摺線語義歸 crease·與 2D dieline 一致）', () => {
+    const layout = layoutFor({});
+    const doc = parseSvg(buildTemplateSvg(layout, { boxId: 'rte', label: 'RTE', lang: 'en' }));
+    const emitted = cutEdgeKeys(doc);
+
+    const shared = sharedKeys(layout, 'P1', 'P2');
+    expect(shared.size).toBeGreaterThan(0);
+    for (const key of shared) {
+      expect(emitted.has(key)).toBe(false);
+    }
+    expect(elementsByAttr(doc, 'line', 'data-hinge-panel-id', 'P2')).toHaveLength(1);
+  });
+
+  it('zero-lock（tuckLock=0）：單片 lid 無分片、其唯一邊照常輸出（dedup 不誤刪）', () => {
+    const layout = layoutFor({ tuckLock: 0 });
+    const doc = parseSvg(buildTemplateSvg(layout, { boxId: 'rte', label: 'RTE', lang: 'en' }));
+    expect(elementsByAttr(doc, 'line', 'data-panel-id', 'topLid').length).toBeGreaterThan(0);
+    expect(elementsByAttr(doc, 'line', 'data-panel-id', 'bottomLid').length).toBeGreaterThan(0);
+  });
+});
+
+// C9 問題 2（2026-07-18 維護者裁 SVG＋.jsx 路線）：根 id 命名圖層＋圖層腳本。
+describe('buildTemplateSvg — 根 id 與 Illustrator 圖層腳本（C9 問題 2）', () => {
+  it('根 <svg id="TEMPLATE">——Illustrator 開檔時唯一圖層以此命名（實測 Illustrator 2026 證實）', () => {
+    const doc = parseSvg(svgFor({}));
+    expect(doc.documentElement.getAttribute('id')).toBe('TEMPLATE');
+  });
+
+  it('LAYER_SCRIPT_JSX 處理模板兩個群組、ARTWORK 收尾設為作用中圖層；檔名 .jsx', () => {
+    expect(LAYER_SCRIPT_FILENAME.endsWith('.jsx')).toBe(true);
+    expect(LAYER_SCRIPT_JSX).toContain("findGroup('TEMPLATE_GUIDES')");
+    expect(LAYER_SCRIPT_JSX).toContain("findGroup('ARTWORK')");
+    expect(LAYER_SCRIPT_JSX).toContain('ElementPlacement.PLACEATBEGINNING');
+    expect(LAYER_SCRIPT_JSX).toContain('doc.activeLayer = artworkLayer');
   });
 });

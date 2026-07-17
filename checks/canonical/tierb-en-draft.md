@@ -195,6 +195,7 @@ Vendor date: 2026-07-17
 | key | zh（照抄·對照用） | EN（英文稿） | 譯註（僅必要時） |
 |---|---|---|---|
 | fold.art.template | 模板 | TEMPLATE | 對位模板下載鈕。 |
+| fold.art.layerScript | 圖層腳本 | AI SCRIPT | Illustrator 圖層腳本下載鈕（C9 問題 2·.jsx 路線）。 |
 | fold.art.upload | 上傳 | UPLOAD | 設計稿傳回鈕（toggle）。 |
 | fold.art.staleTemplate | 參數已變更，建議重新下載模板對位。 | Parameters changed. Download a new template to realign your artwork. | stale overlay·role=status。 |
 | fold.art.invalidFile | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | error overlay·role=alert。 |

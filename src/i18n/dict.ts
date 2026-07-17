@@ -174,6 +174,8 @@ export const dict = {
   'fold.art.sample': { en: 'SAMPLE', zh: '範例' },
   'fold.art.template': { en: 'TEMPLATE', zh: '模板' },
   'fold.art.upload': { en: 'UPLOAD', zh: '上傳' },
+  // C9 問題 2（.jsx 路線·2026-07-18）：Illustrator 圖層腳本下載鈕。字面屬 F5 追認範圍（草案）。
+  'fold.art.layerScript': { en: 'AI SCRIPT', zh: '圖層腳本' },
   'fold.art.staleTemplate': {
     en: 'Parameters changed. Download a new template to realign your artwork.',
     zh: '參數已變更，建議重新下載模板對位。',

@@ -254,6 +254,7 @@ Vendor date: 2026-07-17
 | key | EN | zh | lock | 聲部 |
 |-----|-----|-----|------|------|
 | fold.art.template | TEMPLATE | 模板 | | label |
+| fold.art.layerScript | AI SCRIPT | 圖層腳本 | | label |
 | fold.art.upload | UPLOAD | 上傳 | | label |
 | fold.art.staleTemplate | Parameters changed. Download a new template to realign your artwork. | 參數已變更，建議重新下載模板對位。 | | status |
 | fold.art.invalidFile | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | | alert |

@@ -35,16 +35,14 @@ const PAGE_FRAME_STROKE_WIDTH = LINE_STYLES.cut.strokeWidth / 2;
 // 灰階，避免與畫布既有 annotation 語意混淆。
 const GUIDE_TEXT_FILL = '#9a968f';
 
-// zh 避字「隱」（陣列 U+96B1，Spec F1.2 原字面「匯出前隱藏 TEMPLATE_GUIDES」）：
-// 不在 noto-serif-tc-subset.woff2 的 cjk cmap 內，`npm test` 的 font-gate 實抓（同
-// progress-p3-m3.md 已記錄的 invalidFile 避「符」字前例）。本段文字是「implementation
-// notes 記錄·非 A15 dict」（Spec F5 段），不進終裁字面稽核，故可直接改字避開缺字
-// glyph，不必跑 subset-tool.sh 重生字型（那是 A15 dict 終裁才需要的較重操作）。改用
-// 「關閉…顯示」（六字皆在現有 cmap 內，經 checks/fonts/charset.json 驗證）保留原意：
-// 匯出前把 TEMPLATE_GUIDES 圖層關掉顯示。
+// C9 修正版字面（2026-07-18 維護者裁「問題 2＝SVG＋.jsx 路線」）：實測證明 Illustrator
+// 開 SVG 時群組不可直接作畫（新繪物件落作用中圖層頂端），且上傳管線不解析群組結構
+// ——指示只講兩件硬需求（匯出前關閉 GUIDES 顯示＋保留整頁），並提示附帶腳本可轉真
+// 圖層。zh 避字沿 charset.json 實驗（拘／群組／執／隱／眼／睛皆不在 cjk cmap，字面
+// 已逐字驗過全覆蓋；同 invalidFile 避「符」前例，本段非 A15 dict 不需重生字型）。
 const TEMPLATE_INSTRUCTIONS: Record<Lang, string> = {
-  en: 'Paint in the ARTWORK layer. Hide TEMPLATE_GUIDES before exporting and keep the full square page.',
-  zh: '請在 ARTWORK 圖層作畫，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。',
+  en: 'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page. Run the companion script for real layers.',
+  zh: '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。可使用附帶腳本建立真圖層結構。',
 };
 
 const DUST_FLAP_PANEL_IDS = new Set(['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4']);
@@ -74,10 +72,6 @@ function fmt(value: number): string {
   return String(value);
 }
 
-function pointsAttr(polygon: LayoutPoint[]): string {
-  return polygon.map((point) => `${fmt(point.x)},${fmt(point.y)}`).join(' ');
-}
-
 function boundsCenter(polygon: LayoutPoint[]): LayoutPoint {
   const xs = polygon.map((point) => point.x);
   const ys = polygon.map((point) => point.y);
@@ -97,6 +91,45 @@ function hasHinge(panel: ArtworkLayoutPanel): panel is HingedPanel {
   return panel.hinge !== undefined;
 }
 
+interface CutEdge {
+  panelId: string;
+  a: LayoutPoint;
+  b: LayoutPoint;
+}
+
+// 端點無序 canonical key：fmt 是最短可逆表示（同檔 fmt 註解），座標逐 bit 相同的
+// 邊必得同 key——分片共享邊來自同一份 ArtworkLayout 浮點值，不需容差比對。
+function edgeKey(a: LayoutPoint, b: LayoutPoint): string {
+  const ka = `${fmt(a.x)},${fmt(a.y)}`;
+  const kb = `${fmt(b.x)},${fmt(b.y)}`;
+  return ka <= kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+}
+
+/**
+ * C9 問題 1 修法 A（edge dedup）：cut 只畫「所有 panel 中恰出現一次」的邊。
+ * tuckLock 分片（topLidL/C/R 等）的內部邊界被相鄰分片各畫一次（出現 2 次）→
+ * 不輸出，2D dieline 沒有的線不再滲進模板；body P1-P4／glue／dust flap 間的
+ * 真摺邊同樣成對出現 → cut 不畫、僅剩 hinge crease（與 2D dieline 摺線語義一致）。
+ * 已知殘留（非本輪回歸）：lid↔P3 等「單條長邊 vs 對側多段子邊」的邊界因分段
+ * 不一致無法成對，仍以 cut 疊在 crease 下——與修法 A 裁定範圍一致，不擴大處理。
+ */
+function dedupCutEdges(panels: ArtworkLayoutPanel[]): CutEdge[] {
+  const counts = new Map<string, number>();
+  const edges: CutEdge[] = [];
+  for (const panel of panels) {
+    const polygon = panel.polygon;
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i]!;
+      const b = polygon[(i + 1) % polygon.length]!;
+      if (a.x === b.x && a.y === b.y) continue;
+      const key = edgeKey(a, b);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      edges.push({ panelId: panel.id, a, b });
+    }
+  }
+  return edges.filter((edge) => counts.get(edgeKey(edge.a, edge.b)) === 1);
+}
+
 export interface BuildTemplateSvgOptions {
   boxId: string;
   label: string;
@@ -105,8 +138,8 @@ export interface BuildTemplateSvgOptions {
 
 /**
  * 純函式：ArtworkLayout → 對位模板 SVG 字串。TEMPLATE_GUIDES 內含頁框／panel 外緣
- * （cut）／hinge 摺線（crease）／panel 標示／角落指示文字；空 ARTWORK group 殿後
- * 供使用者作畫（Spec F1.2）。
+ * cut 邊（edge dedup 後·共享邊不畫，見 dedupCutEdges）／hinge 摺線（crease）／
+ * panel 標示／角落指示文字；空 ARTWORK group 殿後供使用者作畫（Spec F1.2＋C9 修正）。
  */
 export function buildTemplateSvg(layout: ArtworkLayout, opts: BuildTemplateSvgOptions): string {
   const { frame, panels } = layout;
@@ -121,9 +154,10 @@ export function buildTemplateSvg(layout: ArtworkLayout, opts: BuildTemplateSvgOp
     + `width="${fmt(span)}" height="${fmt(span)}" fill="none" `
     + `stroke="${LINE_STYLES.cut.stroke}" stroke-width="${fmt(PAGE_FRAME_STROKE_WIDTH)}" />`;
 
-  const panelOutlines = panels
-    .map((panel) => `<polygon data-panel-id="${escapeXml(panel.id)}" points="${pointsAttr(panel.polygon)}" `
-      + `fill="none" stroke="${LINE_STYLES.cut.stroke}" stroke-width="${fmt(LINE_STYLES.cut.strokeWidth)}" />`)
+  const panelOutlines = dedupCutEdges(panels)
+    .map((edge) => `<line data-panel-id="${escapeXml(edge.panelId)}" `
+      + `x1="${fmt(edge.a.x)}" y1="${fmt(edge.a.y)}" x2="${fmt(edge.b.x)}" y2="${fmt(edge.b.y)}" `
+      + `stroke="${LINE_STYLES.cut.stroke}" stroke-width="${fmt(LINE_STYLES.cut.strokeWidth)}" />`)
     .join('\n    ');
 
   const hingeLines = panels
@@ -157,7 +191,8 @@ export function buildTemplateSvg(layout: ArtworkLayout, opts: BuildTemplateSvgOp
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<svg xmlns="http://www.w3.org/2000/svg" data-box-id="${escapeXml(opts.boxId)}" `
+    // 根 id 會成為 Illustrator 開檔時唯一圖層的名稱（C9 實測證實·原顯示「圖層 1」）
+    `<svg id="TEMPLATE" xmlns="http://www.w3.org/2000/svg" data-box-id="${escapeXml(opts.boxId)}" `
       + `viewBox="${fmt(viewMinX)} ${fmt(viewMinY)} ${fmt(span)} ${fmt(span)}" `
       + `width="${fmt(span)}mm" height="${fmt(span)}mm">`,
     `  <title>${escapeXml(opts.label)}</title>`,
@@ -227,4 +262,63 @@ export async function downloadTemplate(opts: DownloadTemplateOptions): Promise<v
     lang: getLang(),
   });
   downloadBlob(svg, 'image/svg+xml;charset=utf-8', buildTemplateFilename(opts.boxId, opts.values));
+}
+
+/**
+ * C9 問題 2（維護者裁 2026-07-18）：Illustrator 圖層腳本。SVG 格式先天無圖層元素，
+ * Illustrator 開模板必得單一圖層＋群組（Adobe 私有編輯資料無法由網頁端生成）；
+ * 本腳本在使用者端跑一次，把兩個頂層群組就地轉成真正的頂層圖層（ARTWORK 設為
+ * 作用中——之後直接作畫即落入其中）。已於 Illustrator 2026 實測（c9-模板問題調查.md）。
+ * 內嵌字串而非 public/ 靜態檔：同模組 lazy chunk、零額外資產管線、vitest 可直測內容。
+ */
+export const LAYER_SCRIPT_FILENAME = 'open-dieline-illustrator-layers.jsx';
+
+export const LAYER_SCRIPT_JSX = `// open-dieline template helper: convert the template's top-level groups
+// (ARTWORK / TEMPLATE_GUIDES) into real Illustrator layers.
+// Usage: open the template SVG in Illustrator, then run this file via
+// File > Scripts > Other Script... (Fn+F12). ARTWORK becomes the active layer.
+(function () {
+  if (app.documents.length === 0) {
+    alert('Open the open-dieline template SVG first.');
+    return;
+  }
+  var doc = app.activeDocument;
+  var src = doc.layers[0];
+  function norm(name) {
+    return String(name || '').replace(/[_ ]/g, '').toUpperCase();
+  }
+  function findGroup(name) {
+    for (var i = 0; i < src.groupItems.length; i++) {
+      if (norm(src.groupItems[i].name) === norm(name)) return src.groupItems[i];
+    }
+    return null;
+  }
+  var guides = findGroup('TEMPLATE_GUIDES');
+  if (guides === null) {
+    alert('TEMPLATE_GUIDES group not found - is this an open-dieline template?');
+    return;
+  }
+  var artwork = findGroup('ARTWORK');
+  var guidesLayer = doc.layers.add();
+  guidesLayer.name = 'TEMPLATE_GUIDES';
+  for (var g = guides.pageItems.length - 1; g >= 0; g--) {
+    guides.pageItems[g].move(guidesLayer, ElementPlacement.PLACEATBEGINNING);
+  }
+  guides.remove();
+  var artworkLayer = doc.layers.add();
+  artworkLayer.name = 'ARTWORK';
+  if (artwork !== null) {
+    for (var a = artwork.pageItems.length - 1; a >= 0; a--) {
+      artwork.pageItems[a].move(artworkLayer, ElementPlacement.PLACEATBEGINNING);
+    }
+    artwork.remove();
+  }
+  if (src.pageItems.length === 0 && src.layers.length === 0) src.remove();
+  doc.activeLayer = artworkLayer;
+})();
+`;
+
+/** 觸發圖層腳本下載（.jsx 純文字·瀏覽器不解譯）。 */
+export function downloadLayerScript(): void {
+  downloadBlob(LAYER_SCRIPT_JSX, 'text/plain;charset=utf-8', LAYER_SCRIPT_FILENAME);
 }

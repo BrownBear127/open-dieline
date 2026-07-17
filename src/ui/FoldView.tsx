@@ -240,6 +240,11 @@ export function FoldView({
     void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate({ model, boxId, values }));
   };
 
+  // C9 問題 2（.jsx 路線）：圖層腳本與盒型/參數無關，不需 model gate；同走 lazy chunk。
+  const handleLayerScriptDownload = (): void => {
+    void import('./fold-template').then(({ downloadLayerScript }) => downloadLayerScript());
+  };
+
   const handleUploadClick = (): void => {
     if (artwork === 'custom') {
       selectArtwork('none');
@@ -499,6 +504,9 @@ export function FoldView({
           </button>
           <button type="button" className="btn label" onClick={handleTemplateDownload}>
             {t('fold.art.template')}
+          </button>
+          <button type="button" className="btn label" onClick={handleLayerScriptDownload}>
+            {t('fold.art.layerScript')}
           </button>
           <button
             type="button"
