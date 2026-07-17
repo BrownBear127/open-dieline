@@ -16,6 +16,8 @@
 - [PASS] g4-display-import → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-rename → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-fold-import → g4-export-isolation：目標紅=true、復原全綠=true
+- [PASS] g4-fold-computed → g4-export-isolation：目標紅=true、復原全綠=true
+- [PASS] g4-fold-jsspec → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-fold-template → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g4-fold-dynamic → g4-export-isolation：目標紅=true、復原全綠=true
 - [PASS] g5-literal → g5-forbidden-words：目標紅=true、復原全綠=true
