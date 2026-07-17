@@ -163,6 +163,15 @@ describe('validateArtworkFile', () => {
     await expect(validateArtworkFile(file)).resolves.toBeNull();
   });
 
+  it('accepts fragment-only src() references in url-token positions', async () => {
+    // CSS Values 4 <url> = url() | src()——fragment 形態與 url(#...) 同白名單。
+    const file = new File([
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><rect fill="src(#g)"/></svg>',
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
   it('accepts fragment-only mask references under the strict mask scan', async () => {
     const file = new File([
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><mask id="m"/></defs><rect width="10" height="10" mask="url(#m)"/></svg>',
@@ -227,6 +236,18 @@ describe('validateArtworkFile', () => {
     [
       'image-set string reference in a cursor presentation attribute',
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" cursor="image-set(\'http://probe.invalid/cursor.png\' 1x), auto"/></svg>',
+    ],
+    [
+      'src() url reference in a fill presentation attribute',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect fill="src(\'http://probe.invalid/fill.svg\')"/></svg>',
+    ],
+    [
+      'src() url reference in a marker-start presentation attribute',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0L5 5" marker-start="src(\'http://probe.invalid/m.svg\')"/></svg>',
+    ],
+    [
+      'src() url reference in a clip-path presentation attribute',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect clip-path="src(\'http://probe.invalid/c.svg\')"/></svg>',
     ],
   ])('rejects %s during the mandatory DOM resource scan', async (_label, markup) => {
     const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });

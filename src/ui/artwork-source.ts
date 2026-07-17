@@ -62,15 +62,17 @@ const RESOURCE_ATTRIBUTE_NAMES = new Set([
   'src',
 ]);
 
-// 非 style 位置（presentation attributes 等）的 CSS value 掃描。完備性論證：
-// presentation attribute（fill/stroke/filter/clip-path…）的資源引用語法只有
-// url() token（<paint>/<url> 文法·image-set() 等僅存在於 style properties），
-// 故 literal url( 掃描＋反斜線拒（封 CSS escape 改寫·V5 re-review 實證）即完備。
+// 非 strict 位置（url-token 資源分支的 presentation attributes）的 CSS value
+// 掃描。完備性論證（V5 五/六審 70/70 逐項核）：這些屬性（fill/stroke/filter/
+// clip-path/marker-*）的資源分支僅 <url>，而 CSS Values 4 §4.5 的 <url> 恰兩
+// 形態=url() 與 src()（六審 successor 口徑修正·Chromium 149 尚未實作 src()
+// 但 F2 合約=含 reference 即拒）——兩形態 literal 掃描＋反斜線拒（封 CSS
+// escape 改寫）即完備；image-set() 等 <image> 語法屬 strict 集合屬性的文法。
 function hasExternalCssResource(css: string): boolean {
   if (css.includes('\\')) return true;
   if (/@import\b/i.test(css)) return true;
 
-  const urls = css.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi);
+  const urls = css.matchAll(/\b(?:url|src)\(\s*(["']?)(.*?)\1\s*\)/gi);
   for (const match of urls) {
     if (!match[2]!.trim().startsWith('#')) return true;
   }

@@ -32,6 +32,8 @@ describe('probe test manifest fail-loud contract (F4)', () => {
       'rejects image-set string reference in a mask presentation attribute during the mandatory DOM resource scan',
       // V5 五審：cursor 為 70/70 核對後第二個也是最後一個 image-capable 屬性。
       'rejects image-set string reference in a cursor presentation attribute during the mandatory DOM resource scan',
+      // V5 六審：CSS Values 4 <url>=url()|src()——url-token 位置的 src() 形態。
+      'rejects src() url reference in a fill presentation attribute during the mandatory DOM resource scan',
     ]);
   });
 
