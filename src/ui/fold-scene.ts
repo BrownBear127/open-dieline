@@ -25,6 +25,16 @@ import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
+// P3 M3 T1（F1.0）：ArtworkLayout 抽取層搬走了 flatDielineUvFrame（TEMPLATE 與 3D UV
+// 共用同一份 square frame 真相源）。這裡改 import 再 re-export 回同名稱——
+// 既有 fold-scene-geometry/fold-paper-texture 兩份測試 `import { flatDielineUvFrame }
+// from '@/ui/fold-scene'` 零改動，且拿到的仍是同一顆 function reference（不是各自
+// 維護一份公式）。
+import { flatDielineUvFrame } from './artwork-layout';
+import type { FlatDielineUvFrame } from './artwork-layout';
+
+export { flatDielineUvFrame };
+export type { FlatDielineUvFrame };
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
 const CARD_COLOR = 0xffffff;
@@ -902,14 +912,6 @@ export function configurePaperMaterial(
   material.needsUpdate = true;
 }
 
-export interface FlatDielineUvFrame {
-  minX: number;
-  minY: number;
-  span: number;
-  offsetX: number;
-  offsetY: number;
-}
-
 interface ArtworkPoint {
   x: number;
   y: number;
@@ -1071,33 +1073,6 @@ export function sampleArtworkPlan(
   }
 
   return { frame, commands };
-}
-
-export function flatDielineUvFrame(
-  flatGeometry: Map<string, Vec3[]>,
-): FlatDielineUvFrame {
-  const vertices = [...flatGeometry.values()].flat();
-  if (vertices.length === 0) {
-    return { minX: 0, minY: 0, span: 1, offsetX: 0, offsetY: 0 };
-  }
-
-  const xs = vertices.map(({ x }) => x);
-  const ys = vertices.map(({ y }) => y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const width = maxX - minX;
-  const height = maxY - minY;
-  const span = Math.max(width, height, Number.EPSILON);
-
-  return {
-    minX,
-    minY,
-    span,
-    offsetX: (span - width) / 2,
-    offsetY: (span - height) / 2,
-  };
 }
 
 function drawSampleArtwork(

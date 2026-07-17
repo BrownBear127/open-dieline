@@ -161,9 +161,13 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     sceneRef.current?.applyArtwork(mode);
   };
 
-  // P3 M3 T0 skeleton——重邏輯（builder/decode）恆走 lazy import（J1 C7b：main 只收接線）。
+  // P3 M3 T1——重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（J1 C7b：main
+  // 只收接線）。model 已在本元件算好（TEMPLATE 鈕只在 canCreateScene 為真時渲染，此時
+  // model 必已定義），連同 boxId/values 一併傳給 builder；lang 由 downloadTemplate 內部
+  // 讀 getLang()，不需在此額外傳遞。
   const handleTemplateDownload = (): void => {
-    void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate());
+    if (model === undefined) return;
+    void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate({ model, boxId, values }));
   };
 
   const handleUploadClick = (): void => {
