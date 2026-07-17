@@ -102,6 +102,9 @@ describe('FoldView scene lifecycle', () => {
 
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
     expect(fake.handles[0]!.replaceModel).toHaveBeenCalledOnce();
+    expect(vi.mocked(fake.handles[0]!.replaceModel).mock.calls[0]![1]).toEqual({
+      thickness: RTE_VALUES.thickness,
+    });
     expect(fake.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
   });
 
