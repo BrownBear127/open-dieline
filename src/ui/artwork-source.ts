@@ -62,11 +62,11 @@ const RESOURCE_ATTRIBUTE_NAMES = new Set([
   'src',
 ]);
 
+// 非 style 位置（presentation attributes 等）的 CSS value 掃描。完備性論證：
+// presentation attribute（fill/stroke/filter/clip-path…）的資源引用語法只有
+// url() token（<paint>/<url> 文法·image-set() 等僅存在於 style properties），
+// 故 literal url( 掃描＋反斜線拒（封 CSS escape 改寫·V5 re-review 實證）即完備。
 function hasExternalCssResource(css: string): boolean {
-  // CSS 十六進位轉義（\72 → r 等）可讓 literal 掃描漏認 url(/@import（re-review V5
-  // 實證兩輸入 Chromium 真發外部請求）。保守可證明策略：含任何反斜線一律拒——
-  // CSS escape 必以 \ 起頭，合法設計稿 style（fill/stroke/顏色/數值）無需轉義；
-  // 無 \ 則下方 literal 掃描即完備。不做 CSS token 解析（自寫 unescape 易再留縫）。
   if (css.includes('\\')) return true;
   if (/@import\b/i.test(css)) return true;
 
@@ -77,18 +77,33 @@ function hasExternalCssResource(css: string): boolean {
   return false;
 }
 
+// style 位置（<style> 元素內容＋style attribute）的嚴格掃描。這裡能用完整 CSS
+// property 文法（image-set(<string>) 等不經 url( 的資源引用·V5 三審反例實證
+// Chromium 對 style attr 形態真發請求），denylist 追語法是打地鼠——改可證明
+// 邊界：CSS 的外部資源引用必經 function notation 或 at-rule，故 `\`（escape）
+// 與 `@`（at-rule 全族）與白名單 url(#fragment) 之外的任何 `(`（function 全族）
+// 一律拒。合法引用僅剩 fragment url——fail-closed，var()/transform() 等進 style
+// 會被誤拒（設計稿典型 style 是 fill/stroke 純值·殘餘相容性代價記 backlog）。
+function hasExternalStyleContent(css: string): boolean {
+  if (css.includes('\\') || css.includes('@')) return true;
+  const withoutFragmentUrls = css.replace(/url\(\s*(["']?)#[^)"']*\1\s*\)/gi, '');
+  return withoutFragmentUrls.includes('(');
+}
+
 function hasExternalDomResource(documentNode: Document): boolean {
   const elements = [documentNode.documentElement, ...documentNode.querySelectorAll('*')];
   for (const element of elements) {
     const elementName = element.localName.toLowerCase();
     if (elementName === 'foreignobject' || elementName === 'script') return true;
-    if (elementName === 'style' && hasExternalCssResource(element.textContent ?? '')) return true;
+    if (elementName === 'style' && hasExternalStyleContent(element.textContent ?? '')) return true;
 
     for (const attribute of element.attributes) {
       const attributeName = attribute.localName.toLowerCase();
       const value = attribute.value.trim();
       if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) return true;
-      if (hasExternalCssResource(value)) return true;
+      if (attributeName === 'style' ? hasExternalStyleContent(value) : hasExternalCssResource(value)) {
+        return true;
+      }
     }
   }
   return false;

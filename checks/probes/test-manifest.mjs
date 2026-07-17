@@ -21,6 +21,8 @@ export const REQUIRED_ARTWORK_UNIT = [
   'rejects data URI href during the mandatory DOM resource scan',
   'rejects CSS-escaped url in a style attribute during the mandatory DOM resource scan',
   'rejects CSS-escaped @import in a style element during the mandatory DOM resource scan',
+  'rejects image-set string reference in a style element during the mandatory DOM resource scan',
+  'rejects image-set string reference in a style attribute during the mandatory DOM resource scan',
 ];
 
 export function assertNamedTests(listing, requiredNames, label) {
