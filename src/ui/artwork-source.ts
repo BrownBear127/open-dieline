@@ -101,7 +101,15 @@ function hasExternalDomResource(documentNode: Document): boolean {
       const attributeName = attribute.localName.toLowerCase();
       const value = attribute.value.trim();
       if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) return true;
-      if (attributeName === 'style' ? hasExternalStyleContent(value) : hasExternalCssResource(value)) {
+      // 嚴格掃描位置=style＋mask。mask 是 SVG2 presentation attributes 中唯一
+      // 對應 property 文法含 CSS <image>（mask shorthand → <mask-reference> →
+      // <image> → image-set(<string>) 可不經 url( 引外部資源·V5 四審實證
+      // Chromium 發請求）；其餘 presentation attr 的資源語法為 url token
+      //（fill/stroke=<paint>·filter=<filter-value-list>·clip-path=<clip-source>|
+      // <basic-shape>·marker-*=<url>——文法皆無 <image>），走 url( 掃描＋\ 拒
+      // 即完備，transform 族 function notation 不誤拒。
+      const strict = attributeName === 'style' || attributeName === 'mask';
+      if (strict ? hasExternalStyleContent(value) : hasExternalCssResource(value)) {
         return true;
       }
     }

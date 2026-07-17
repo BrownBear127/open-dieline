@@ -28,6 +28,8 @@ describe('probe test manifest fail-loud contract (F4)', () => {
       // V5 三審：image-set(<string>) 不經 url( 的資源引用（function-notation 全擋策略）。
       'rejects image-set string reference in a style element during the mandatory DOM resource scan',
       'rejects image-set string reference in a style attribute during the mandatory DOM resource scan',
+      // V5 四審：mask presentation attribute 的 <image> 文法縫（嚴格掃描擴 mask）。
+      'rejects image-set string reference in a mask presentation attribute during the mandatory DOM resource scan',
     ]);
   });
 

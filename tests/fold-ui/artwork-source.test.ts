@@ -154,10 +154,18 @@ describe('validateArtworkFile', () => {
   });
 
   it('accepts transform function notation outside style positions', async () => {
-    // 嚴格 (-掃描只限 style 位置——presentation/transform attr 走 url( 掃描，
-    // Illustrator 匯出稿的 transform="translate(...)" 不得誤拒。
+    // 嚴格 (-掃描只限 style＋mask 位置——presentation/transform attr 走 url( 掃描，
+    // Illustrator 匯出稿的 transform="translate(...)"／filter="blur(2px)" 不得誤拒。
     const file = new File([
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g transform="translate(3,4) rotate(15)"><rect fill="url(#g)" style="fill-opacity:0.5"/></g></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g transform="translate(3,4) rotate(15)"><rect fill="url(#g)" filter="blur(2px)" style="fill-opacity:0.5"/></g></svg>',
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
+  it('accepts fragment-only mask references under the strict mask scan', async () => {
+    const file = new File([
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><mask id="m"/></defs><rect width="10" height="10" mask="url(#m)"/></svg>',
     ], 'art.svg', { type: 'image/svg+xml' });
 
     await expect(validateArtworkFile(file)).resolves.toBeNull();
@@ -211,6 +219,10 @@ describe('validateArtworkFile', () => {
     [
       'image-set string reference in a style attribute',
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" style="background-image:image-set(\'https://example.com/a.png\' 1x)"></svg>',
+    ],
+    [
+      'image-set string reference in a mask presentation attribute',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" mask="image-set(\'http://probe.invalid/a.png\' 1x)"/></svg>',
     ],
   ])('rejects %s during the mandatory DOM resource scan', async (_label, markup) => {
     const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });
