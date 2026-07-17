@@ -159,7 +159,7 @@ Vendor date: 2026-07-17
 
 ---
 
-## B8 摺盒模式狀態文案（2·P3 M1 新增·2026-07-17 簽核）
+## B8 摺盒模式狀態文案（3·P3 M1 新增·2026-07-17 簽核）
 
 語調：儀器陳述式（同 B2 家族）；mono 聲部置中；無 audit 前身。
 
@@ -167,6 +167,28 @@ Vendor date: 2026-07-17
 |---|---|---|---|
 | fold.unsupported | 此盒型尚未支援 3D 摺盒預覽。 | 3D fold preview is not yet available for this box style. | |
 | fold.webglUnavailable | 瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。 | 3D fold preview requires WebGL, which is not available in this browser. | |
+| fold.loadFailed | 3D 摺盒預覽載入失敗，切換模式可重試。 | 3D fold preview failed to load. Switch modes to retry. | |
+
+---
+
+## B9 摺盒卡色短件（4·P3 M2 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | zh（照抄·對照用） | EN（英文稿） | 譯註（僅必要時） |
+|---|---|---|---|
+| fold.card.label | 卡色 | CARD | production 三態切換標籤。 |
+| fold.card.white | 白 | WHITE | production 配方名。 |
+| fold.card.kraft | 牛皮 | KRAFT | production 配方名。 |
+| fold.card.black | 黑 | BLACK | production 配方名。 |
+
+---
+
+## B10 摺盒圖稿短件（3·P3 M2 T2.6 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | zh（照抄·對照用） | EN（英文稿） | 譯註（僅必要時） |
+|---|---|---|---|
+| fold.art.label | 圖稿 | ART | production 二態切換標籤。 |
+| fold.art.none | 無 | NONE | 素面紙張。 |
+| fold.art.sample | 範例 | SAMPLE | 內建程序化範例稿。 |
 
 ---
 

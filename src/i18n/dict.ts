@@ -165,6 +165,13 @@ export const dict = {
   'fold.autorotate': { en: 'Auto-rotate', zh: '自動旋轉' },
   'fold.progress.aria': { en: 'Fold progress', zh: '摺合進度' },
   'fold.controls.aria': { en: 'Fold controls', zh: '摺盒控制' },
+  'fold.card.label': { en: 'CARD', zh: '卡色' },
+  'fold.card.white': { en: 'WHITE', zh: '白' },
+  'fold.card.kraft': { en: 'KRAFT', zh: '牛皮' },
+  'fold.card.black': { en: 'BLACK', zh: '黑' },
+  'fold.art.label': { en: 'ART', zh: '圖稿' },
+  'fold.art.none': { en: 'NONE', zh: '無' },
+  'fold.art.sample': { en: 'SAMPLE', zh: '範例' },
   'fold.unsupported': {
     en: '3D fold preview is not yet available for this box style.',
     zh: '此盒型尚未支援 3D 摺盒預覽。',
@@ -172,6 +179,10 @@ export const dict = {
   'fold.webglUnavailable': {
     en: '3D fold preview requires WebGL, which is not available in this browser.',
     zh: '瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。',
+  },
+  'fold.loadFailed': {
+    en: '3D fold preview failed to load. Switch modes to retry.',
+    zh: '3D 摺盒預覽載入失敗，切換模式可重試。',
   },
 
   'modal.aria': { en: 'About open-dieline', zh: '關於 open-dieline' },

@@ -76,4 +76,10 @@ describe('i18n dictionary', () => {
       expect(dict[key].en).toBe(EXPECTED_STRUCTURAL_LOCK_EN[key]);
     }
   });
+
+  it('keeps the approved artwork switch copy byte-for-byte in both languages', () => {
+    expect(dict['fold.art.label']).toEqual({ en: 'ART', zh: '圖稿' });
+    expect(dict['fold.art.none']).toEqual({ en: 'NONE', zh: '無' });
+    expect(dict['fold.art.sample']).toEqual({ en: 'SAMPLE', zh: '範例' });
+  });
 });

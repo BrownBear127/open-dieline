@@ -42,6 +42,33 @@ async function enterFold(page: Page, lang: Language = 'en'): Promise<void> {
   await expect(page.locator('.foldbar')).toBeVisible();
 }
 
+async function setInitialFoldProgress(page: Page, progress: number): Promise<void> {
+  await expect.poll(
+    () => page.evaluate(
+      () => typeof (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress,
+    ),
+    { message: '__p3SetInitialFoldProgress test hook must be available before entering FOLD' },
+  ).toBe('function');
+  await page.evaluate((nextProgress) => {
+    const hook = (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress;
+    if (typeof hook !== 'function') {
+      throw new Error('__p3SetInitialFoldProgress test hook is unavailable.');
+    }
+    hook(nextProgress);
+  }, progress);
+}
+
+async function setCameraOrbit(page: Page, azimuthDeg: number, elevationDeg: number): Promise<void> {
+  await page.evaluate(
+    ({ azimuth, elevation }) => {
+      const hook = (window as unknown as Record<string, unknown>).__p3SetCameraOrbit;
+      if (typeof hook !== 'function') throw new Error('__p3SetCameraOrbit test hook is unavailable.');
+      hook(azimuth, elevation);
+    },
+    { azimuth: azimuthDeg, elevation: elevationDeg },
+  );
+}
+
 async function computedDeclarationMismatches(
   locator: Locator,
   sourceSelector: string,
@@ -156,9 +183,11 @@ async function expectNonBackgroundFrame(canvas: Locator): Promise<void> {
 // 走 compositor 而非 toDataURL——three 預設 preserveDrawingBuffer:false，渲染停止後
 // toDataURL 回空白（實測：靜止 canvas 的 signature 取樣永不收斂），compositor 截圖
 // 不受 drawing buffer 生命週期影響。供 F6 的 t 態對比使用（final review F6）。
+// fold-tools 是疊在 canvas 上方的 sibling；截圖時藏起，讓此 helper 只比較 3D 畫面，
+// 不讓按鈕 hover/active 視覺污染幾何 oracle。
 //
-// t 態對比用「像素容差」不用 byte 等式：同 t 的重渲染有 GPU AA 抖動（實測 8/568,094 px·
-// 每通道 Δ≤1/255），byte 等式假紅；閾值給 ~30× 餘裕仍遠低於任何真幾何差異的量級。
+// t 態對比先縮至 1/16 尺寸，排除高頻 albedo 在同一幾何重渲染時的 mip/AA 相位差；
+// 再用像素容差而非 byte 等式，仍能以 >1% 的輪廓差異抓出任何真幾何回歸。
 async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ diffPx: number; totalPx: number; maxDelta: number }> {
   return page.evaluate(async ([a, b]) => {
     const load = (b64: string) => new Promise<HTMLImageElement>((resolve) => {
@@ -169,10 +198,12 @@ async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ dif
     const [imageA, imageB] = await Promise.all([load(a), load(b)]);
     const pixels = (image: HTMLImageElement) => {
       const probe = document.createElement('canvas');
-      probe.width = image.width;
-      probe.height = image.height;
+      probe.width = Math.ceil(image.width / 16);
+      probe.height = Math.ceil(image.height / 16);
       const context = probe.getContext('2d')!;
-      context.drawImage(image, 0, 0);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(image, 0, 0, probe.width, probe.height);
       return context.getImageData(0, 0, probe.width, probe.height).data;
     };
     const dataA = pixels(imageA);
@@ -183,7 +214,7 @@ async function pixelDiff(page: Page, left: Buffer, right: Buffer): Promise<{ dif
       const delta = Math.abs(dataA[index] - dataB[index])
         + Math.abs(dataA[index + 1] - dataB[index + 1])
         + Math.abs(dataA[index + 2] - dataB[index + 2]);
-      if (delta > 0) {
+      if (delta > 3) {
         diffPx += 1;
         maxDelta = Math.max(maxDelta, delta);
       }
@@ -196,7 +227,9 @@ async function stableShot(canvas: Locator): Promise<Buffer> {
   let stable: Buffer | null = null;
   await expect.poll(
     async () => {
-      const next = await canvas.screenshot();
+      const next = await canvas.screenshot({
+        style: '.fold-tools { visibility: hidden !important; }',
+      });
       const isStable = previous !== null && next.equals(previous);
       previous = next;
       if (isStable) stable = next;
@@ -210,7 +243,7 @@ async function stableShot(canvas: Locator): Promise<Buffer> {
 test('fold mode mounts its canvas and transfers the single pressed mode state', async ({ page }) => {
   await gotoReady(page);
 
-  const modes = page.locator('.mode');
+  const modes = page.locator('.moderow .mode');
   await expect(modes).toHaveCount(3);
   await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
 
@@ -226,18 +259,25 @@ test('fold controls use the vocabulary declarations and render the real range th
   await enterFold(page);
 
   const button = page.locator('.foldbar .btn');
+  const toolButtons = page.locator('.fold-tools .btn');
   const range = page.locator('.foldbar input[type="range"]');
-  const compat = page.locator('.foldbar .compat');
-  const tick = page.locator('.foldbar .compat .tick');
+  const autoRotate = page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true });
   await expect(button).toHaveCount(1);
+  await expect(toolButtons).toHaveCount(5);
   await expect(range).toHaveCount(1);
-  await expect(compat).toHaveCount(1);
-  await expect(tick).toHaveCount(1);
+  await expect(autoRotate).toHaveCount(1);
 
   expect(await computedDeclarationMismatches(button, '.btn', ['border', 'padding']), '.btn border/padding').toEqual([]);
-  expect(await computedDeclarationMismatches(tick, '.foldbar .compat .tick'), '.foldbar .compat .tick').toEqual([]);
+  expect(await computedDeclarationMismatches(autoRotate, '.btn', ['border', 'padding']), '.btn border/padding').toEqual([]);
   // 自轉預設關閉（2026-07-17 E2E 驗收裁決）：進場靜止、由使用者主動開啟。
-  await expect(tick).not.toBeChecked();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
+
+  const toolsBox = await page.locator('.fold-tools').boundingBox();
+  const foldbarBox = await page.locator('.foldbar').boundingBox();
+  expect(toolsBox, 'floating tools need a real layout box').not.toBeNull();
+  expect(foldbarBox, 'foldbar needs a real layout box').not.toBeNull();
+  expect(toolsBox!.y + toolsBox!.height, 'floating tools must stay above the foldbar')
+    .toBeLessThanOrEqual(foldbarBox!.y);
 
   await range.fill('0');
   const atMinimum = await range.screenshot();
@@ -250,20 +290,29 @@ test('fold controls use the vocabulary declarations and render the real range th
 });
 
 test('dragging fold progress to one renders a non-background canvas frame', async ({ page }) => {
-  await enterFold(page);
+  await gotoReady(page);
+  await setInitialFoldProgress(page, 0);
+  await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
+  await expect(page.locator('.fold-view')).toBeVisible();
+  await expect(page.locator('.fold-canvas')).toBeVisible();
+  await expect(page.locator('.foldbar')).toBeVisible();
 
-  // final review F6：t=0 與 t=1 的穩態畫面必須互異（雙背景空白 ⇒ 相等 ⇒ 紅），
-  // 否則 updatePose no-op 也能靠「初始任意一張非空白幀」假綠；補 t=1→t=0 反向驗可逆。
+  // final review F6/F1：用建場景前注入的 t=0 首幀當獨立 flat oracle；這張 baseline
+  // 從未經過非零 pose，不會和回程的 stateful reset regression 錯成同一張圖。
+  // t=0 與 t=1 的穩態畫面必須互異（雙背景空白 ⇒ 相等 ⇒ 紅），再補 0→1→0 反向驗可逆。
   // 先開自轉（持續渲染·預設已關）驗有真內容，再關回自轉取穩態對比——
   // toDataURL 取樣依賴持續渲染（preserveDrawingBuffer:false）。
   const canvas = page.locator('.fold-canvas');
-  await page.locator('.foldbar .compat .tick').check();
+  const autoRotate = page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true });
+  await autoRotate.click();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
   await expectNonBackgroundFrame(canvas);
-  await page.locator('.foldbar .compat .tick').uncheck();
+  await autoRotate.click();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
+  await setCameraOrbit(page, 35, 25);
 
   const range = page.locator('.foldbar input[type="range"]');
-
-  await range.fill('0');
+  await expect(range).toHaveValue('0');
   const flat = await stableShot(canvas);
 
   const box = await range.boundingBox();
@@ -296,16 +345,69 @@ test('dragging fold progress to one renders a non-background canvas frame', asyn
   ).toBeLessThan(0.0005);
 });
 
+test('switching the card recipe to black renders a non-background frame and transfers aria state', async ({ page }) => {
+  await enterFold(page);
+  const cardGroup = page.getByRole('group', { name: dict['fold.card.label'].en, exact: true });
+  const white = cardGroup.getByRole('button', { name: dict['fold.card.white'].en, exact: true });
+  const kraft = cardGroup.getByRole('button', { name: dict['fold.card.kraft'].en, exact: true });
+  const black = cardGroup.getByRole('button', { name: dict['fold.card.black'].en, exact: true });
+
+  await expect(white).toHaveAttribute('aria-pressed', 'false');
+  await expect(kraft).toHaveAttribute('aria-pressed', 'true');
+  await expect(black).toHaveAttribute('aria-pressed', 'false');
+
+  await black.click();
+
+  await expect(white).toHaveAttribute('aria-pressed', 'false');
+  await expect(kraft).toHaveAttribute('aria-pressed', 'false');
+  await expect(black).toHaveAttribute('aria-pressed', 'true');
+  const autoRotate = page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true });
+  await autoRotate.click();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
+  await expectNonBackgroundFrame(page.locator('.fold-canvas'));
+});
+
+test('switching SAMPLE artwork changes the rendered frame and toggles its aria state', async ({ page }) => {
+  await enterFold(page);
+  const canvas = page.locator('.fold-canvas');
+  const artworkGroup = page.getByRole('group', { name: dict['fold.art.label'].en, exact: true });
+  const sample = artworkGroup.getByRole('button', { name: dict['fold.art.sample'].en, exact: true });
+
+  await expect(sample).toHaveAttribute('aria-pressed', 'false');
+  const noneFrame = await stableShot(canvas);
+
+  await sample.click();
+  await expect(sample).toHaveAttribute('aria-pressed', 'true');
+  const autoRotate = page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true });
+  await autoRotate.click();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
+  await expectNonBackgroundFrame(canvas);
+  await autoRotate.click();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
+  const sampleFrame = await stableShot(canvas);
+  const artworkDiff = await pixelDiff(page, sampleFrame, noneFrame);
+
+  expect(
+    artworkDiff.diffPx / artworkDiff.totalPx,
+    'SAMPLE artwork must visibly differ from the NONE paper frame',
+  ).toBeGreaterThan(0.001);
+});
+
 test('zh fold controls use exact dictionary copy and the zh voice classes', async ({ page }) => {
   await enterFold(page, 'zh');
 
   await expect(page.locator('.app')).toHaveClass(/(^|\s)zh(\s|$)/);
-  const controls = page.getByRole('group', { name: dict['fold.controls.aria'].zh, exact: true });
-  await expect(controls).toBeVisible();
-  await expect(controls.getByRole('button', { name: dict['fold.play'].zh, exact: true })).toHaveClass(/(^|\s)label(\s|$)/);
-  await expect(controls.getByRole('slider', { name: dict['fold.progress.aria'].zh, exact: true })).toBeVisible();
-  const autoRotate = controls.locator('.compat');
-  await expect(autoRotate).toHaveClass(/(^|\s)mono(\s|$)/);
+  const foldbar = page.getByRole('group', { name: dict['fold.controls.aria'].zh, exact: true });
+  await expect(foldbar).toBeVisible();
+  await expect(foldbar.getByRole('button', { name: dict['fold.play'].zh, exact: true })).toHaveClass(/(^|\s)label(\s|$)/);
+  await expect(foldbar.getByRole('slider', { name: dict['fold.progress.aria'].zh, exact: true })).toBeVisible();
+  const tools = page.locator('.fold-tools');
+  await expect(tools.getByRole('group', { name: dict['fold.card.label'].zh, exact: true }).getByRole('button'))
+    .toHaveText([dict['fold.card.white'].zh, dict['fold.card.kraft'].zh, dict['fold.card.black'].zh]);
+  await expect(tools.getByRole('group', { name: dict['fold.art.label'].zh, exact: true }).getByRole('button'))
+    .toHaveText([dict['fold.art.sample'].zh]);
+  const autoRotate = tools.getByRole('button', { name: dict['fold.autorotate'].zh, exact: true });
+  await expect(autoRotate).toHaveClass(/(^|\s)label(\s|$)/);
   await expect(autoRotate).toHaveText(dict['fold.autorotate'].zh);
 });
 
@@ -317,8 +419,8 @@ test('fold mode makes no request outside the localhost origin', async ({ page })
   });
 
   await enterFold(page);
-  // 開自轉讓 toDataURL 取樣有持續渲染可取——勾 checkbox 不產生網路請求，斷言面不變。
-  await page.locator('.foldbar .compat .tick').check();
+  // 開自轉讓 toDataURL 取樣有持續渲染可取——切換按鈕不產生網路請求，斷言面不變。
+  await page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true }).click();
   await expectNonBackgroundFrame(page.locator('.fold-canvas'));
 
   const localhostOrigin = new URL(page.url()).origin;
@@ -340,10 +442,10 @@ test('fold mode survives synthetic WebGL context loss and resumes auto-rotation 
   await enterFold(page);
   const foldView = page.locator('.fold-view');
   const canvas = page.locator('.fold-canvas');
-  const autoRotate = page.locator('.foldbar .compat .tick');
+  const autoRotate = page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true });
   // 預設關——使用者主動開啟後，自轉狀態必須跨 context loss/restore 存活（原測試意圖）。
-  await autoRotate.check();
-  await expect(autoRotate).toBeChecked();
+  await autoRotate.click();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
   await expectNonBackgroundFrame(canvas);
 
   const lossResult = await canvas.evaluate((element) => {
@@ -362,7 +464,7 @@ test('fold mode survives synthetic WebGL context loss and resumes auto-rotation 
   });
   await expect(foldView).toHaveAttribute('data-context-lost', 'false');
   await expect(canvas).toBeVisible();
-  await expect(autoRotate).toBeChecked();
+  await expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
   await expectNonBackgroundFrame(canvas);
 
   const restoredFrame = await sampleCanvasFrame(canvas);

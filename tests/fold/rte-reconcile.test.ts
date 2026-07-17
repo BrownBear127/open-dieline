@@ -127,6 +127,48 @@ function hingeXInterval(target: FoldPanel): [number, number] {
   return [Math.min(a.x, b.x), Math.max(a.x, b.x)];
 }
 
+function lidHingeIntervals(model: FoldModel, side: 'top' | 'bottom'): [number, number][] {
+  return ['L', 'C', 'R']
+    .map((suffix) => hingeXInterval(panel(model, `${side}Lid${suffix}`)))
+    .sort(([left], [right]) => left - right);
+}
+
+function frictionLockCutVertices(
+  result: GenerateResult,
+  side: 'top' | 'bottom',
+  D: number,
+): { x: number; y: number }[] {
+  const candidates = taggedPaths(result, 'cut', 'tuckLock').filter(({ segments }) => {
+    const bounds = segmentsBounds(segments);
+    return side === 'top' ? bounds.maxY < 0 : bounds.minY > D;
+  });
+  expect(candidates, `missing ${side} friction-lock cut`).toHaveLength(1);
+  const segments = lineSegments(candidates);
+  expect(segments, `${side} friction-lock trapezoid segment count`).toHaveLength(3);
+  return [
+    { x: segments[0]!.x1, y: segments[0]!.y1 },
+    ...segments.map(({ x2, y2 }) => ({ x: x2, y: y2 })),
+  ];
+}
+
+function nominalizeLockVertices(
+  vertices: { x: number; y: number }[],
+  offsets: number[],
+  boundaryIndices: [number, number],
+): { x: number; y: number }[] {
+  const centerOffset = (offsets[boundaryIndices[0]]! + offsets[boundaryIndices[1]]!) / 2;
+  return vertices.map(({ x, y }) => ({ x: x - centerOffset, y }));
+}
+
+function expectPanelContainsPoints(target: FoldPanel, points: { x: number; y: number }[]): void {
+  for (const point of points) {
+    expect(
+      target.polygon.some(({ x, y }) => isClose(x, point.x) && isClose(y, point.y)),
+      `${target.id} must contain (${point.x}, ${point.y})`,
+    ).toBe(true);
+  }
+}
+
 function nominalizeInterval(
   interval: [number, number],
   offsets: number[],
@@ -171,17 +213,18 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
       expectCoordinatesClose(nominalized2dBoundaries, foldBodyBoundaryXs(model));
     });
 
-    it(`${label}: top lid belongs to P3 and bottom lid belongs to P1`, () => {
+    it(`${label}: three top lid slices belong to P3 and three bottom slices belong to P1`, () => {
       const params = resolveParams(reverseTuckEnd, { thickness, glueSide });
       const result = reverseTuckEnd.generate(params);
       const model = buildRteFoldModel(params);
       const D = params.D as number;
       const [x0, x1, x2, x3] = bodyBoundaryXs(result, D);
-      const topLid = panel(model, 'topLid');
-      const bottomLid = panel(model, 'bottomLid');
-
-      expect(topLid.parent).toBe('P3');
-      expect(bottomLid.parent).toBe('P1');
+      for (const suffix of ['L', 'C', 'R']) {
+        expect(panel(model, `topLid${suffix}`).parent).toBe('P3');
+        expect(panel(model, `bottomLid${suffix}`).parent).toBe('P1');
+      }
+      expect(panel(model, 'topTuck').parent).toBe('topLidC');
+      expect(panel(model, 'bottomTuck').parent).toBe('bottomLidC');
       expectCoordinatesClose(horizontalCreaseInterval(result, 0, 'L'), [x2!, x3!]);
       expectCoordinatesClose(horizontalCreaseInterval(result, D, 'L'), [x0!, x1!]);
     });
@@ -203,8 +246,8 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
 
       expect(topOuterHingeY).toBeCloseTo(-W, 9);
       expect(bottomOuterHingeY).toBeCloseTo(D + W, 9);
-      expect(Math.abs(topOuterHingeY)).toBeCloseTo(polygonHeight(panel(model, 'topLid')), 9);
-      expect(bottomOuterHingeY - D).toBeCloseTo(polygonHeight(panel(model, 'bottomLid')), 9);
+      expect(Math.abs(topOuterHingeY)).toBeCloseTo(polygonHeight(panel(model, 'topLidC')), 9);
+      expect(bottomOuterHingeY - D).toBeCloseTo(polygonHeight(panel(model, 'bottomLidC')), 9);
 
       expectCoordinatesClose(topTuckHeights, [tuckDepth]);
       expectCoordinatesClose(bottomTuckHeights, [tuckDepth]);
@@ -227,25 +270,35 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
       const W = params.W as number;
       const offsets = cumulativeCompensationOffsets(thickness, glueSide);
 
+      const topLidIntervals = lidHingeIntervals(model, 'top');
+      const bottomLidIntervals = lidHingeIntervals(model, 'bottom');
       expectCoordinatesClose(
-        hingeXInterval(panel(model, 'topLid')),
+        [topLidIntervals[0]![0], topLidIntervals[2]![1]],
         nominalizeInterval(horizontalCreaseInterval(result, 0, 'L'), offsets, [2, 3]),
       );
       expectCoordinatesClose(
-        hingeXInterval(panel(model, 'bottomLid')),
+        [bottomLidIntervals[0]![0], bottomLidIntervals[2]![1]],
         nominalizeInterval(horizontalCreaseInterval(result, D, 'L'), offsets, [0, 1]),
       );
+      expect(topLidIntervals[0]![1]).toBeCloseTo(topLidIntervals[1]![0], 9);
+      expect(topLidIntervals[1]![1]).toBeCloseTo(topLidIntervals[2]![0], 9);
+      expect(bottomLidIntervals[0]![1]).toBeCloseTo(bottomLidIntervals[1]![0], 9);
+      expect(bottomLidIntervals[1]![1]).toBeCloseTo(bottomLidIntervals[2]![0], 9);
       // 插舌 hinge＝2D tongue 真實區間（M1 B4 接線 2026-07-17）：2D 在 yFold 畫全跨 crease，
       // 但肩部（lid.start..xt1／xt2..lid.end）同座標被插舌 cut 路徑分離，實體摺合連接只有
       // tongue 區間 [xt1, xt2]——直接從 cut path 抽取（不用 builder 同式推導·F7）。
-      expectCoordinatesClose(
-        hingeXInterval(panel(model, 'topTuck')),
-        nominalizeInterval(tongueCutInterval(result, -W), offsets, [2, 3]),
-      );
-      expectCoordinatesClose(
-        hingeXInterval(panel(model, 'bottomTuck')),
-        nominalizeInterval(tongueCutInterval(result, D + W), offsets, [0, 1]),
-      );
+      const nominalTopTongue = nominalizeInterval(tongueCutInterval(result, -W), offsets, [2, 3]);
+      const nominalBottomTongue = nominalizeInterval(tongueCutInterval(result, D + W), offsets, [0, 1]);
+      const topCenter = hingeXInterval(panel(model, 'topLidC'));
+      const bottomCenter = hingeXInterval(panel(model, 'bottomLidC'));
+      expectCoordinatesClose(hingeXInterval(panel(model, 'topTuck')), [
+        Math.max(nominalTopTongue[0], topCenter[0]),
+        Math.min(nominalTopTongue[1], topCenter[1]),
+      ]);
+      expectCoordinatesClose(hingeXInterval(panel(model, 'bottomTuck')), [
+        Math.max(nominalBottomTongue[0], bottomCenter[0]),
+        Math.min(nominalBottomTongue[1], bottomCenter[1]),
+      ]);
 
       const dustPanelIds = ['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4'];
       const foldDustIntervals = dustPanelIds.map((id) => hingeXInterval(panel(model, id)));
@@ -263,6 +316,29 @@ describe('RTE fold nominal geometry reconciles with compensated 2D output', () =
       for (const [index, interval] of foldDustIntervals.entries()) {
         expectCoordinatesClose(interval, nominalDustIntervals[index]!);
       }
+    });
+
+    it(`${label}: lid wing vertices equal the compensated 2D frictionLock trapezoids in nominal space`, () => {
+      const params = resolveParams(reverseTuckEnd, { thickness, glueSide });
+      const result = reverseTuckEnd.generate(params);
+      const model = buildRteFoldModel(params);
+      const D = params.D as number;
+      const offsets = cumulativeCompensationOffsets(thickness, glueSide);
+      const topLock = nominalizeLockVertices(
+        frictionLockCutVertices(result, 'top', D),
+        offsets,
+        [2, 3],
+      );
+      const bottomLock = nominalizeLockVertices(
+        frictionLockCutVertices(result, 'bottom', D),
+        offsets,
+        [0, 1],
+      );
+
+      expectPanelContainsPoints(panel(model, 'topLidL'), topLock.slice(0, 2));
+      expectPanelContainsPoints(panel(model, 'topLidR'), topLock.slice(2));
+      expectPanelContainsPoints(panel(model, 'bottomLidL'), bottomLock.slice(0, 2));
+      expectPanelContainsPoints(panel(model, 'bottomLidR'), bottomLock.slice(2));
     });
 
     it(`${label}: glue width, height, and hinge span match compensated 2D and nominal fold geometry`, () => {

@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:e2e": "tsc -b && vite build --mode e2e",
     "e2e": "playwright test",
-    "e2e:build": "npm run build && playwright test",
+    "e2e:build": "npm run build:e2e && playwright test",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests && node checks/style-gate.mjs",
     "check:cycles": "npx -y madge@8.0.0 --warning --circular --extensions ts,tsx --ts-config tsconfig.json src/main.tsx",

@@ -25,27 +25,6 @@
     "source": "vocab.css:226 verbatim"
   },
   {
-    "selector": ".foldbar .compat",
-    "props": {
-      "display": "flex",
-      "gap": "8px",
-      "align-items": "center",
-      "color": "var(--ink-soft)",
-      "margin-right": "8px",
-      "cursor": "default"
-    },
-    "source": "vocab.css:303 verbatim"
-  },
-  {
-    "selector": ".foldbar .compat .tick",
-    "props": {
-      "width": "13px",
-      "height": "13px",
-      "border": "1px solid var(--ink-soft)"
-    },
-    "source": "vocab.css:304 verbatim"
-  },
-  {
     "selector": "input[type=\"range\"]",
     "props": {
       "-webkit-appearance": "none",
@@ -85,7 +64,8 @@
       "min-width": "0",
       "min-height": "0",
       "display": "flex",
-      "flex-direction": "column"
+      "flex-direction": "column",
+      "position": "relative"
     },
     "source": "derived — 3D canvas 與控制列需有可收縮的直向容器·簽核=M2 視覺輪"
   },
@@ -100,16 +80,40 @@
     "source": "derived — canvas 填滿剩餘預覽區且不撐開容器·簽核=M2 視覺輪"
   },
   {
+    "selector": ".fold-tools",
+    "props": {
+      "position": "absolute",
+      "right": "24px",
+      "bottom": "72px",
+      "z-index": "1",
+      "display": "flex",
+      "flex-direction": "column",
+      "gap": "8px",
+      "padding": "8px",
+      "border": "1px solid var(--ink)",
+      "background": "var(--paper)"
+    },
+    "source": "derived — 右下浮動直排控制組以紙色實底維持三種卡色上的可讀性·簽核=M2 視覺輪"
+  },
+  {
+    "selector": ".fold-tool-group",
+    "props": {
+      "display": "flex",
+      "flex-direction": "column"
+    },
+    "source": "derived — CARD 與 ART 的語意群組維持直排按鈕幾何·簽核=M2 視覺輪"
+  },
+  {
     "selector": ".foldbar",
     "props": {
       "display": "grid",
-      "grid-template-columns": "auto minmax(120px, 1fr) auto",
+      "grid-template-columns": "auto minmax(120px, 1fr)",
       "align-items": "center",
       "gap": "16px",
       "padding": "13px 24px",
       "border-top": "1px solid var(--ink)"
     },
-    "source": "derived — 三件控制項的 machine-level 彈性佈局·簽核=M2 視覺輪"
+    "source": "derived — PLAY 與拉桿二欄的 machine-level 彈性佈局·簽核=M2 視覺輪"
   },
   {
     "selector": ".fold-empty",

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '@/fold/pose3d';
-import { panelGeometryPositions } from '@/ui/fold-scene';
+import {
+  flatDielineUvFrame,
+  panelGeometryPositions,
+  panelSolidPositions,
+  panelSolidUvs,
+} from '@/ui/fold-scene';
 
 describe('panelGeometryPositions', () => {
   it('triangulates a unit square and maps two-dimensional y down to Three.js y up', () => {
@@ -64,6 +69,118 @@ describe('panelGeometryPositions', () => {
     expect([...positions].filter((_, index) => index % 3 === 2)).toEqual([
       1, 2, 3,
       1, 3, 4,
+    ]);
+  });
+});
+
+describe('panelSolidPositions', () => {
+  const frontFacingSquare: Vec3[] = [
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+    { x: 1, y: 1, z: 0 },
+    { x: 1, y: 0, z: 0 },
+  ];
+
+  it('extrudes a unit square behind its nominal front face and closes every side wall', () => {
+    const positions = panelSolidPositions(frontFacingSquare, 0.5);
+
+    expect(positions).toHaveLength(36 * 3);
+    expect([...positions]).toEqual([
+      // Front face: two triangles on the nominal plane, facing Three.js +z.
+      0, 0, 0, 0, -1, 0, 1, -1, 0,
+      0, 0, 0, 1, -1, 0, 1, 0, 0,
+      // Back face: reversed winding, displaced 0.5 along -z.
+      0, 0, -0.5, 1, -1, -0.5, 0, -1, -0.5,
+      0, 0, -0.5, 1, 0, -0.5, 1, -1, -0.5,
+      // Side wall: (0, 0, 0) -> (0, -1, 0).
+      0, 0, 0, 0, 0, -0.5, 0, -1, -0.5,
+      0, 0, 0, 0, -1, -0.5, 0, -1, 0,
+      // Side wall: (0, -1, 0) -> (1, -1, 0).
+      0, -1, 0, 0, -1, -0.5, 1, -1, -0.5,
+      0, -1, 0, 1, -1, -0.5, 1, -1, 0,
+      // Side wall: (1, -1, 0) -> (1, 0, 0).
+      1, -1, 0, 1, -1, -0.5, 1, 0, -0.5,
+      1, -1, 0, 1, 0, -0.5, 1, 0, 0,
+      // Side wall: (1, 0, 0) -> (0, 0, 0).
+      1, 0, 0, 1, 0, -0.5, 0, 0, -0.5,
+      1, 0, 0, 0, 0, -0.5, 0, 0, 0,
+    ]);
+  });
+
+  it('returns the original flat triangulation when thickness is zero', () => {
+    expect([...panelSolidPositions(frontFacingSquare, 0)]).toEqual([
+      ...panelGeometryPositions(frontFacingSquare),
+    ]);
+  });
+
+  it('places the back face on the negative-z side when the front faces positive z', () => {
+    const positions = panelSolidPositions(frontFacingSquare, 0.5);
+    const frontZ = [...positions.slice(0, 18)].filter((_, index) => index % 3 === 2);
+    const backZ = [...positions.slice(18, 36)].filter((_, index) => index % 3 === 2);
+
+    expect(frontZ).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(backZ).toEqual([-0.5, -0.5, -0.5, -0.5, -0.5, -0.5]);
+  });
+});
+
+describe('whole-sheet flattened UVs', () => {
+  const leftPanel: Vec3[] = [
+    { x: 0, y: 0, z: 0 },
+    { x: 2, y: 0, z: 0 },
+    { x: 2, y: 2, z: 0 },
+    { x: 0, y: 2, z: 0 },
+  ];
+  const rightPanel: Vec3[] = [
+    { x: 2, y: 0, z: 0 },
+    { x: 4, y: 0, z: 0 },
+    { x: 4, y: 2, z: 0 },
+    { x: 2, y: 2, z: 0 },
+  ];
+  const flatGeometry = new Map([
+    ['left', leftPanel],
+    ['right', rightPanel],
+  ]);
+
+  it('centers the short bbox axis while preserving the long-axis scale', () => {
+    const frame = flatDielineUvFrame(flatGeometry);
+
+    expect(frame).toEqual({ minX: 0, minY: 0, span: 4, offsetX: 0, offsetY: 1 });
+    expect([...panelSolidUvs(leftPanel, frame, 0)]).toEqual([
+      0, 0.75,
+      0.5, 0.75,
+      0.5, 0.25,
+      0, 0.75,
+      0.5, 0.25,
+      0, 0.25,
+    ]);
+  });
+
+  it('gives shared dieline vertices identical UVs across adjacent panels', () => {
+    const frame = flatDielineUvFrame(flatGeometry);
+    const leftUvs = panelSolidUvs(leftPanel, frame, 0);
+    const rightUvs = panelSolidUvs(rightPanel, frame, 0);
+
+    expect([...leftUvs.slice(2, 4)]).toEqual([...rightUvs.slice(0, 2)]);
+    expect([...leftUvs.slice(8, 10)]).toEqual([...rightUvs.slice(10, 12)]);
+  });
+
+  it('reuses corresponding front-face UVs for the back face and side walls', () => {
+    const frame = flatDielineUvFrame(flatGeometry);
+    const uvs = panelSolidUvs(leftPanel, frame, 0.5);
+
+    expect(uvs).toHaveLength(panelSolidPositions(leftPanel, 0.5).length / 3 * 2);
+    expect([...uvs.slice(12, 24)]).toEqual([
+      0, 0.75,
+      0.5, 0.25,
+      0.5, 0.75,
+      0, 0.75,
+      0, 0.25,
+      0.5, 0.25,
+    ]);
+    expect([...uvs.slice(24, 30)]).toEqual([
+      0, 0.75,
+      0, 0.75,
+      0.5, 0.75,
     ]);
   });
 });

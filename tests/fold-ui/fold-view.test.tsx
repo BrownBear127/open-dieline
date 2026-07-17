@@ -28,6 +28,8 @@ function createFakeScene(): FakeScene {
       updatePose: vi.fn(),
       replaceModel: vi.fn(),
       setAutoRotate: vi.fn(),
+      applyRecipe: vi.fn(),
+      applyArtwork: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };
@@ -102,7 +104,31 @@ describe('FoldView scene lifecycle', () => {
 
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
     expect(fake.handles[0]!.replaceModel).toHaveBeenCalledOnce();
+    expect(vi.mocked(fake.handles[0]!.replaceModel).mock.calls[0]![1]).toEqual({
+      thickness: RTE_VALUES.thickness,
+    });
     expect(fake.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it('uses the DEV hook once to initialize the next scene without a prior non-zero pose', async () => {
+    const setInitialFoldProgress = (
+      window as unknown as Record<string, unknown>
+    ).__p3SetInitialFoldProgress;
+    expect(setInitialFoldProgress).toBeTypeOf('function');
+    (setInitialFoldProgress as (progress: number) => void)(0);
+
+    const first = createFakeScene();
+    const firstView = render(
+      <FoldView boxId="rte" values={RTE_VALUES} createScene={first.createScene} />,
+    );
+    await waitFor(() => expect(first.createScene).toHaveBeenCalledOnce());
+    expect(first.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(0);
+    firstView.unmount();
+
+    const second = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={second.createScene} />);
+    await waitFor(() => expect(second.createScene).toHaveBeenCalledOnce());
+    expect(second.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
   });
 
   it('replaces the model without recreating the scene or resetting fold progress', async () => {
@@ -221,7 +247,11 @@ describe('FoldView visible failure states', () => {
     expect(fake.createScene).not.toHaveBeenCalled();
   });
 
-  it('fold-scene chunk 載入失敗時 render 無文案空狀態殼、不留死控制列（final review F2）', async () => {
+  it.each([
+    ['en', '3D fold preview failed to load. Switch modes to retry.'],
+    ['zh', '3D 摺盒預覽載入失敗，切換模式可重試。'],
+  ] as const)('fold-scene chunk 載入失敗時以 %s render loadFailed 文案、不留死控制列', async (lang, copy) => {
+    setLang(lang);
     // jsdom getContext 天然 null 會先走 WebGL fallback——mock 成 truthy 讓流程進到 loadScene
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -230,7 +260,10 @@ describe('FoldView visible failure states', () => {
 
     await waitFor(() => expect(loadScene).toHaveBeenCalled());
     await waitFor(() => expect(document.querySelector('[data-fold-error="true"]')).not.toBeNull());
-    expect(document.querySelector('[data-fold-error="true"]')).toHaveClass('fold-empty');
+    const error = document.querySelector('[data-fold-error="true"]') as HTMLElement;
+    expect(error).toHaveClass('fold-empty');
+    expect(t('fold.loadFailed')).toBe(copy);
+    expect(within(error).getByText(t('fold.loadFailed'))).toHaveClass('mono');
     // 失敗態不得殘留任何看似可操作的控制件或 canvas
     expect(screen.queryByRole('slider')).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();

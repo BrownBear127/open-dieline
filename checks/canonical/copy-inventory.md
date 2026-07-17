@@ -232,6 +232,23 @@ Vendor date: 2026-07-17
 （mode.fold 的 EN 顯示形＝label 聲部 uppercase 由 CSS 管，字典存 Title case——同 mode.design 慣例；
 兩條 aria 不渲染。）
 
+### A9 摺盒卡色（P3 M2 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.card.label | CARD | 卡色 | | label |
+| fold.card.white | WHITE | 白 | | label |
+| fold.card.kraft | KRAFT | 牛皮 | | label |
+| fold.card.black | BLACK | 黑 | | label |
+
+### A10 摺盒圖稿（P3 M2 T2.6 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.art.label | ART | 圖稿 | | label |
+| fold.art.none | NONE | 無 | | label |
+| fold.art.sample | SAMPLE | 範例 | | label |
+
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 
 §A 補漏 4 key（`param.reset.glyph` ↺·lock／`overlay.unit.pt/mm/px` lock 規格值／
@@ -250,8 +267,8 @@ Vendor date: 2026-07-17
 - **B6 overlay 解析警告 ×8**（audit §13——`${key} ×N 未匯入` 模板家族；`err.message`
   透傳條保持原樣不翻）
 - **B7 pieces.ts 檢核 ×9**（audit §10）——規則 6：error-code 前綴保留
-- **B8 摺盒模式狀態文案 ×2**（P3 M1 新增·2026-07-17 簽核·無 audit 前身）——
-  telescope 空狀態＋WebGL fallback；聲部=mono 置中（P3 Spec §7）
+- **B8 摺盒模式狀態文案 ×3**（P3 M1 新增·2026-07-17 簽核·無 audit 前身）——
+  telescope 空狀態＋WebGL fallback＋dynamic chunk 載入失敗；聲部=mono 置中（P3 Spec §7）
 
 ## §C 匯出凍結（規則 3 執行細目）
 

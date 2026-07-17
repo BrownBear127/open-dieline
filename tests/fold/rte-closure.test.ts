@@ -99,6 +99,83 @@ function worldPanel(geometry: Map<string, Vec3[]>, id: string): Vec3[] {
   return result!;
 }
 
+function panelById(model: FoldModel, id: string): FoldModel['panels'][number] {
+  const result = model.panels.find((target) => target.id === id);
+  expect(result, `missing panel ${id}`).toBeDefined();
+  return result!;
+}
+
+function worldVertexAt(
+  model: FoldModel,
+  geometry: Map<string, Vec3[]>,
+  panelId: string,
+  flatPoint: { x: number; y: number },
+): Vec3 {
+  const target = panelById(model, panelId);
+  const index = target.polygon.findIndex(({ x, y }) => x === flatPoint.x && y === flatPoint.y);
+  expect(index, `${panelId} must contain flat vertex (${flatPoint.x}, ${flatPoint.y})`).toBeGreaterThanOrEqual(0);
+  return worldPanel(geometry, panelId)[index]!;
+}
+
+function polygonNormal(vertices: Vec3[]): Vec3 {
+  for (let index = 1; index < vertices.length - 1; index += 1) {
+    const normal = cross(
+      subtract(vertices[index]!, vertices[0]!),
+      subtract(vertices[index + 1]!, vertices[0]!),
+    );
+    if (length(normal) > CLOSURE_TOLERANCE_MM) return normalize(normal);
+  }
+  throw new Error('panel polygon must contain three non-collinear vertices');
+}
+
+function expectLidSlicesCoplanarAndJoined(
+  model: FoldModel,
+  geometry: Map<string, Vec3[]>,
+  side: 'top' | 'bottom',
+  label: string,
+): void {
+  const ids = [`${side}LidL`, `${side}LidC`, `${side}LidR`];
+  const centerVertices = worldPanel(geometry, ids[1]!);
+  const centerNormal = polygonNormal(centerVertices);
+  const centerOrigin = centerVertices[0]!;
+
+  for (const id of ids) {
+    const vertices = worldPanel(geometry, id);
+    expect(
+      dot(polygonNormal(vertices), centerNormal),
+      `${label}: ${id} normal must match ${ids[1]}`,
+    ).toBeGreaterThan(1 - CLOSURE_TOLERANCE_MM);
+    for (const [index, vertex] of vertices.entries()) {
+      expect(
+        Math.abs(dot(subtract(vertex, centerOrigin), centerNormal)),
+        `${label}: ${id} vertex ${index} plane distance`,
+      ).toBeLessThan(CLOSURE_TOLERANCE_MM);
+    }
+  }
+
+  const seamPairs: ReadonlyArray<readonly [string, string]> = [
+    [ids[0]!, ids[1]!],
+    [ids[1]!, ids[2]!],
+  ];
+  for (const [leftId, rightId] of seamPairs) {
+    const leftPanel = panelById(model, leftId);
+    const rightPanel = panelById(model, rightId);
+    const shared = leftPanel.polygon.filter((point) => rightPanel.polygon.some(
+      (candidate) => candidate.x === point.x && candidate.y === point.y,
+    ));
+    expect(shared, `${label}: ${leftId}/${rightId} flat seam endpoints`).toHaveLength(2);
+    for (const point of shared) {
+      expect(
+        distance(
+          worldVertexAt(model, geometry, leftId, point),
+          worldVertexAt(model, geometry, rightId, point),
+        ),
+        `${label}: ${leftId}/${rightId} world seam at (${point.x}, ${point.y})`,
+      ).toBeLessThan(CLOSURE_TOLERANCE_MM);
+    }
+  }
+}
+
 function expectWithinTolerance(actual: number, expected: number, label: string): void {
   expect(
     Math.abs(actual - expected),
@@ -256,6 +333,15 @@ function assertSweepCase({ label, overrides }: SweepCase): void {
     }, `${label}: worldGeometry(t=1)`).not.toThrow();
     expect(foldedGeometry, `${label}: worldGeometry must return geometry`).toBeDefined();
     expectAllVerticesFinite(foldedGeometry!, `${label}: t=1`);
+
+    if (overrides.tuckLock === 0) {
+      expect(builtModel.panels.filter(({ id }) => /^(top|bottom)Lid[CLR]$/.test(id))).toHaveLength(0);
+      expect(builtModel.panels.filter(({ id }) => id === 'topLid' || id === 'bottomLid')).toHaveLength(2);
+    } else {
+      expect(builtModel.panels.filter(({ id }) => /^(top|bottom)Lid[CLR]$/.test(id))).toHaveLength(6);
+      expectLidSlicesCoplanarAndJoined(builtModel, foldedGeometry!, 'top', `${label}: top lid slices`);
+      expectLidSlicesCoplanarAndJoined(builtModel, foldedGeometry!, 'bottom', `${label}: bottom lid slices`);
+    }
   });
 }
 
@@ -266,6 +352,11 @@ describe('RTE world-space closure matrix', () => {
       const model = buildRteFoldModel(params);
       const L = params.L as number;
       const W = params.W as number;
+      const D = params.D as number;
+      const x0 = 0;
+      const x1 = L;
+      const x2 = L + W;
+      const x3 = 2 * L + W;
 
       const folded = worldGeometry(model, foldPose(1, model));
       const p1 = worldPanel(folded, 'P1');
@@ -273,8 +364,8 @@ describe('RTE world-space closure matrix', () => {
       const p3 = worldPanel(folded, 'P3');
       const p4 = worldPanel(folded, 'P4');
       const glue = worldPanel(folded, 'glue');
-      const topLid = worldPanel(folded, 'topLid');
-      const bottomLid = worldPanel(folded, 'bottomLid');
+      expectLidSlicesCoplanarAndJoined(model, folded, 'top', `thickness=${thickness}, glueSide=${glueSide}`);
+      expectLidSlicesCoplanarAndJoined(model, folded, 'bottom', `thickness=${thickness}, glueSide=${glueSide}`);
 
       expectDustPanelsInsideOpening(model, folded, L, W, `thickness=${thickness}, glueSide=${glueSide}`);
 
@@ -286,8 +377,14 @@ describe('RTE world-space closure matrix', () => {
       expectParallelPlaneDistance(p1, p3, W, 'P1 ↔ P3');
       expectParallelPlaneDistance(p2, p4, L, 'P2 ↔ P4');
 
-      expectEdgesCoincide([topLid[0]!, topLid[1]!], [p1[0]!, p1[1]!], 'topLid free edge ↔ P1 top edge');
-      expectEdgesCoincide([bottomLid[2]!, bottomLid[3]!], [p3[2]!, p3[3]!], 'bottomLid free edge ↔ P3 bottom edge');
+      expectEdgesCoincide([
+        worldVertexAt(model, folded, 'topLidL', { x: x2, y: -W }),
+        worldVertexAt(model, folded, 'topLidR', { x: x3, y: -W }),
+      ], [p1[0]!, p1[1]!], 'top lid free corners ↔ P1 top edge');
+      expectEdgesCoincide([
+        worldVertexAt(model, folded, 'bottomLidL', { x: x0, y: D + W }),
+        worldVertexAt(model, folded, 'bottomLidR', { x: x1, y: D + W }),
+      ], [p3[2]!, p3[3]!], 'bottom lid free corners ↔ P3 bottom edge');
 
       const flat = worldGeometry(model, foldPose(0, model));
       for (const target of model.panels) {
