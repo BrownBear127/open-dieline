@@ -1,0 +1,127 @@
+[
+  {
+    "selector": ".mode",
+    "props": {
+      "display": "inline-block",
+      "padding": "11px 2px 9px",
+      "color": "var(--ink-soft)",
+      "cursor": "default",
+      "border-bottom": "2px solid transparent"
+    },
+    "source": "vocab.css:85 verbatim"
+  },
+  {
+    "selector": ".btn",
+    "props": {
+      "display": "inline-block",
+      "padding": "9px 14px",
+      "border": "1px solid var(--ink)",
+      "background": "transparent",
+      "border-radius": "0",
+      "color": "var(--ink)",
+      "cursor": "pointer",
+      "transition": "background 0.15s, color 0.15s"
+    },
+    "source": "vocab.css:226 verbatim"
+  },
+  {
+    "selector": ".foldbar .compat",
+    "props": {
+      "display": "flex",
+      "gap": "8px",
+      "align-items": "center",
+      "color": "var(--ink-soft)",
+      "margin-right": "8px",
+      "cursor": "default"
+    },
+    "source": "vocab.css:303 verbatim"
+  },
+  {
+    "selector": ".foldbar .compat .tick",
+    "props": {
+      "width": "13px",
+      "height": "13px",
+      "border": "1px solid var(--ink-soft)"
+    },
+    "source": "vocab.css:304 verbatim"
+  },
+  {
+    "selector": "input[type=\"range\"]",
+    "props": {
+      "-webkit-appearance": "none",
+      "appearance": "none",
+      "width": "100%",
+      "height": "18px",
+      "background": "transparent",
+      "cursor": "ew-resize"
+    },
+    "source": "vocab.css:12 verbatim"
+  },
+  {
+    "selector": ".mono",
+    "props": {
+      "font-family": "\"IBM Plex Mono\", monospace",
+      "font-size": "11px",
+      "letter-spacing": "0.08em",
+      "text-transform": "uppercase"
+    },
+    "source": "tokens.css:18 verbatim"
+  },
+  {
+    "selector": ".label",
+    "props": {
+      "font-family": "\"Familjen Grotesk\", sans-serif",
+      "font-size": "11px",
+      "font-weight": "500",
+      "letter-spacing": "0.16em",
+      "text-transform": "uppercase"
+    },
+    "source": "tokens.css:13 verbatim"
+  },
+  {
+    "selector": ".fold-view",
+    "props": {
+      "flex": "1",
+      "min-width": "0",
+      "min-height": "0",
+      "display": "flex",
+      "flex-direction": "column"
+    },
+    "source": "derived — 3D canvas 與控制列需有可收縮的直向容器·簽核=M2 視覺輪"
+  },
+  {
+    "selector": ".fold-canvas",
+    "props": {
+      "display": "block",
+      "width": "100%",
+      "flex": "1",
+      "min-height": "0"
+    },
+    "source": "derived — canvas 填滿剩餘預覽區且不撐開容器·簽核=M2 視覺輪"
+  },
+  {
+    "selector": ".foldbar",
+    "props": {
+      "display": "grid",
+      "grid-template-columns": "auto minmax(120px, 1fr) auto",
+      "align-items": "center",
+      "gap": "16px",
+      "padding": "13px 24px",
+      "border-top": "1px solid var(--ink)"
+    },
+    "source": "derived — 三件控制項的 machine-level 彈性佈局·簽核=M2 視覺輪"
+  },
+  {
+    "selector": ".fold-empty",
+    "props": {
+      "flex": "1",
+      "min-width": "0",
+      "min-height": "0",
+      "display": "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      "color": "var(--ink-soft)"
+    },
+    "source": "derived — unsupported 與 WebGL fallback 文字置中·簽核=M2 視覺輪"
+  }
+]

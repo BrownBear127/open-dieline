@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 18 probes：既有 16 項加上 fold hinge 與 2D 補償對帳兩項。
+// 共 28 probes：既有 18 項＋P3 style contract 三項＋G4 fold 四項（import/dynamic/template/computed+jsspec 家族）＋F4 decoy 兩項＋N4 前身一項——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -85,6 +85,35 @@ const PROBES = [
         finally { revert(); }
       });
     } },
+  // — Phase 3 style contract —
+  { id: 'p3c-unregistered', gate: 'p3-style',
+    run: () => mutate('src/ui/FoldView.tsx', 'className="fold-empty"', 'className="fold-empty fold-rogue"'),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
+  { id: 'p3c-value-drift', gate: 'p3-style',
+    run: () => mutate('checks/canonical/p3-style-contract.json',
+      '"grid-template-columns": "auto minmax(120px, 1fr) auto"',
+      '"grid-template-columns": "auto minmax(121px, 1fr) auto"'),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
+  // re-review N2：object property 誘餌（{ className: '…' }）曾可騙過 transform 後文字掃描
+  // ——JSX attribute AST 修後常駐
+  { id: 'p3c-object-decoy', gate: 'p3-style',
+    run: () => {
+      mutate('src/ui/FoldView.tsx', '<canvas className="fold-canvas" ref={canvasRef} />', '<canvas className="canvas" ref={canvasRef} />');
+      mutate('src/ui/FoldView.tsx', 'export function FoldView(', "const probeDecoy = { className: 'fold-canvas' };\nvoid probeDecoy;\nexport function FoldView(");
+    },
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
+  // final review F4：JSX 註解 className 誘餌曾可騙過使用面掃描——AST 只收 JsxAttribute 修後常駐
+  { id: 'p3c-comment-decoy', gate: 'p3-style',
+    run: () => mutate('src/ui/FoldView.tsx',
+      '<canvas className="fold-canvas" ref={canvasRef} />',
+      '<canvas className="canvas" ref={canvasRef} />{/* className="fold-canvas" */}'),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
+  { id: 'p3c-context-leak', gate: 'p3-style',
+    run: () => mutate('src/ui/Canvas.tsx', 'className="bench flex-1 h-full"', 'className="bench foldbar flex-1 h-full"'),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   // — G3 家族（新違規＋允許值移位·I3）—
   { id: 'g3-new-utility', gate: 'g3-utility', run: () => mutate('src/ui/App.tsx', 'className="', 'className="text-red-500 '),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g3-utility', GATE_SKIP_BUILD: '1' }) },
@@ -94,8 +123,32 @@ const PROBES = [
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   { id: 'g4-rename', gate: 'g4-export-isolation',
     run: () => mutate('checks/gates/g4-forbidden.json',
-      '"forbidden": ["core/displayStyles", "i18n/", "ui/"]', '"forbidden": []'),
+      '"forbidden": ["core/displayStyles", "i18n/", "ui/", "fold/"]', '"forbidden": []'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  { id: 'g4-fold-import', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nimport '../fold/registry';\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // round 3 R1-A：計算型 dynamic import 曾被靜默略過——fail-loud 修後常駐紅方向
+  { id: 'g4-fold-computed', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import('../fold/' + 'registry');\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // round 3 R1-B：.js specifier（build 解析到 .ts）曾被靜默判綠——解析映射修後常駐紅方向
+  { id: 'g4-fold-jsspec', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import('../fold/registry.js');\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // re-review N3：無替換 template literal specifier 曾可穿越 G4——TS AST 修後常駐紅方向
+  { id: 'g4-fold-template', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import(`../fold/registry`);\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
+  // final review F5：dynamic import() 曾可靜默穿越 G4——TS AST（前身三分支 regex）修後常駐紅方向
+  { id: 'g4-fold-dynamic', gate: 'g4-export-isolation',
+    run: () => append('src/export/svg.ts', "\nvoid import('../fold/registry');\n"),
+    check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }),
+    greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g4-export-isolation', GATE_SKIP_BUILD: '1' }) },
   // — G5 —
   { id: 'g5-literal', gate: 'g5-forbidden-words', run: () => mutate('src/ui/App.tsx', 'export', "export const _x = 'open-source';\nexport"),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'g5-forbidden-words', GATE_SKIP_BUILD: '1' }) },

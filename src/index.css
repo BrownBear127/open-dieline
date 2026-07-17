@@ -1,3 +1,39 @@
 @import './styles/tokens.css';
 @import './styles/vocab.css';
 @import "tailwindcss";
+
+/* Phase 3 M1 fold preview shell. Geometry is derived for the machine-level view;
+   final placement and spacing remain subject to the M2 visual review. */
+.fold-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fold-canvas {
+  display: block;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.foldbar {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 24px;
+  border-top: 1px solid var(--ink);
+}
+
+.fold-empty {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+}
