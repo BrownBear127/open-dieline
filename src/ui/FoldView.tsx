@@ -30,10 +30,6 @@ const FOLD_CARD_RECIPES = [
   { name: 'kraft', labelKey: 'fold.card.kraft' },
   { name: 'black', labelKey: 'fold.card.black' },
 ] as const satisfies ReadonlyArray<{ name: FoldRecipeName; labelKey: string }>;
-const FOLD_ARTWORK_MODES = [
-  { mode: 'none', labelKey: 'fold.art.none' },
-  { mode: 'sample', labelKey: 'fold.art.sample' },
-] as const satisfies ReadonlyArray<{ mode: ArtworkMode; labelKey: string }>;
 
 type FoldModelBuilder = (values: ResolvedParams) => FoldModel;
 
@@ -88,6 +84,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
   const [artwork, setArtwork] = useState<ArtworkMode>('none');
+  const artworkEnabled = artwork === 'sample';
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
   // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 文案空狀態。
@@ -165,6 +162,13 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     sceneRef.current?.applyArtwork(mode);
   };
 
+  const toggleAutoRotate = (): void => {
+    const enabled = !autoRotateRef.current;
+    autoRotateRef.current = enabled;
+    setAutoRotate(enabled);
+    sceneRef.current?.setAutoRotate(enabled);
+  };
+
   useEffect(() => {
     let cancelled = false;
     loadFoldModelRuntime()
@@ -223,7 +227,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
           if (!cancelled) setContextLost(false);
         },
         // 拖轉即停自轉（fold-scene 已自行關 controls.autoRotate）——FoldView state 跟上，
-        // checkbox 不再謊報開啟（final review F3）；使用者可用 checkbox 重新開啟。
+        // 按鈕不再謊報開啟（final review F3）；使用者可用按鈕重新開啟。
         onUserInteract: () => {
           if (!cancelled) {
             autoRotateRef.current = false;
@@ -296,6 +300,39 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   ) : (
     <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
       <canvas className="fold-canvas" ref={canvasRef} />
+      <div className="fold-tools">
+        <div className="fold-tool-group" role="group" aria-label={t('fold.card.label')}>
+          {FOLD_CARD_RECIPES.map(({ name, labelKey }) => (
+            <button
+              key={name}
+              type="button"
+              className={`btn tog label${cardRecipe === name ? ' on' : ''}`}
+              aria-pressed={cardRecipe === name}
+              onClick={() => selectCardRecipe(name)}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </div>
+        <div className="fold-tool-group" role="group" aria-label={t('fold.art.label')}>
+          <button
+            type="button"
+            className={`btn tog label${artworkEnabled ? ' on' : ''}`}
+            aria-pressed={artworkEnabled}
+            onClick={() => selectArtwork(artworkEnabled ? 'none' : 'sample')}
+          >
+            {t('fold.art.sample')}
+          </button>
+        </div>
+        <button
+          type="button"
+          className={`btn tog label${autoRotate ? ' on' : ''}`}
+          aria-pressed={autoRotate}
+          onClick={toggleAutoRotate}
+        >
+          {t('fold.autorotate')}
+        </button>
+      </div>
       <div className="foldbar" role="group" aria-label={t('fold.controls.aria')}>
         <button type="button" className="btn label" onClick={togglePlayback}>
           {t(playing ? 'fold.pause' : 'fold.play')}
@@ -312,48 +349,6 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
             updateFoldProgress(Number(event.target.value));
           }}
         />
-        <div className="compat mono" role="group" aria-label={t('fold.card.label')}>
-          <span>{t('fold.card.label')}</span>
-          {FOLD_CARD_RECIPES.map(({ name, labelKey }) => (
-            <button
-              key={name}
-              type="button"
-              className={`mode label${cardRecipe === name ? ' on' : ''}`}
-              aria-pressed={cardRecipe === name}
-              onClick={() => selectCardRecipe(name)}
-            >
-              {t(labelKey)}
-            </button>
-          ))}
-        </div>
-        <div className="compat mono" role="group" aria-label={t('fold.art.label')}>
-          <span>{t('fold.art.label')}</span>
-          {FOLD_ARTWORK_MODES.map(({ mode, labelKey }) => (
-            <button
-              key={mode}
-              type="button"
-              className={`mode label${artwork === mode ? ' on' : ''}`}
-              aria-pressed={artwork === mode}
-              onClick={() => selectArtwork(mode)}
-            >
-              {t(labelKey)}
-            </button>
-          ))}
-        </div>
-        <label className="compat mono">
-          <input
-            type="checkbox"
-            className="tick"
-            checked={autoRotate}
-            onChange={(event) => {
-              const enabled = event.target.checked;
-              autoRotateRef.current = enabled;
-              setAutoRotate(enabled);
-              sceneRef.current?.setAutoRotate(enabled);
-            }}
-          />
-          {t('fold.autorotate')}
-        </label>
       </div>
     </section>
   );
