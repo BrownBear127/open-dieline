@@ -61,6 +61,7 @@ const PAPER_LIGHT_VECTOR_LENGTH = Math.sqrt(6);
 const ARTWORK_ACCENT = '#b3402a';
 const ARTWORK_DARK = '#383530';
 const ARTWORK_ALPHA = 0.88;
+const CUSTOM_ARTWORK_SIZE = 2048;
 
 export function configureFoldRenderer(
   renderer: Pick<WebGLRenderer, 'toneMapping' | 'toneMappingExposure'>,
@@ -770,12 +771,19 @@ export interface FoldSceneOptions {
 
 export type ArtworkMode = 'none' | 'sample' | 'custom';
 
+export interface CustomArtworkSource {
+  canvas: HTMLCanvasElement;
+  signature: string;
+}
+
 export interface FoldSceneHandle {
   updatePose(t: number): void;
   replaceModel(model: FoldModel, opts?: { thickness?: number }): void;
   setAutoRotate(on: boolean): void;
   applyRecipe(name: FoldRecipeName): void;
   applyArtwork(mode: ArtworkMode): void;
+  installCustomSource(source: CustomArtworkSource): void;
+  removeCustomSource(): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }
@@ -1155,6 +1163,24 @@ function createSampleArtworkTexture(
   return createTexture(canvas, true);
 }
 
+export function createCustomArtworkTexture(
+  paperCanvas: HTMLCanvasElement,
+  source: CustomArtworkSource | null,
+): CanvasTexture {
+  if (source === null) throw new Error('Custom artwork source is not installed');
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = CUSTOM_ARTWORK_SIZE;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.drawImage(paperCanvas, 0, 0, CUSTOM_ARTWORK_SIZE, CUSTOM_ARTWORK_SIZE);
+    context.globalCompositeOperation = 'source-over';
+    context.globalAlpha = ARTWORK_ALPHA;
+    context.drawImage(source.canvas, 0, 0, CUSTOM_ARTWORK_SIZE, CUSTOM_ARTWORK_SIZE);
+  }
+  return createTexture(canvas, true);
+}
+
 function flatUv(
   vertex: Pick<Vec3, 'x' | 'y'>,
   frame: FlatDielineUvFrame,
@@ -1397,6 +1423,7 @@ export function createFoldScene(
   let activeLook = FOLD_RECIPES[FOLD_DEFAULT_RECIPE].look;
   let activePaper: PaperParams = { ...FOLD_RECIPES[FOLD_DEFAULT_RECIPE].paper };
   let activeArtwork: ArtworkMode = 'none';
+  let customArtworkSource: CustomArtworkSource | null = null;
   const initialPaperTextures = createPaperTextureSet(activePaper, activeLook.cardColor);
   let paperBaseAlbedoTexture = initialPaperTextures.albedo;
   let paperAlbedoTexture = paperBaseAlbedoTexture;
@@ -1585,9 +1612,16 @@ export function createFoldScene(
   };
 
   const createActiveAlbedoTexture = (): CanvasTexture => {
-    if (activeArtwork === 'none' || currentModel === null) {
+    if (activeArtwork === 'none') {
       return paperBaseAlbedoTexture;
     }
+    if (activeArtwork === 'custom') {
+      return createCustomArtworkTexture(
+        paperBaseAlbedoTexture.image as HTMLCanvasElement,
+        customArtworkSource,
+      );
+    }
+    if (currentModel === null) return paperBaseAlbedoTexture;
     const flatGeometry = worldGeometry(currentModel, foldPose(0, currentModel));
     return createSampleArtworkTexture(
       paperBaseAlbedoTexture.image as HTMLCanvasElement,
@@ -1646,9 +1680,27 @@ export function createFoldScene(
   };
 
   const applyArtwork = (mode: ArtworkMode): void => {
+    if (mode === 'custom' && customArtworkSource === null) {
+      throw new Error('Custom artwork source is not installed');
+    }
     if (mode === activeArtwork) return;
     activeArtwork = mode;
     refreshArtworkAlbedo();
+  };
+
+  const installCustomSource = (source: CustomArtworkSource): void => {
+    customArtworkSource = source;
+    if (activeArtwork === 'custom') refreshArtworkAlbedo();
+  };
+
+  const removeCustomSource = (): void => {
+    if (activeArtwork === 'custom') {
+      activeArtwork = 'none';
+      customArtworkSource = null;
+      refreshArtworkAlbedo();
+      return;
+    }
+    customArtworkSource = null;
   };
 
   let devSetLook: ((name: FoldRecipeName) => void) | null = null;
@@ -1720,6 +1772,7 @@ export function createFoldScene(
 
     scene.remove(panelRoot);
     disposePanelTree();
+    if (activeArtwork !== 'none') refreshArtworkAlbedo();
     if (currentModel) {
       buildPanelTree(currentModel);
       updateModelPose();
@@ -1745,7 +1798,7 @@ export function createFoldScene(
       currentModel = model;
       currentThickness = replaceOpts.thickness ?? 0;
       disposePanelTree();
-      if (activeArtwork === 'sample') refreshArtworkAlbedo();
+      if (activeArtwork !== 'none') refreshArtworkAlbedo();
       buildPanelTree(model);
       updateModelPose();
       const frame = computeCameraFrame(model);
@@ -1758,6 +1811,8 @@ export function createFoldScene(
     },
     applyRecipe,
     applyArtwork,
+    installCustomSource,
+    removeCustomSource,
     resize,
     dispose() {
       if (disposed) return;

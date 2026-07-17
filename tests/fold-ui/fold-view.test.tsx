@@ -30,6 +30,8 @@ function createFakeScene(): FakeScene {
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),
+      installCustomSource: vi.fn(),
+      removeCustomSource: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };
@@ -78,6 +80,33 @@ describe('App fold mode', () => {
 });
 
 describe('FoldView scene lifecycle', () => {
+  it('aborts an in-flight upload when its FoldView owner unmounts', async () => {
+    const fake = createFakeScene();
+    let signal: AbortSignal | undefined;
+    const loadArtwork = vi.fn((_file: File, options: { signal?: AbortSignal }) => {
+      signal = options.signal;
+      return new Promise<never>(() => undefined);
+    });
+    const view = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(loadArtwork).toHaveBeenCalledOnce());
+
+    view.unmount();
+
+    expect(signal?.aborted).toBe(true);
+  });
+
   it('pairs canvas creation and disposal across three visits', async () => {
     const fake = createFakeScene();
     const view = render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);

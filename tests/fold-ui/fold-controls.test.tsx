@@ -5,8 +5,9 @@ import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { resolveParams } from '@/core/registry';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
-import { FoldView } from '@/ui/FoldView';
+import { FoldView, type ArtworkFileLoader } from '@/ui/FoldView';
 import type {
+  CustomArtworkSource,
   FoldSceneHandle,
   FoldSceneOptions,
   createFoldScene,
@@ -30,6 +31,8 @@ function createFakeScene(): FakeScene {
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),
+      installCustomSource: vi.fn(),
+      removeCustomSource: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };
@@ -176,6 +179,143 @@ describe('FoldView controls', () => {
     fireEvent.click(sample);
     expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('none');
     expect(sample).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('commits an uploaded source, installs it before selecting custom, and keeps SAMPLE mutually exclusive', async () => {
+    const fake = createFakeScene();
+    const source: CustomArtworkSource = {
+      canvas: document.createElement('canvas'),
+      signature: 'rte:fixture',
+    };
+    const onCustomSourceChange = vi.fn();
+    const loadArtwork: ArtworkFileLoader = vi.fn(async (_file, options) => {
+      options.onCommit(source);
+      return { status: 'committed', source };
+    });
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={null}
+        onCustomSourceChange={onCustomSourceChange}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const file = new File(['png'], 'art.png', { type: 'image/png' });
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(onCustomSourceChange).toHaveBeenCalledExactlyOnceWith(source));
+    expect(fake.handles[0]!.installCustomSource).toHaveBeenCalledExactlyOnceWith(source);
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('custom');
+    const art = screen.getByRole('group', { name: t('fold.art.label') });
+    expect(within(art).getByRole('button', { name: t('fold.art.upload') }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(within(art).getByRole('button', { name: t('fold.art.sample') }))
+      .toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('switching custom to SAMPLE disposes the owner source and removes it from the scene', async () => {
+    const fake = createFakeScene();
+    const source: CustomArtworkSource = {
+      canvas: document.createElement('canvas'),
+      signature: 'rte:fixture',
+    };
+    const onCustomSourceChange = vi.fn();
+    render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={source}
+        onCustomSourceChange={onCustomSourceChange}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
+
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('sample');
+    expect(fake.handles[0]!.removeCustomSource).toHaveBeenCalledOnce();
+    expect(onCustomSourceChange).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('UPLOAD toggle-off selects NONE and releases custom source ownership', async () => {
+    const fake = createFakeScene();
+    const source: CustomArtworkSource = {
+      canvas: document.createElement('canvas'),
+      signature: 'rte:fixture',
+    };
+    const onCustomSourceChange = vi.fn();
+    render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={source}
+        onCustomSourceChange={onCustomSourceChange}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.upload') }));
+
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('none');
+    expect(fake.handles[0]!.removeCustomSource).toHaveBeenCalledOnce();
+    expect(onCustomSourceChange).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it('clears the file input so selecting the same file twice starts two requests', async () => {
+    const fake = createFakeScene();
+    const loadArtwork: ArtworkFileLoader = vi.fn(async () => ({ status: 'cancelled' }));
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['png'], 'same.png', { type: 'image/png' });
+
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(loadArtwork).toHaveBeenCalledTimes(2));
+  });
+
+  it('aborts an in-flight upload when the artwork mode changes', async () => {
+    const fake = createFakeScene();
+    let signal: AbortSignal | undefined;
+    const loadArtwork: ArtworkFileLoader = vi.fn((_file, options) => {
+      signal = options.signal;
+      return new Promise(() => undefined);
+    });
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(loadArtwork).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
+
+    expect(signal?.aborted).toBe(true);
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('sample');
   });
 
   it('renders the approved English and Chinese artwork copy verbatim', async () => {

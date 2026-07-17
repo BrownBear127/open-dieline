@@ -90,6 +90,7 @@ import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
 import { setLang, useLang } from '@/i18n/lang';
+import type { CustomArtworkSource } from '@/ui/fold-scene';
 
 // P3 M3 C7b lazy boundary：FOLD 模式整包（FoldView＋其後的 fold-scene）切換才載入——
 // main gzip −1.9KB（117,856→115,919B·T0 探針實測），M3 的 overlay/接線增量落 FoldView
@@ -158,6 +159,22 @@ export function App() {
   // 會寫這顆 state；進拼版模式那顆鈕額外呼叫 `setCalibrating(false)`（F6「校準互斥」，
   // 見下方按鈕定義）。
   const [appMode, setAppMode] = useState<AppMode>('design');
+  const customArtworkSourceRef = useRef<CustomArtworkSource | null>(null);
+
+  const replaceCustomArtworkSource = (nextSource: CustomArtworkSource | null): void => {
+    const previousSource = customArtworkSourceRef.current;
+    if (previousSource !== null && previousSource !== nextSource) {
+      previousSource.canvas.width = previousSource.canvas.height = 0;
+    }
+    customArtworkSourceRef.current = nextSource;
+  };
+
+  useEffect(() => () => {
+    const source = customArtworkSourceRef.current;
+    if (source !== null) {
+      source.canvas.width = source.canvas.height = 0;
+    }
+  }, []);
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
 
@@ -431,7 +448,12 @@ export function App() {
           ) : (
             <FoldChunkBoundary>
               <Suspense fallback={null}>
-                <FoldView boxId={boxId} values={values} />
+                <FoldView
+                  boxId={boxId}
+                  values={values}
+                  customSource={customArtworkSourceRef.current}
+                  onCustomSourceChange={replaceCustomArtworkSource}
+                />
               </Suspense>
             </FoldChunkBoundary>
           )}

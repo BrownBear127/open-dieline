@@ -10,6 +10,7 @@ import {
 import type {
   ArtworkMode,
   createFoldScene,
+  CustomArtworkSource,
   FoldRecipeName,
   FoldSceneHandle,
 } from '@/ui/fold-scene';
@@ -50,9 +51,23 @@ async function loadFoldModelRuntime(): Promise<FoldModelRuntime> {
 export interface FoldViewProps {
   boxId: string;
   values: ResolvedParams;
+  customSource?: CustomArtworkSource | null;
+  onCustomSourceChange?: (source: CustomArtworkSource | null) => void;
+  loadArtwork?: ArtworkFileLoader;
   createScene?: typeof createFoldScene;
   loadScene?: () => Promise<{ createFoldScene: typeof createFoldScene }>;
 }
+
+export interface ArtworkFileLoadOptions {
+  signature: string;
+  signal?: AbortSignal;
+  onCommit: (source: CustomArtworkSource) => void;
+}
+
+export type ArtworkFileLoader = (
+  file: File,
+  options: ArtworkFileLoadOptions,
+) => Promise<unknown>;
 
 function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
   return (
@@ -62,7 +77,15 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
   );
 }
 
-export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProps) {
+export function FoldView({
+  boxId,
+  values,
+  customSource = null,
+  onCustomSourceChange,
+  loadArtwork,
+  createScene,
+  loadScene,
+}: FoldViewProps) {
   const initialFoldProgress = P3_TEST_HOOKS_ENABLED
     ? peekInitialFoldProgress() ?? DEFAULT_FOLD_PROGRESS
     : DEFAULT_FOLD_PROGRESS;
@@ -74,7 +97,10 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const playbackOriginRef = useRef(DEFAULT_FOLD_PROGRESS);
   const foldProgressRef = useRef(initialFoldProgress);
   const cardRecipeRef = useRef<FoldRecipeName>('kraft');
-  const artworkRef = useRef<ArtworkMode>('none');
+  const initialArtwork: ArtworkMode = customSource === null ? 'none' : 'custom';
+  const artworkRef = useRef<ArtworkMode>(initialArtwork);
+  const customSourceRef = useRef<CustomArtworkSource | null>(customSource);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 自轉預設關閉（2026-07-17 E2E 驗收裁決）：進場靜止，由使用者主動開啟。
   const autoRotateRef = useRef(false);
@@ -82,7 +108,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const [playing, setPlaying] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
-  const [artwork, setArtwork] = useState<ArtworkMode>('none');
+  const [artwork, setArtwork] = useState<ArtworkMode>(initialArtwork);
   const artworkEnabled = artwork === 'sample';
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
@@ -155,10 +181,21 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     sceneRef.current?.applyRecipe(name);
   };
 
+  const cancelPendingUpload = (): void => {
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
+  };
+
   const selectArtwork = (mode: ArtworkMode): void => {
+    cancelPendingUpload();
     artworkRef.current = mode;
     setArtwork(mode);
     sceneRef.current?.applyArtwork(mode);
+    if (mode !== 'custom' && customSourceRef.current !== null) {
+      sceneRef.current?.removeCustomSource();
+      customSourceRef.current = null;
+      onCustomSourceChange?.(null);
+    }
   };
 
   // P3 M3 T1——重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（J1 C7b：main
@@ -182,7 +219,26 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     const file = event.target.files?.[0];
     event.target.value = '';
     if (file === undefined) return;
-    void import('./artwork-source').then(({ loadArtworkFile }) => loadArtworkFile(file));
+    cancelPendingUpload();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+
+    const startUpload = async (): Promise<void> => {
+      const loader = loadArtwork ?? (await import('./artwork-source')).loadArtworkFile;
+      if (controller.signal.aborted) return;
+      await loader(file, {
+        signature: JSON.stringify([boxId, values]),
+        signal: controller.signal,
+        onCommit: (source) => {
+          customSourceRef.current = source;
+          onCustomSourceChange?.(source);
+          sceneRef.current?.installCustomSource(source);
+          selectArtwork('custom');
+        },
+      });
+    };
+
+    void startUpload().catch((error: unknown) => console.error(error));
   };
 
   const toggleAutoRotate = (): void => {
@@ -208,6 +264,8 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   }, []);
 
   useEffect(() => () => cancelPlaybackFrame(), []);
+
+  useEffect(() => () => cancelPendingUpload(), []);
 
   useEffect(() => {
     if (validationErrors.length > 0) console.error(validationErrors);
@@ -270,6 +328,9 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       const currentModel = modelRef.current;
       if (currentModel !== undefined) {
         nextScene.replaceModel(currentModel, { thickness: thicknessRef.current });
+      }
+      if (customSourceRef.current !== null) {
+        nextScene.installCustomSource(customSourceRef.current);
       }
       nextScene.updatePose(foldProgressRef.current);
       nextScene.setAutoRotate(autoRotateRef.current);
