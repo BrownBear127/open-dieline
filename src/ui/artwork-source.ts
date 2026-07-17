@@ -101,14 +101,14 @@ function hasExternalDomResource(documentNode: Document): boolean {
       const attributeName = attribute.localName.toLowerCase();
       const value = attribute.value.trim();
       if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) return true;
-      // 嚴格掃描位置=style＋mask。mask 是 SVG2 presentation attributes 中唯一
-      // 對應 property 文法含 CSS <image>（mask shorthand → <mask-reference> →
-      // <image> → image-set(<string>) 可不經 url( 引外部資源·V5 四審實證
-      // Chromium 發請求）；其餘 presentation attr 的資源語法為 url token
-      //（fill/stroke=<paint>·filter=<filter-value-list>·clip-path=<clip-source>|
-      // <basic-shape>·marker-*=<url>——文法皆無 <image>），走 url( 掃描＋\ 拒
-      // 即完備，transform 族 function notation 不誤拒。
-      const strict = attributeName === 'style' || attributeName === 'mask';
+      // 嚴格掃描位置=style＋mask＋cursor。V5 五審按 SVG2 §6.6 主表 70/70 逐項
+      // 核值文法（開發紀錄 §②）：非 url-token 資源語法的 property
+      // 僅 mask（<mask-reference>→<image>）與 cursor（CSS UI 3 明許 <image>
+      // superset·UI 4 <url-set>）——兩者的 image-set(<string>) 可不經 url( 引
+      // 外部資源（四/五審各實證 Chromium 發請求）。其餘 61 項無資源分支、7 項
+      //（fill/stroke/filter/clip-path/marker-*）資源分支僅 <url>——url( 掃描＋
+      // \ 拒即完備，transform 族 function notation 不誤拒。
+      const strict = attributeName === 'style' || attributeName === 'mask' || attributeName === 'cursor';
       if (strict ? hasExternalStyleContent(value) : hasExternalCssResource(value)) {
         return true;
       }

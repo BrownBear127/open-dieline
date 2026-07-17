@@ -30,6 +30,8 @@ describe('probe test manifest fail-loud contract (F4)', () => {
       'rejects image-set string reference in a style attribute during the mandatory DOM resource scan',
       // V5 四審：mask presentation attribute 的 <image> 文法縫（嚴格掃描擴 mask）。
       'rejects image-set string reference in a mask presentation attribute during the mandatory DOM resource scan',
+      // V5 五審：cursor 為 70/70 核對後第二個也是最後一個 image-capable 屬性。
+      'rejects image-set string reference in a cursor presentation attribute during the mandatory DOM resource scan',
     ]);
   });
 
