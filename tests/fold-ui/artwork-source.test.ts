@@ -186,6 +186,14 @@ describe('validateArtworkFile', () => {
       'data URI href',
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="data:image/png;base64,AA=="/></svg>',
     ],
+    [
+      'CSS-escaped url in a style attribute',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect style="fill:u\\72l(https://example.com/a.svg)"/></svg>',
+    ],
+    [
+      'CSS-escaped @import in a style element',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><style>@\\69mport "https://example.com/a.css";</style></svg>',
+    ],
   ])('rejects %s during the mandatory DOM resource scan', async (_label, markup) => {
     const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });
 

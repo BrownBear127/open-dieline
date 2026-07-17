@@ -22,6 +22,9 @@ describe('probe test manifest fail-loud contract (F4)', () => {
       'rejects style attribute with an external url during the mandatory DOM resource scan',
       'rejects mixed-case xlink namespace href during the mandatory DOM resource scan',
       'rejects data URI href during the mandatory DOM resource scan',
+      // V5 re-review：CSS 十六進位轉義漏網修正的兩案（escape 拒收策略）。
+      'rejects CSS-escaped url in a style attribute during the mandatory DOM resource scan',
+      'rejects CSS-escaped @import in a style element during the mandatory DOM resource scan',
     ]);
   });
 

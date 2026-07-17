@@ -63,6 +63,11 @@ const RESOURCE_ATTRIBUTE_NAMES = new Set([
 ]);
 
 function hasExternalCssResource(css: string): boolean {
+  // CSS 十六進位轉義（\72 → r 等）可讓 literal 掃描漏認 url(/@import（re-review V5
+  // 實證兩輸入 Chromium 真發外部請求）。保守可證明策略：含任何反斜線一律拒——
+  // CSS escape 必以 \ 起頭，合法設計稿 style（fill/stroke/顏色/數值）無需轉義；
+  // 無 \ 則下方 literal 掃描即完備。不做 CSS token 解析（自寫 unescape 易再留縫）。
+  if (css.includes('\\')) return true;
   if (/@import\b/i.test(css)) return true;
 
   const urls = css.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi);
