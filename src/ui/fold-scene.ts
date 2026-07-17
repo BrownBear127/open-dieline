@@ -14,6 +14,7 @@ import {
   PlaneGeometry,
   PointLight,
   Scene,
+  SRGBColorSpace,
   Vector3,
   WebGLRenderer,
 } from 'three';
@@ -21,7 +22,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
-import type { FoldModel } from '../fold/types';
+import type { FoldModel, FoldPanel } from '../fold/types';
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
 const CARD_COLOR = 0xffffff;
@@ -42,6 +43,71 @@ const SHADOW_PADDING_FACTOR = 1.18;
 const SHADOW_MIN_SPAN_FACTOR = 0.35;
 const SHADOW_LIFT_OFFSET_FACTOR = 0.003;
 const DIELINE_TO_THREE_Y = -1;
+const PRINT_TEXTURE_SIZE = 64;
+const PRINT_TEXTURE_PADDING = 2;
+const PRINT_LINE_COLOR = 'rgb(32, 36, 40)';
+
+export interface FoldLook {
+  cardColor: number;
+  roughness: number;
+  metalness: number;
+  keyIntensity: number;
+  keyColor: number;
+  fillIntensity: number;
+  fillColor: number;
+  ambientIntensity: number;
+  printOverlay: 'none' | 'dieline-faint';
+}
+
+export const FOLD_LOOK_PRESETS: Record<
+  'plain' | 'kraft' | 'black' | 'engineering',
+  FoldLook
+> = {
+  plain: {
+    cardColor: CARD_COLOR,
+    roughness: CARD_ROUGHNESS,
+    metalness: CARD_METALNESS,
+    keyIntensity: KEY_LIGHT_INTENSITY,
+    keyColor: 0xffffff,
+    fillIntensity: FILL_LIGHT_INTENSITY,
+    fillColor: 0xdde8ff,
+    ambientIntensity: AMBIENT_LIGHT_INTENSITY,
+    printOverlay: 'none',
+  },
+  kraft: {
+    cardColor: 0xc9a06c,
+    roughness: 0.95,
+    metalness: 0,
+    keyIntensity: 6,
+    keyColor: 0xfff1dd,
+    fillIntensity: 3,
+    fillColor: 0xdde8ff,
+    ambientIntensity: 1.2,
+    printOverlay: 'none',
+  },
+  black: {
+    cardColor: 0x1c1a17,
+    roughness: 0.85,
+    metalness: 0,
+    keyIntensity: 5,
+    keyColor: 0xffffff,
+    fillIntensity: 2,
+    fillColor: 0xdde8ff,
+    ambientIntensity: 0.35,
+    printOverlay: 'none',
+  },
+  engineering: {
+    cardColor: 0xf5f2ea,
+    roughness: 0.9,
+    metalness: 0,
+    keyIntensity: 6,
+    keyColor: 0xffffff,
+    fillIntensity: 3,
+    fillColor: 0xdde8ff,
+    ambientIntensity: 1,
+    printOverlay: 'dieline-faint',
+  },
+};
 
 function mapDielineY(y: number): number {
   if (y === 0) return 0;
@@ -146,6 +212,11 @@ interface ContactShadow {
   texture: CanvasTexture;
 }
 
+interface PanelOverlay {
+  material: MeshStandardMaterial;
+  texture: CanvasTexture;
+}
+
 /**
  * Fan-triangulates panel vertices while mapping dieline coordinates to Three.js.
  * Dielines use y-down coordinates; Three.js uses y-up, so y is always negated.
@@ -234,13 +305,116 @@ function paperColor(): Color {
   return new Color(token || PAPER_FALLBACK);
 }
 
-function createCardMaterial(thickness: number): MeshStandardMaterial {
+function createCardMaterial(
+  look: FoldLook,
+  thickness: number,
+): MeshStandardMaterial {
   return new MeshStandardMaterial({
-    color: CARD_COLOR,
-    metalness: CARD_METALNESS,
-    roughness: CARD_ROUGHNESS,
+    color: look.cardColor,
+    metalness: look.metalness,
+    roughness: look.roughness,
     side: thickness > 0 ? FrontSide : DoubleSide,
   });
+}
+
+interface PanelTextureCoordinates {
+  canvasX: number;
+  canvasY: number;
+  u: number;
+  v: number;
+}
+
+function panelTextureCoordinates(
+  polygon: FoldPanel['polygon'],
+): PanelTextureCoordinates[] {
+  const xs = polygon.map(({ x }) => x);
+  const ys = polygon.map(({ y }) => y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const drawableSize = PRINT_TEXTURE_SIZE - PRINT_TEXTURE_PADDING * 2;
+
+  return polygon.map(({ x, y }) => {
+    const normalizedX = width > 0 ? (x - minX) / width : 0.5;
+    const normalizedY = height > 0 ? (y - minY) / height : 0.5;
+    const canvasX = PRINT_TEXTURE_PADDING + normalizedX * drawableSize;
+    const canvasY = PRINT_TEXTURE_PADDING + normalizedY * drawableSize;
+    return {
+      canvasX,
+      canvasY,
+      u: normalizedX,
+      v: 1 - normalizedY,
+    };
+  });
+}
+
+function createDielineTexture(polygon: FoldPanel['polygon']): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = PRINT_TEXTURE_SIZE;
+  canvas.height = PRINT_TEXTURE_SIZE;
+
+  const context = canvas.getContext('2d');
+  const coordinates = panelTextureCoordinates(polygon);
+  if (context) {
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, PRINT_TEXTURE_SIZE, PRINT_TEXTURE_SIZE);
+
+    const first = coordinates[0];
+    if (first) {
+      context.beginPath();
+      context.moveTo(first.canvasX, first.canvasY);
+      for (const coordinate of coordinates.slice(1)) {
+        context.lineTo(coordinate.canvasX, coordinate.canvasY);
+      }
+      context.closePath();
+      context.lineWidth = 1;
+      context.strokeStyle = PRINT_LINE_COLOR;
+      context.stroke();
+    }
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
+function panelSolidUvs(
+  polygon: FoldPanel['polygon'],
+  thickness: number,
+): Float32Array {
+  const coordinates = panelTextureCoordinates(polygon);
+  const values: number[] = [];
+  const write = (index: number): void => {
+    const coordinate = coordinates[index];
+    if (coordinate) values.push(coordinate.u, coordinate.v);
+  };
+
+  for (let index = 1; index < coordinates.length - 1; index += 1) {
+    write(0);
+    write(index);
+    write(index + 1);
+  }
+  if (!(thickness > 0)) return new Float32Array(values);
+
+  for (let index = 1; index < coordinates.length - 1; index += 1) {
+    write(0);
+    write(index + 1);
+    write(index);
+  }
+  for (let index = 0; index < coordinates.length; index += 1) {
+    const nextIndex = (index + 1) % coordinates.length;
+    write(index);
+    write(index);
+    write(nextIndex);
+    write(index);
+    write(nextIndex);
+    write(nextIndex);
+  }
+
+  return new Float32Array(values);
 }
 
 function createContactShadow(): ContactShadow {
@@ -361,6 +535,23 @@ export interface CameraFrame {
   focusDiagonal: number;
 }
 
+export function cameraOrbitPosition(
+  target: Vec3,
+  distance: number,
+  azimuthDeg: number,
+  elevationDeg: number,
+): Vec3 {
+  const azimuth = azimuthDeg * Math.PI / 180;
+  const elevation = elevationDeg * Math.PI / 180;
+  const horizontalDistance = distance * Math.cos(elevation);
+
+  return {
+    x: target.x + horizontalDistance * Math.sin(azimuth),
+    y: target.y + distance * Math.sin(elevation),
+    z: target.z + horizontalDistance * Math.cos(azimuth),
+  };
+}
+
 /**
  * 相機框架與「當下 pose」解耦：軸心永遠是盒體中心，不隨 replaceModel 當下的
  * t 漂移（舊行為在 scene 初始 t=0 時把軸心定在攤平大紙中心，自轉變成繞行）。
@@ -417,9 +608,12 @@ export function createFoldScene(
   controls.enableDamping = true;
   controls.target.set(0, 0, 0);
 
-  const ambient = new AmbientLight(0xffffff, AMBIENT_LIGHT_INTENSITY);
-  const keyLight = new PointLight(0xffffff, KEY_LIGHT_INTENSITY);
-  const fillLight = new PointLight(0xdde8ff, FILL_LIGHT_INTENSITY);
+  let activeLook = FOLD_LOOK_PRESETS.plain;
+  let keyLightBaseIntensity = activeLook.keyIntensity;
+  let fillLightBaseIntensity = activeLook.fillIntensity;
+  const ambient = new AmbientLight(0xffffff, activeLook.ambientIntensity);
+  const keyLight = new PointLight(activeLook.keyColor, keyLightBaseIntensity);
+  const fillLight = new PointLight(activeLook.fillColor, fillLightBaseIntensity);
   const keyLightOffset = new Vector3(-0.42, 0.48, -0.58);
   const fillLightOffset = new Vector3(0.52, 0.08, -0.36);
   scene.add(ambient, keyLight, fillLight);
@@ -435,6 +629,7 @@ export function createFoldScene(
     string,
     Mesh<BufferGeometry, MeshStandardMaterial>
   >();
+  const panelOverlays = new Map<string, PanelOverlay>();
   let panelMaterial: MeshStandardMaterial | null = null;
   let currentModel: FoldModel | null = null;
   let currentThickness = 0;
@@ -444,7 +639,36 @@ export function createFoldScene(
   let contextLost = false;
   let disposed = false;
 
+  const clearPanelOverlay = (): void => {
+    if (panelMaterial) {
+      for (const mesh of panelMeshes.values()) mesh.material = panelMaterial;
+    }
+    for (const { material, texture } of panelOverlays.values()) {
+      material.dispose();
+      texture.dispose();
+    }
+    panelOverlays.clear();
+  };
+
+  const applyPrintOverlay = (overlay: FoldLook['printOverlay']): void => {
+    clearPanelOverlay();
+    if (overlay === 'none' || !panelMaterial || !currentModel) return;
+
+    for (const panel of currentModel.panels) {
+      const mesh = panelMeshes.get(panel.id);
+      if (!mesh) continue;
+
+      const texture = createDielineTexture(panel.polygon);
+      const material = panelMaterial.clone();
+      material.map = texture;
+      material.needsUpdate = true;
+      mesh.material = material;
+      panelOverlays.set(panel.id, { material, texture });
+    }
+  };
+
   const disposePanelTree = (): void => {
+    clearPanelOverlay();
     for (const mesh of panelMeshes.values()) {
       mesh.geometry.dispose();
     }
@@ -455,7 +679,7 @@ export function createFoldScene(
   };
 
   const buildPanelTree = (model: FoldModel): void => {
-    panelMaterial = createCardMaterial(currentThickness);
+    panelMaterial = createCardMaterial(activeLook, currentThickness);
     const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
 
     for (const panel of model.panels) {
@@ -463,6 +687,10 @@ export function createFoldScene(
       const vertices = geometryByPanel.get(panel.id) ?? [];
       const positions = panelSolidPositions(vertices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
+      geometry.setAttribute(
+        'uv',
+        new BufferAttribute(panelSolidUvs(panel.polygon, currentThickness), 2),
+      );
 
       const mesh = new Mesh(geometry, panelMaterial);
       mesh.name = `fold-panel:${panel.id}`;
@@ -470,6 +698,8 @@ export function createFoldScene(
       panelMeshes.set(panel.id, mesh);
       panelRoot.add(mesh);
     }
+
+    applyPrintOverlay(activeLook.printOverlay);
   };
 
   const updateContactShadow = (bounds: GeometryBounds): void => {
@@ -544,8 +774,8 @@ export function createFoldScene(
       .multiplyScalar(distance)
       .applyQuaternion(camera.quaternion)
       .add(camera.position);
-    keyLight.intensity = KEY_LIGHT_INTENSITY * intensityScale;
-    fillLight.intensity = FILL_LIGHT_INTENSITY * intensityScale;
+    keyLight.intensity = keyLightBaseIntensity * intensityScale;
+    fillLight.intensity = fillLightBaseIntensity * intensityScale;
   };
 
   const renderFrame = (): void => {
@@ -571,6 +801,52 @@ export function createFoldScene(
     needsRender = true;
     scheduleRender();
   };
+
+  const applyLook = (look: FoldLook): void => {
+    activeLook = look;
+    keyLightBaseIntensity = look.keyIntensity;
+    fillLightBaseIntensity = look.fillIntensity;
+    keyLight.color.setHex(look.keyColor);
+    fillLight.color.setHex(look.fillColor);
+    ambient.intensity = look.ambientIntensity;
+    updateLightRig();
+
+    if (panelMaterial) {
+      panelMaterial.color.setHex(look.cardColor);
+      panelMaterial.roughness = look.roughness;
+      panelMaterial.metalness = look.metalness;
+      panelMaterial.needsUpdate = true;
+      applyPrintOverlay(look.printOverlay);
+    }
+
+    markNeedsRender();
+  };
+
+  let devSetLook: ((name: keyof typeof FOLD_LOOK_PRESETS) => void) | null = null;
+  let devSetCameraOrbit: ((azimuthDeg: number, elevationDeg: number) => void) | null = null;
+  if (import.meta.env.DEV) {
+    devSetLook = (name: keyof typeof FOLD_LOOK_PRESETS) => {
+      applyLook(FOLD_LOOK_PRESETS[name]);
+    };
+    devSetCameraOrbit = (azimuthDeg: number, elevationDeg: number) => {
+      const target = {
+        x: controls.target.x,
+        y: controls.target.y,
+        z: controls.target.z,
+      };
+      const position = cameraOrbitPosition(
+        target,
+        camera.position.distanceTo(controls.target),
+        azimuthDeg,
+        elevationDeg,
+      );
+      camera.position.set(position.x, position.y, position.z);
+      controls.update();
+      markNeedsRender();
+    };
+    (window as unknown as Record<string, unknown>).__p3SetLook = devSetLook;
+    (window as unknown as Record<string, unknown>).__p3SetCameraOrbit = devSetCameraOrbit;
+  }
 
   const resize = (width: number, height: number): void => {
     viewportWidth = Number.isFinite(width) ? Math.max(1, width) : 1;
@@ -656,6 +932,20 @@ export function createFoldScene(
     dispose() {
       if (disposed) return;
       disposed = true;
+      if (
+        import.meta.env.DEV
+        && devSetLook
+        && (window as unknown as Record<string, unknown>).__p3SetLook === devSetLook
+      ) {
+        delete (window as unknown as Record<string, unknown>).__p3SetLook;
+      }
+      if (
+        import.meta.env.DEV
+        && devSetCameraOrbit
+        && (window as unknown as Record<string, unknown>).__p3SetCameraOrbit === devSetCameraOrbit
+      ) {
+        delete (window as unknown as Record<string, unknown>).__p3SetCameraOrbit;
+      }
       cancelRenderLoop();
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
