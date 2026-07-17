@@ -48,10 +48,11 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const playbackStartedAtRef = useRef<number | null>(null);
   const playbackOriginRef = useRef(1);
   const foldProgressRef = useRef(1);
-  const autoRotateRef = useRef(true);
+  // 自轉預設關閉（2026-07-17 E2E 驗收裁決）：進場靜止，由使用者主動開啟。
+  const autoRotateRef = useRef(false);
   const [foldProgress, setFoldProgress] = useState(1);
   const [playing, setPlaying] = useState(false);
-  const [autoRotate, setAutoRotate] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
   // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 空狀態殼

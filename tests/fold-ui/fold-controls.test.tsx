@@ -80,7 +80,8 @@ describe('FoldView controls', () => {
     expect(progress).toHaveAttribute('step', '0.001');
     expect(progress).toHaveValue('1');
     expect(autoRotate).toHaveClass('tick');
-    expect(autoRotate).toBeChecked();
+    // 2026-07-17 E2E 驗收裁決：自轉預設關閉——進場靜止、由使用者主動開啟。
+    expect(autoRotate).not.toBeChecked();
     expect(autoRotate.closest('label')).toHaveClass('compat');
     expect(container.querySelector('.foldbar')).toBe(controls);
   });
@@ -143,17 +144,17 @@ describe('FoldView controls', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('enables auto-rotate on mount and forwards both checkbox states', async () => {
+  it('starts with auto-rotate off on mount and forwards both checkbox states', async () => {
     const fake = createFakeScene();
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     const autoRotate = await screen.findByRole('checkbox', { name: t('fold.autorotate') });
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
 
-    expect(fake.handles[0]!.setAutoRotate).toHaveBeenCalledExactlyOnceWith(true);
-    fireEvent.click(autoRotate);
-    expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(false);
+    expect(fake.handles[0]!.setAutoRotate).toHaveBeenCalledExactlyOnceWith(false);
     fireEvent.click(autoRotate);
     expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(true);
+    fireEvent.click(autoRotate);
+    expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(false);
   });
 
   it('cancels the playback frame and leaves no timer when unmounted', async () => {
@@ -190,7 +191,10 @@ describe('FoldView controls', () => {
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
 
+    // 預設關閉——先由使用者開啟自轉，才有「拖轉即停」可驗。
     const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
 
     // fold-scene 在 controls start 事件已自行關 autoRotate 並回呼 onUserInteract——
