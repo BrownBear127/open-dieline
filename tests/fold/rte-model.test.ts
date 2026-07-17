@@ -104,12 +104,27 @@ describe('RTE FoldModel integration contracts', () => {
     expect(defaultModel().steps).toEqual([
       { panelIds: ['P2', 'P3', 'P4', 'glue'], t0: 0, t1: 0.35, ease: 'powerInOut' },
       { panelIds: ['bottomDustP2', 'bottomDustP4'], t0: 0.35, t1: 0.5, ease: 'backIn' },
-      { panelIds: ['bottomLid'], t0: 0.5, t1: 0.64, ease: 'powerInOut' },
-      { panelIds: ['bottomTuck'], t0: 0.6, t1: 0.72, ease: 'backIn' },
+      { panelIds: ['bottomTuck'], t0: 0.5, t1: 0.6, ease: 'backIn' },
+      { panelIds: ['bottomLid'], t0: 0.6, t1: 0.72, ease: 'powerInOut' },
       { panelIds: ['topDustP2', 'topDustP4'], t0: 0.72, t1: 0.84, ease: 'backIn' },
-      { panelIds: ['topLid'], t0: 0.84, t1: 0.95, ease: 'powerInOut' },
-      { panelIds: ['topTuck'], t0: 0.92, t1: 1, ease: 'backIn' },
+      { panelIds: ['topTuck'], t0: 0.84, t1: 0.92, ease: 'backIn' },
+      { panelIds: ['topLid'], t0: 0.92, t1: 1, ease: 'powerInOut' },
     ]);
+  });
+
+  it('插舌先於蓋板收摺（實體用法：插舌折進去才蓋蓋子·上下蓋皆然）', () => {
+    // 2026-07-17 法蘭 E2E 裁決：tuck 是 lid 的子面板，tuck 時間窗先收完、
+    // lid 才起摺＝「蓋板帶著已折好的插舌蓋上」；反序會讓插舌穿過盒壁。
+    const steps = defaultModel().steps;
+    const windowOf = (id: string) => steps.find((step) => step.panelIds.includes(id))!;
+
+    for (const [tuck, lid] of [
+      ['bottomTuck', 'bottomLid'],
+      ['topTuck', 'topLid'],
+    ] as const) {
+      expect(windowOf(tuck).t1, `${tuck} 須在 ${lid} 起摺前收完`)
+        .toBeLessThanOrEqual(windowOf(lid).t0);
+    }
   });
 
   it('tuckDepth=0 時省略兩片插舌並移除空摺序', () => {
