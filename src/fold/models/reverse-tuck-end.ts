@@ -121,11 +121,11 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
   const xGapVal = Math.max(flapNotch > 0 ? flapNotch : 0, creaseRelief > 0 ? creaseRelief : 0);
   const dustRelief = Math.min(xGapVal > 0 ? xGapVal : 3, W / 2);
 
-  // tuckLock 不進 M1 模型（BLOCKED-ON-2026-07-17）：表示法是設計選擇非技術不可行——
-  // 候選 A（左右 hinge 翼＋中央 foldAngle=0 分片）已實證通過現有 validate 且接縫 0，
-  // 但使預設模型 panels 13→17（釘值測試/steps 語義全面波及）且非唯一表示法；
-  // 候選 B=放寬 validate 至共線段集合、候選 C=延 M2 與紙厚視覺一起裁。
-  // A/B/C 待裁——證明與記錄見 ledger progress-p3-m1.md（re-review N1 修正過時說法）。
+  // tuckLock 不進 M1 模型（裁決 2026-07-17＝候選 C：延 M2 與紙厚視覺一起裁）：
+  // 表示法是設計選擇非技術不可行——候選 A（左右 hinge 翼＋中央 foldAngle=0 分片）已實證
+  // 通過現有 validate 且接縫 0，但使預設模型 panels 13→17（釘值測試/steps 語義全面波及）
+  // 且非唯一表示法；候選 B=放寬 validate 至共線段集合。M2 落地時再裁 A/B——
+  // 證明與記錄見 ledger progress-p3-m1.md（re-review N1 修正過時說法）。
 
   const x0 = 0;
   const x1 = L;

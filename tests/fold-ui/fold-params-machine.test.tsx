@@ -96,9 +96,10 @@ describe('FoldView B4-machine parameter linkage', () => {
   // 原理上無法表達」的舊說法已被此反例推翻（final review F1·re-review N1 修正文案）。
   // 尚未接線的原因是設計選擇：候選 A 使預設模型 panels 13→17（爆破半徑穿透全部釘值
   // 測試與 steps 語義）、完整 RTE/圓角/視覺 QA 未驗、且非唯一表示法（候選 B=validator
-  // 放寬至共線段集合·候選 C=延 M2 視覺輪連紙厚一起裁）。A/B/C 升裁決——
-  // 詳 ledger progress-p3-m1.md；裁決後本 todo 轉真測試（區分維度視表示法定）。
-  it.todo('tuckLock changes the received model dimension — BLOCKED-ON-維護者（表示法設計選擇 A/B/C·候選 A 已證可行）');
+  // 放寬至共線段集合·候選 C=延 M2 視覺輪連紙厚一起裁）。裁決 2026-07-17＝C
+  //（延 M2 落地·屆時再裁表示法 A/B）——詳 ledger progress-p3-m1.md；
+  // M2 落地時本 todo 轉真測試（區分維度視表示法定）。
+  it.todo('tuckLock changes the received model dimension — 延 M2 落地（裁決 C·2026-07-17·候選 A 已證可行）');
 
   it.each(PARAM_CASES.filter(({ key }) => key !== 'tuckLock'))('$key changes the received model dimension: $dimension', async ({ key, value, project }) => {
     const fake = createFakeScene();
