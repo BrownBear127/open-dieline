@@ -3,6 +3,10 @@ import type { FoldModel, FoldPanel, FoldStep, Pt } from '../types';
 import { ARC_TOLERANCE_MM } from '../types';
 
 const INWARD_FOLD_ANGLE = -Math.PI / 2;
+// Mirrors core/primitives.frictionLock; rte-reconcile guards these nominal 3D vertices
+// against the compensated 2D output without coupling the fold chunk to 2D path builders.
+const FRICTION_LOCK_HEIGHT = 1.5;
+const FRICTION_LOCK_CHAMFER = 2;
 
 function rectangle(left: number, top: number, right: number, bottom: number): Pt[] {
   return [
@@ -11,6 +15,16 @@ function rectangle(left: number, top: number, right: number, bottom: number): Pt
     { x: right, y: bottom },
     { x: left, y: bottom },
   ];
+}
+
+function rotatePolygon(polygon: Pt[], startIndex: number): Pt[] {
+  return [...polygon.slice(startIndex), ...polygon.slice(0, startIndex)];
+}
+
+function lidWingWidth(lidWidth: number, tuckLock: number): number {
+  // The 2D generator permits an over-wide lock and reports it as an invariant. Three equal
+  // hinges keep all slices valid when two literal tuckLock segments would consume LidC.
+  return 2 * tuckLock < lidWidth ? tuckLock : lidWidth / 3;
 }
 
 function arcPoints(
@@ -73,6 +87,73 @@ function roundedBottomRectangle(
   ];
 }
 
+function slicedLidPanels(
+  side: 'top' | 'bottom',
+  left: number,
+  right: number,
+  hingeY: number,
+  depth: number,
+  tuckLock: number,
+  parent: string,
+): FoldPanel[] {
+  const width = right - left;
+  const wingWidth = lidWingWidth(width, tuckLock);
+  const centerLeft = left + wingWidth;
+  const centerRight = right - wingWidth;
+  const centerX = (left + right) / 2;
+  const lockLeft = centerX - tuckLock / 2;
+  const lockRight = centerX + tuckLock / 2;
+  const bottomLeftPolygon: Pt[] = [
+    { x: left, y: hingeY },
+    { x: centerLeft, y: hingeY },
+    { x: centerLeft, y: hingeY + depth },
+    { x: centerX, y: hingeY + depth },
+    { x: centerX, y: hingeY + depth + FRICTION_LOCK_HEIGHT },
+    { x: lockLeft + FRICTION_LOCK_CHAMFER, y: hingeY + depth + FRICTION_LOCK_HEIGHT },
+    { x: lockLeft, y: hingeY + depth },
+    { x: left, y: hingeY + depth },
+  ];
+  const bottomCenterPolygon = rectangle(centerLeft, hingeY, centerRight, hingeY + depth);
+  const bottomRightPolygon: Pt[] = [
+    { x: centerRight, y: hingeY },
+    { x: right, y: hingeY },
+    { x: right, y: hingeY + depth },
+    { x: lockRight, y: hingeY + depth },
+    { x: lockRight - FRICTION_LOCK_CHAMFER, y: hingeY + depth + FRICTION_LOCK_HEIGHT },
+    { x: centerX, y: hingeY + depth + FRICTION_LOCK_HEIGHT },
+    { x: centerX, y: hingeY + depth },
+    { x: centerRight, y: hingeY + depth },
+  ];
+
+  const topY = (point: Pt): Pt => ({ x: point.x, y: 2 * hingeY - point.y });
+  const polygons = side === 'bottom'
+    ? [
+        rotatePolygon(bottomLeftPolygon, 2),
+        bottomCenterPolygon,
+        rotatePolygon(bottomRightPolygon, 7),
+      ]
+    : [
+        rotatePolygon(bottomLeftPolygon.map(topY).reverse(), 5),
+        bottomCenterPolygon.map(topY).reverse(),
+        bottomRightPolygon.map(topY).reverse(),
+      ];
+  const prefix = side === 'top' ? 'topLid' : 'bottomLid';
+  const hingeSegments = side === 'top'
+    ? [[left, centerLeft], [centerLeft, centerRight], [centerRight, right]]
+    : [[centerLeft, left], [centerRight, centerLeft], [right, centerRight]];
+
+  return (['L', 'C', 'R'] as const).map((suffix, index) => ({
+    id: `${prefix}${suffix}`,
+    polygon: polygons[index]!,
+    parent,
+    hingeLine: {
+      a: { x: hingeSegments[index]![0]!, y: hingeY },
+      b: { x: hingeSegments[index]![1]!, y: hingeY },
+    },
+    foldAngle: INWARD_FOLD_ANGLE,
+  }));
+}
+
 function activeSteps(panels: FoldPanel[]): FoldStep[] {
   const panelIds = new Set(panels.map(({ id }) => id));
   // 摺序物理約束（2026-07-17 法蘭 E2E 裁決）：tuck 是 lid 的子面板，插舌時間窗
@@ -81,10 +162,20 @@ function activeSteps(panels: FoldPanel[]): FoldStep[] {
     { panelIds: ['P2', 'P3', 'P4', 'glue'], t0: 0, t1: 0.35, ease: 'powerInOut' },
     { panelIds: ['bottomDustP2', 'bottomDustP4'], t0: 0.35, t1: 0.5, ease: 'backIn' },
     { panelIds: ['bottomTuck'], t0: 0.5, t1: 0.6, ease: 'backIn' },
-    { panelIds: ['bottomLid'], t0: 0.6, t1: 0.72, ease: 'powerInOut' },
+    {
+      panelIds: ['bottomLid', 'bottomLidL', 'bottomLidC', 'bottomLidR'],
+      t0: 0.6,
+      t1: 0.72,
+      ease: 'powerInOut',
+    },
     { panelIds: ['topDustP2', 'topDustP4'], t0: 0.72, t1: 0.84, ease: 'backIn' },
     { panelIds: ['topTuck'], t0: 0.84, t1: 0.92, ease: 'backIn' },
-    { panelIds: ['topLid'], t0: 0.92, t1: 1, ease: 'powerInOut' },
+    {
+      panelIds: ['topLid', 'topLidL', 'topLidC', 'topLidR'],
+      t0: 0.92,
+      t1: 1,
+      ease: 'powerInOut',
+    },
   ];
 
   return steps
@@ -100,6 +191,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
   const tuckDepth = params.tuckDepth as number;
   const tuckRadius = params.tuckRadius as number;
   const tuckClearance = params.tuckClearance as number;
+  const tuckLock = params.tuckLock as number;
   const dustFlapDepth = params.dustFlapDepth as number;
   const flapNotch = params.flapNotch as number;
   const creaseRelief = params.creaseRelief as number;
@@ -121,11 +213,8 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
   const xGapVal = Math.max(flapNotch > 0 ? flapNotch : 0, creaseRelief > 0 ? creaseRelief : 0);
   const dustRelief = Math.min(xGapVal > 0 ? xGapVal : 3, W / 2);
 
-  // tuckLock 不進 M1 模型（法蘭裁決 2026-07-17＝候選 C：延 M2 與紙厚視覺一起裁）：
-  // 表示法是設計選擇非技術不可行——候選 A（左右 hinge 翼＋中央 foldAngle=0 分片）已實證
-  // 通過現有 validate 且接縫 0，但使預設模型 panels 13→17（釘值測試/steps 語義全面波及）
-  // 且非唯一表示法；候選 B=放寬 validate 至共線段集合。M2 落地時再裁 A/B——
-  // 證明與記錄見 ledger progress-p3-m1.md（re-review N1 修正過時說法）。
+  const hasTuckLock = tuckLock > 0;
+  const effectiveLidWingWidth = lidWingWidth(L, tuckLock);
 
   const x0 = 0;
   const x1 = L;
@@ -182,14 +271,19 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
     });
   }
 
-  // topLid 寬=L、高=W（2D: top lid={x2,x3}=wP3、高 hLid=W，x 鏈含補償）。
-  panels.push({
-    id: 'topLid',
-    polygon: rectangle(x2, -W, x3, 0),
-    parent: 'P3',
-    hingeLine: { a: { x: x2, y: 0 }, b: { x: x3, y: 0 } },
-    foldAngle: INWARD_FOLD_ANGLE,
-  });
+  // tuckLock=0 preserves the M1 single-panel ids. A positive lock splits the lid into
+  // coplanar L/C/R siblings; L/R each carry half of the 2D friction-lock trapezoid.
+  if (hasTuckLock) {
+    panels.push(...slicedLidPanels('top', x2, x3, 0, W, tuckLock, 'P3'));
+  } else {
+    panels.push({
+      id: 'topLid',
+      polygon: rectangle(x2, -W, x3, 0),
+      parent: 'P3',
+      hingeLine: { a: { x: x2, y: 0 }, b: { x: x3, y: 0 } },
+      foldAngle: INWARD_FOLD_ANGLE,
+    });
+  }
 
   if (hasTuck) {
     // topTuck 寬=L−2×tuckClearance、高=tuckDepth（2D: xt1/xt2=蓋板邊界∓tInset·:428-429）；
@@ -197,8 +291,11 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
     panels.push({
       id: 'topTuck',
       polygon: roundedTopRectangle(x2 + tuckInset, -W - tuckDepth, x3 - tuckInset, -W, tuckRadius),
-      parent: 'topLid',
-      hingeLine: { a: { x: x2 + tuckInset, y: -W }, b: { x: x3 - tuckInset, y: -W } },
+      parent: hasTuckLock ? 'topLidC' : 'topLid',
+      hingeLine: {
+        a: { x: Math.max(x2 + tuckInset, x2 + effectiveLidWingWidth), y: -W },
+        b: { x: Math.min(x3 - tuckInset, x3 - effectiveLidWingWidth), y: -W },
+      },
       foldAngle: INWARD_FOLD_ANGLE,
       liftOffset: thickness,
     });
@@ -234,14 +331,17 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
     });
   }
 
-  // bottomLid 寬=L、高=W（2D: bottom lid={x0,x1}=wP1、高 hLid=W，x 鏈含補償）。
-  panels.push({
-    id: 'bottomLid',
-    polygon: rectangle(x0, D, x1, D + W),
-    parent: 'P1',
-    hingeLine: { a: { x: x1, y: D }, b: { x: x0, y: D } },
-    foldAngle: INWARD_FOLD_ANGLE,
-  });
+  if (hasTuckLock) {
+    panels.push(...slicedLidPanels('bottom', x0, x1, D, W, tuckLock, 'P1'));
+  } else {
+    panels.push({
+      id: 'bottomLid',
+      polygon: rectangle(x0, D, x1, D + W),
+      parent: 'P1',
+      hingeLine: { a: { x: x1, y: D }, b: { x: x0, y: D } },
+      foldAngle: INWARD_FOLD_ANGLE,
+    });
+  }
 
   if (hasTuck) {
     // bottomTuck 寬=L−2×tuckClearance、高=tuckDepth（2D 同 topTuck·蓋板換 P1 側）；
@@ -249,8 +349,11 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
     panels.push({
       id: 'bottomTuck',
       polygon: roundedBottomRectangle(x0 + tuckInset, D + W, x1 - tuckInset, D + W + tuckDepth, tuckRadius),
-      parent: 'bottomLid',
-      hingeLine: { a: { x: x1 - tuckInset, y: D + W }, b: { x: x0 + tuckInset, y: D + W } },
+      parent: hasTuckLock ? 'bottomLidC' : 'bottomLid',
+      hingeLine: {
+        a: { x: Math.min(x1 - tuckInset, x1 - effectiveLidWingWidth), y: D + W },
+        b: { x: Math.max(x0 + tuckInset, x0 + effectiveLidWingWidth), y: D + W },
+      },
       foldAngle: INWARD_FOLD_ANGLE,
       liftOffset: thickness,
     });

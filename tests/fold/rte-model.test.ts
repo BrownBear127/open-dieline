@@ -8,7 +8,7 @@ import { foldPose } from '@/fold/schedule';
 import type { FoldModel, FoldPanel } from '@/fold/types';
 import { validateFoldModel } from '@/fold/validate';
 
-const EXPECTED_PANEL_IDS = [
+const LEGACY_PANEL_IDS = [
   'P1',
   'P2',
   'P3',
@@ -24,8 +24,32 @@ const EXPECTED_PANEL_IDS = [
   'topTuck',
 ].sort();
 
+const SLICED_PANEL_IDS = [
+  'P1',
+  'P2',
+  'P3',
+  'P4',
+  'bottomDustP2',
+  'bottomDustP4',
+  'bottomLidC',
+  'bottomLidL',
+  'bottomLidR',
+  'bottomTuck',
+  'glue',
+  'topDustP2',
+  'topDustP4',
+  'topLidC',
+  'topLidL',
+  'topLidR',
+  'topTuck',
+].sort();
+
 function defaultModel(): FoldModel {
   return buildRteFoldModel(resolveParams(reverseTuckEnd, {}));
+}
+
+function legacyModel(): FoldModel {
+  return buildRteFoldModel(resolveParams(reverseTuckEnd, { tuckLock: 0 }));
 }
 
 function panel(model: FoldModel, id: string): FoldPanel {
@@ -49,11 +73,66 @@ function expectBoundsClose(actual: [number, number], expected: [number, number])
 }
 
 describe('RTE FoldModel unit geometry', () => {
-  it('預設參數建立精確的 13 面板集合', () => {
+  it('tuckLock=20 將上下蓋各分成 L/C/R，並以 2D frictionLock 去補償座標形成梯形凸片', () => {
     const model = defaultModel();
 
+    expect(model.panels).toHaveLength(17);
+    expect(model.panels.map(({ id }) => id).sort()).toEqual(SLICED_PANEL_IDS);
+
+    expect(panel(model, 'topLidL').polygon).toEqual([
+      { x: 130, y: -55 },
+      { x: 130, y: 0 },
+      { x: 110, y: 0 },
+      { x: 110, y: -55 },
+      { x: 127.5, y: -55 },
+      { x: 129.5, y: -56.5 },
+      { x: 137.5, y: -56.5 },
+      { x: 137.5, y: -55 },
+    ]);
+    expect(panel(model, 'topLidR').polygon).toEqual([
+      { x: 145, y: -55 },
+      { x: 137.5, y: -55 },
+      { x: 137.5, y: -56.5 },
+      { x: 145.5, y: -56.5 },
+      { x: 147.5, y: -55 },
+      { x: 165, y: -55 },
+      { x: 165, y: 0 },
+      { x: 145, y: 0 },
+    ]);
+    expect(panel(model, 'bottomLidL').polygon).toEqual([
+      { x: 20, y: 172 },
+      { x: 27.5, y: 172 },
+      { x: 27.5, y: 173.5 },
+      { x: 19.5, y: 173.5 },
+      { x: 17.5, y: 172 },
+      { x: 0, y: 172 },
+      { x: 0, y: 117 },
+      { x: 20, y: 117 },
+    ]);
+    expect(panel(model, 'bottomLidR').polygon).toEqual([
+      { x: 35, y: 172 },
+      { x: 35, y: 117 },
+      { x: 55, y: 117 },
+      { x: 55, y: 172 },
+      { x: 37.5, y: 172 },
+      { x: 35.5, y: 173.5 },
+      { x: 27.5, y: 173.5 },
+      { x: 27.5, y: 172 },
+    ]);
+
+    expect(panel(model, 'topLidC').hingeLine).toEqual({ a: { x: 130, y: 0 }, b: { x: 145, y: 0 } });
+    expect(panel(model, 'bottomLidC').hingeLine).toEqual({ a: { x: 35, y: 117 }, b: { x: 20, y: 117 } });
+    expect(panel(model, 'topTuck').parent).toBe('topLidC');
+    expect(panel(model, 'bottomTuck').parent).toBe('bottomLidC');
+  });
+
+  it('tuckLock=0 維持 13 片單 lid 與既有 id', () => {
+    const model = legacyModel();
+
     expect(model.panels).toHaveLength(13);
-    expect(model.panels.map(({ id }) => id).sort()).toEqual(EXPECTED_PANEL_IDS);
+    expect(model.panels.map(({ id }) => id).sort()).toEqual(LEGACY_PANEL_IDS);
+    expect(panel(model, 'topTuck').parent).toBe('topLid');
+    expect(panel(model, 'bottomTuck').parent).toBe('bottomLid');
   });
 
   it('使用成品名義尺寸建立 P2 與 P3，不加入紙厚補償', () => {
@@ -88,6 +167,8 @@ describe('RTE FoldModel unit geometry', () => {
     expect(bottomTuck.polygon.length).toBeGreaterThan(6);
     expect(topTuck.liftOffset).toBe(params.thickness);
     expect(bottomTuck.liftOffset).toBe(params.thickness);
+    expect(topTuck.parent).toBe('topLidC');
+    expect(bottomTuck.parent).toBe('bottomLidC');
   });
 });
 
@@ -105,10 +186,10 @@ describe('RTE FoldModel integration contracts', () => {
       { panelIds: ['P2', 'P3', 'P4', 'glue'], t0: 0, t1: 0.35, ease: 'powerInOut' },
       { panelIds: ['bottomDustP2', 'bottomDustP4'], t0: 0.35, t1: 0.5, ease: 'backIn' },
       { panelIds: ['bottomTuck'], t0: 0.5, t1: 0.6, ease: 'backIn' },
-      { panelIds: ['bottomLid'], t0: 0.6, t1: 0.72, ease: 'powerInOut' },
+      { panelIds: ['bottomLidL', 'bottomLidC', 'bottomLidR'], t0: 0.6, t1: 0.72, ease: 'powerInOut' },
       { panelIds: ['topDustP2', 'topDustP4'], t0: 0.72, t1: 0.84, ease: 'backIn' },
       { panelIds: ['topTuck'], t0: 0.84, t1: 0.92, ease: 'backIn' },
-      { panelIds: ['topLid'], t0: 0.92, t1: 1, ease: 'powerInOut' },
+      { panelIds: ['topLidL', 'topLidC', 'topLidR'], t0: 0.92, t1: 1, ease: 'powerInOut' },
     ]);
   });
 
@@ -118,12 +199,14 @@ describe('RTE FoldModel integration contracts', () => {
     const steps = defaultModel().steps;
     const windowOf = (id: string) => steps.find((step) => step.panelIds.includes(id))!;
 
-    for (const [tuck, lid] of [
-      ['bottomTuck', 'bottomLid'],
-      ['topTuck', 'topLid'],
+    for (const [tuck, lids] of [
+      ['bottomTuck', ['bottomLidL', 'bottomLidC', 'bottomLidR']],
+      ['topTuck', ['topLidL', 'topLidC', 'topLidR']],
     ] as const) {
-      expect(windowOf(tuck).t1, `${tuck} 須在 ${lid} 起摺前收完`)
-        .toBeLessThanOrEqual(windowOf(lid).t0);
+      for (const lid of lids) {
+        expect(windowOf(tuck).t1, `${tuck} 須在 ${lid} 起摺前收完`)
+          .toBeLessThanOrEqual(windowOf(lid).t0);
+      }
     }
   });
 
@@ -131,17 +214,17 @@ describe('RTE FoldModel integration contracts', () => {
     const params = resolveParams(reverseTuckEnd, { tuckDepth: 0 });
     const model = buildRteFoldModel(params);
 
-    expect(model.panels).toHaveLength(11);
+    expect(model.panels).toHaveLength(15);
     expect(model.panels.some(({ id }) => id === 'topTuck' || id === 'bottomTuck')).toBe(false);
     expect(model.steps.every(({ panelIds }) => panelIds.length > 0)).toBe(true);
     expect(validateFoldModel(model)).toEqual([]);
   });
 
-  it('tuckDepth=0 且 dustFlapDepth=0 時只保留七片非零面板', () => {
+  it('tuckDepth=0 且 dustFlapDepth=0 時保留盒身、膠舌與六片 lid 分片', () => {
     const params = resolveParams(reverseTuckEnd, { tuckDepth: 0, dustFlapDepth: 0 });
     const model = buildRteFoldModel(params);
 
-    expect(model.panels).toHaveLength(7);
+    expect(model.panels).toHaveLength(11);
     expect(model.steps.every(({ panelIds }) => panelIds.length > 0)).toBe(true);
     expect(validateFoldModel(model)).toEqual([]);
   });
@@ -166,14 +249,14 @@ describe('RTE FoldModel end-to-end fold', () => {
     const W = params.W as number;
     const D = params.D as number;
     const p3 = geometry.get('P3')!;
-    const topLid = geometry.get('topLid')!;
-    const bottomLid = geometry.get('bottomLid')!;
+    const topLids = ['topLidL', 'topLidC', 'topLidR'].flatMap((id) => geometry.get(id)!);
+    const bottomLids = ['bottomLidL', 'bottomLidC', 'bottomLidR'].flatMap((id) => geometry.get(id)!);
 
     expect(p3.every(({ z }) => Math.abs(z - W) < 1e-9)).toBe(true);
     expectBoundsClose(coordinateBounds(p3.map(({ x }) => x)), [0, L]);
-    expect(topLid.every(({ y }) => Math.abs(y) < 1e-9)).toBe(true);
-    expect(bottomLid.every(({ y }) => Math.abs(y - D) < 1e-9)).toBe(true);
-    expectBoundsClose(coordinateBounds(topLid.map(({ z }) => z)), [0, W]);
-    expectBoundsClose(coordinateBounds(bottomLid.map(({ z }) => z)), [0, W]);
+    expect(topLids.every(({ y }) => Math.abs(y) < 1e-9)).toBe(true);
+    expect(bottomLids.every(({ y }) => Math.abs(y - D) < 1e-9)).toBe(true);
+    expectBoundsClose(coordinateBounds(topLids.map(({ z }) => z)), [-1.5, W]);
+    expectBoundsClose(coordinateBounds(bottomLids.map(({ z }) => z)), [0, W + 1.5]);
   });
 });
