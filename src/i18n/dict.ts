@@ -180,6 +180,10 @@ export const dict = {
     en: '3D fold preview requires WebGL, which is not available in this browser.',
     zh: '瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。',
   },
+  'fold.loadFailed': {
+    en: '3D fold preview failed to load. Switch modes to retry.',
+    zh: '3D 摺盒預覽載入失敗，切換模式可重試。',
+  },
 
   'modal.aria': { en: 'About open-dieline', zh: '關於 open-dieline' },
   'modal.close': { en: 'Close', zh: '關閉' },

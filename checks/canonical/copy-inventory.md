@@ -267,8 +267,8 @@ Vendor date: 2026-07-17
 - **B6 overlay 解析警告 ×8**（audit §13——`${key} ×N 未匯入` 模板家族；`err.message`
   透傳條保持原樣不翻）
 - **B7 pieces.ts 檢核 ×9**（audit §10）——規則 6：error-code 前綴保留
-- **B8 摺盒模式狀態文案 ×2**（P3 M1 新增·2026-07-17 法蘭簽核·無 audit 前身）——
-  telescope 空狀態＋WebGL fallback；聲部=mono 置中（P3 Spec §7）
+- **B8 摺盒模式狀態文案 ×3**（P3 M1 新增·2026-07-17 法蘭簽核·無 audit 前身）——
+  telescope 空狀態＋WebGL fallback＋dynamic chunk 載入失敗；聲部=mono 置中（P3 Spec §7）
 
 ## §C 匯出凍結（規則 3 執行細目）
 

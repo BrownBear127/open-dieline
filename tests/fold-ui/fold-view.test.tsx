@@ -226,7 +226,11 @@ describe('FoldView visible failure states', () => {
     expect(fake.createScene).not.toHaveBeenCalled();
   });
 
-  it('fold-scene chunk 載入失敗時 render 無文案空狀態殼、不留死控制列（final review F2）', async () => {
+  it.each([
+    ['en', '3D fold preview failed to load. Switch modes to retry.'],
+    ['zh', '3D 摺盒預覽載入失敗，切換模式可重試。'],
+  ] as const)('fold-scene chunk 載入失敗時以 %s render loadFailed 文案、不留死控制列', async (lang, copy) => {
+    setLang(lang);
     // jsdom getContext 天然 null 會先走 WebGL fallback——mock 成 truthy 讓流程進到 loadScene
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -235,7 +239,10 @@ describe('FoldView visible failure states', () => {
 
     await waitFor(() => expect(loadScene).toHaveBeenCalled());
     await waitFor(() => expect(document.querySelector('[data-fold-error="true"]')).not.toBeNull());
-    expect(document.querySelector('[data-fold-error="true"]')).toHaveClass('fold-empty');
+    const error = document.querySelector('[data-fold-error="true"]') as HTMLElement;
+    expect(error).toHaveClass('fold-empty');
+    expect(t('fold.loadFailed')).toBe(copy);
+    expect(within(error).getByText(t('fold.loadFailed'))).toHaveClass('mono');
     // 失敗態不得殘留任何看似可操作的控制件或 canvas
     expect(screen.queryByRole('slider')).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
