@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '@/fold/pose3d';
-import { panelGeometryPositions, panelSolidPositions } from '@/ui/fold-scene';
+import {
+  flatDielineUvFrame,
+  panelGeometryPositions,
+  panelSolidPositions,
+  panelSolidUvs,
+} from '@/ui/fold-scene';
 
 describe('panelGeometryPositions', () => {
   it('triangulates a unit square and maps two-dimensional y down to Three.js y up', () => {
@@ -115,5 +120,67 @@ describe('panelSolidPositions', () => {
 
     expect(frontZ).toEqual([0, 0, 0, 0, 0, 0]);
     expect(backZ).toEqual([-0.5, -0.5, -0.5, -0.5, -0.5, -0.5]);
+  });
+});
+
+describe('whole-sheet flattened UVs', () => {
+  const leftPanel: Vec3[] = [
+    { x: 0, y: 0, z: 0 },
+    { x: 2, y: 0, z: 0 },
+    { x: 2, y: 2, z: 0 },
+    { x: 0, y: 2, z: 0 },
+  ];
+  const rightPanel: Vec3[] = [
+    { x: 2, y: 0, z: 0 },
+    { x: 4, y: 0, z: 0 },
+    { x: 4, y: 2, z: 0 },
+    { x: 2, y: 2, z: 0 },
+  ];
+  const flatGeometry = new Map([
+    ['left', leftPanel],
+    ['right', rightPanel],
+  ]);
+
+  it('centers the short bbox axis while preserving the long-axis scale', () => {
+    const frame = flatDielineUvFrame(flatGeometry);
+
+    expect(frame).toEqual({ minX: 0, minY: 0, span: 4, offsetX: 0, offsetY: 1 });
+    expect([...panelSolidUvs(leftPanel, frame, 0)]).toEqual([
+      0, 0.75,
+      0.5, 0.75,
+      0.5, 0.25,
+      0, 0.75,
+      0.5, 0.25,
+      0, 0.25,
+    ]);
+  });
+
+  it('gives shared dieline vertices identical UVs across adjacent panels', () => {
+    const frame = flatDielineUvFrame(flatGeometry);
+    const leftUvs = panelSolidUvs(leftPanel, frame, 0);
+    const rightUvs = panelSolidUvs(rightPanel, frame, 0);
+
+    expect([...leftUvs.slice(2, 4)]).toEqual([...rightUvs.slice(0, 2)]);
+    expect([...leftUvs.slice(8, 10)]).toEqual([...rightUvs.slice(10, 12)]);
+  });
+
+  it('reuses corresponding front-face UVs for the back face and side walls', () => {
+    const frame = flatDielineUvFrame(flatGeometry);
+    const uvs = panelSolidUvs(leftPanel, frame, 0.5);
+
+    expect(uvs).toHaveLength(panelSolidPositions(leftPanel, 0.5).length / 3 * 2);
+    expect([...uvs.slice(12, 24)]).toEqual([
+      0, 0.75,
+      0.5, 0.25,
+      0.5, 0.75,
+      0, 0.75,
+      0, 0.25,
+      0.5, 0.25,
+    ]);
+    expect([...uvs.slice(24, 30)]).toEqual([
+      0, 0.75,
+      0, 0.75,
+      0.5, 0.75,
+    ]);
   });
 });

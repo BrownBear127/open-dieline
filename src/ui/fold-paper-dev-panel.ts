@@ -1,4 +1,4 @@
-import type { PaperParams } from './fold-scene';
+import type { FoldLook, PaperParams } from './fold-scene';
 
 export type FoldLookName = 'plain' | 'kraft' | 'black' | 'engineering';
 export type PaperPresetName = 'subtle' | 'standard' | 'coarse';
@@ -6,20 +6,24 @@ export type PaperPresetName = 'subtle' | 'standard' | 'coarse';
 interface PaperDevPanelOptions {
   host: HTMLElement;
   initialLook: FoldLookName;
+  lookPresets: Record<FoldLookName, FoldLook>;
   initialPaper: PaperParams;
   paperPresets: Record<PaperPresetName, PaperParams>;
   onLook: (look: FoldLookName) => void;
+  onLookParams: (look: FoldLook) => void;
   onPaper: (params: PaperParams) => void;
 }
 
 export interface PaperDevPanelHandle {
   element: HTMLDivElement;
-  setLook(look: FoldLookName): void;
+  setLook(look: FoldLookName, params: FoldLook): void;
   setPaper(params: PaperParams): void;
   dispose(): void;
 }
 
 type RangeKey = Exclude<keyof PaperParams, 'seed'>;
+type LookRangeKey = 'keyIntensity' | 'fillIntensity' | 'ambientIntensity';
+type LookColorKey = 'cardColor' | 'keyColor' | 'fillColor';
 
 const RANGE_CONTROLS: ReadonlyArray<{
   key: RangeKey;
@@ -27,28 +31,51 @@ const RANGE_CONTROLS: ReadonlyArray<{
   max: number;
   step: number;
 }> = [
-  { key: 'fiberStrength', min: 0, max: 1, step: 0.01 },
-  { key: 'fiberScale', min: 4, max: 160, step: 1 },
-  { key: 'grainStrength', min: 0, max: 1, step: 0.01 },
-  { key: 'crumpleStrength', min: 0, max: 1, step: 0.01 },
-  { key: 'crumpleScale', min: 0.5, max: 24, step: 0.5 },
+  { key: 'contrast', min: 0, max: 1, step: 0.01 },
+  { key: 'roughness', min: 0, max: 1, step: 0.01 },
+  { key: 'fiber', min: 0, max: 1, step: 0.01 },
+  { key: 'fiberSize', min: 0, max: 1, step: 0.01 },
+  { key: 'crumples', min: 0, max: 1, step: 0.01 },
+  { key: 'crumpleSize', min: 0, max: 1, step: 0.01 },
+  { key: 'folds', min: 0, max: 1, step: 0.01 },
+  { key: 'foldCount', min: 1, max: 15, step: 1 },
+  { key: 'drops', min: 0, max: 1, step: 0.01 },
+  { key: 'fade', min: 0, max: 1, step: 0.01 },
   { key: 'bumpScale', min: 0, max: 0.2, step: 0.001 },
-  { key: 'roughnessBase', min: 0.2, max: 1, step: 0.01 },
-  { key: 'roughnessVariation', min: 0, max: 0.5, step: 0.01 },
 ];
 
 const LOOK_NAMES: FoldLookName[] = ['plain', 'kraft', 'black', 'engineering'];
 const PAPER_NAMES: PaperPresetName[] = ['subtle', 'standard', 'coarse'];
 const REGENERATE_DELAY_MS = 150;
+const LOOK_RANGE_CONTROLS: ReadonlyArray<{
+  key: LookRangeKey;
+  min: number;
+  max: number;
+  step: number;
+}> = [
+  { key: 'keyIntensity', min: 0, max: 30, step: 0.1 },
+  { key: 'fillIntensity', min: 0, max: 30, step: 0.1 },
+  { key: 'ambientIntensity', min: 0, max: 3, step: 0.05 },
+];
+const LOOK_COLOR_CONTROLS: LookColorKey[] = [
+  'cardColor',
+  'keyColor',
+  'fillColor',
+];
 
 function style(element: HTMLElement, values: Partial<CSSStyleDeclaration>): void {
   Object.assign(element.style, values);
 }
 
+function colorHex(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
 export function createPaperDevPanel(
   options: PaperDevPanelOptions,
 ): PaperDevPanelHandle {
-  let activeLook = options.initialLook;
+  let activeLookName = options.initialLook;
+  let activeLook = { ...options.lookPresets[activeLookName] };
   let activePaper = { ...options.initialPaper };
   let regenerationTimer: number | null = null;
 
@@ -82,6 +109,8 @@ export function createPaperDevPanel(
   element.append(controls);
 
   const lookButtons = new Map<FoldLookName, HTMLButtonElement>();
+  const lookRangeInputs = new Map<LookRangeKey, HTMLInputElement>();
+  const lookColorInputs = new Map<LookColorKey, HTMLInputElement>();
   const inputs = new Map<keyof PaperParams, HTMLInputElement>();
 
   const createButtonRow = (title: string): HTMLDivElement => {
@@ -95,9 +124,34 @@ export function createPaperDevPanel(
     return row;
   };
 
-  const refreshButtonStates = (): void => {
+  const appendLabeledInput = (
+    key: string,
+    input: HTMLInputElement,
+    marginBottom: string,
+  ): void => {
+    const label = document.createElement('label');
+    style(label, {
+      display: 'grid',
+      gridTemplateColumns: '132px 1fr',
+      gap: '6px',
+      alignItems: 'center',
+      marginBottom,
+    });
+    const text = document.createElement('span');
+    text.textContent = key;
+    label.append(text, input);
+    controls.append(label);
+  };
+
+  const renderLookValues = (): void => {
     for (const [name, button] of lookButtons) {
-      button.setAttribute('aria-pressed', String(name === activeLook));
+      button.setAttribute('aria-pressed', String(name === activeLookName));
+    }
+    for (const [key, input] of lookRangeInputs) {
+      input.value = String(activeLook[key]);
+    }
+    for (const [key, input] of lookColorInputs) {
+      input.value = colorHex(activeLook[key]);
     }
   };
 
@@ -109,8 +163,10 @@ export function createPaperDevPanel(
     button.dataset.value = name;
     style(button, { cursor: 'pointer', font: 'inherit', padding: '2px 4px' });
     button.addEventListener('click', () => {
-      activeLook = name;
-      refreshButtonStates();
+      cancelRegeneration();
+      activeLookName = name;
+      activeLook = { ...options.lookPresets[name] };
+      renderLookValues();
       options.onLook(name);
     });
     lookButtons.set(name, button);
@@ -123,13 +179,47 @@ export function createPaperDevPanel(
     regenerationTimer = null;
   };
 
-  const queueRegeneration = (): void => {
+  const queueRegeneration = (regenerate: () => void): void => {
     cancelRegeneration();
     regenerationTimer = window.setTimeout(() => {
       regenerationTimer = null;
-      options.onPaper({ ...activePaper });
+      regenerate();
     }, REGENERATE_DELAY_MS);
   };
+
+  for (const key of LOOK_COLOR_CONTROLS) {
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.setAttribute('aria-label', key);
+    input.addEventListener('input', () => {
+      activeLook = {
+        ...activeLook,
+        [key]: Number.parseInt(input.value.slice(1), 16),
+      };
+      if (key === 'cardColor') {
+        queueRegeneration(() => options.onLookParams({ ...activeLook }));
+      } else {
+        options.onLookParams({ ...activeLook });
+      }
+    });
+    lookColorInputs.set(key, input);
+    appendLabeledInput(key, input, '6px');
+  }
+
+  for (const { key, min, max, step } of LOOK_RANGE_CONTROLS) {
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.setAttribute('aria-label', key);
+    input.addEventListener('input', () => {
+      activeLook = { ...activeLook, [key]: Number(input.value) };
+      options.onLookParams({ ...activeLook });
+    });
+    lookRangeInputs.set(key, input);
+    appendLabeledInput(key, input, '3px');
+  }
 
   const renderPaperValues = (): void => {
     for (const [key, input] of inputs) input.value = String(activePaper[key]);
@@ -152,16 +242,6 @@ export function createPaperDevPanel(
   }
 
   for (const { key, min, max, step } of RANGE_CONTROLS) {
-    const label = document.createElement('label');
-    style(label, {
-      display: 'grid',
-      gridTemplateColumns: '132px 1fr',
-      gap: '6px',
-      alignItems: 'center',
-      marginBottom: '3px',
-    });
-    const text = document.createElement('span');
-    text.textContent = key;
     const input = document.createElement('input');
     input.type = 'range';
     input.min = String(min);
@@ -170,23 +250,12 @@ export function createPaperDevPanel(
     input.setAttribute('aria-label', key);
     input.addEventListener('input', () => {
       activePaper = { ...activePaper, [key]: Number(input.value) };
-      queueRegeneration();
+      queueRegeneration(() => options.onPaper({ ...activePaper }));
     });
     inputs.set(key, input);
-    label.append(text, input);
-    controls.append(label);
+    appendLabeledInput(key, input, '3px');
   }
 
-  const seedLabel = document.createElement('label');
-  style(seedLabel, {
-    display: 'grid',
-    gridTemplateColumns: '132px 1fr',
-    gap: '6px',
-    alignItems: 'center',
-    marginBottom: '6px',
-  });
-  const seedText = document.createElement('span');
-  seedText.textContent = 'seed';
   const seedInput = document.createElement('input');
   seedInput.type = 'number';
   seedInput.step = '1';
@@ -195,11 +264,10 @@ export function createPaperDevPanel(
     const seed = Number(seedInput.value);
     if (!Number.isFinite(seed)) return;
     activePaper = { ...activePaper, seed };
-    queueRegeneration();
+    queueRegeneration(() => options.onPaper({ ...activePaper }));
   });
   inputs.set('seed', seedInput);
-  seedLabel.append(seedText, seedInput);
-  controls.append(seedLabel);
+  appendLabeledInput('seed', seedInput, '6px');
 
   const copyButton = document.createElement('button');
   copyButton.type = 'button';
@@ -207,7 +275,18 @@ export function createPaperDevPanel(
   copyButton.dataset.action = 'copy';
   style(copyButton, { cursor: 'pointer', font: 'inherit', width: '100%' });
   copyButton.addEventListener('click', () => {
-    const json = JSON.stringify({ look: activeLook, paper: activePaper }, null, 2);
+    const json = JSON.stringify({
+      look: {
+        cardColor: colorHex(activeLook.cardColor),
+        keyIntensity: activeLook.keyIntensity,
+        keyColor: colorHex(activeLook.keyColor),
+        fillIntensity: activeLook.fillIntensity,
+        fillColor: colorHex(activeLook.fillColor),
+        ambientIntensity: activeLook.ambientIntensity,
+        printOverlay: activeLook.printOverlay,
+      },
+      paper: activePaper,
+    }, null, 2);
     console.log(json);
     void navigator.clipboard?.writeText(json).catch((error: unknown) => {
       console.error(error);
@@ -221,14 +300,16 @@ export function createPaperDevPanel(
   });
 
   options.host.append(element);
-  refreshButtonStates();
+  renderLookValues();
   renderPaperValues();
 
   return {
     element,
-    setLook(look) {
-      activeLook = look;
-      refreshButtonStates();
+    setLook(look, params) {
+      cancelRegeneration();
+      activeLookName = look;
+      activeLook = { ...params };
+      renderLookValues();
     },
     setPaper(params) {
       cancelRegeneration();
