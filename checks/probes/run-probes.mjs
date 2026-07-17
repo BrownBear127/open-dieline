@@ -91,9 +91,10 @@ const PROBES = [
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
     greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   { id: 'p3c-value-drift', gate: 'p3-style',
+    // 錨字串跟 contract 的 .foldbar 條目走（T4 卡色切換：三欄→四欄·2026-07-17）
     run: () => mutate('checks/canonical/p3-style-contract.json',
-      '"grid-template-columns": "auto minmax(120px, 1fr) auto"',
-      '"grid-template-columns": "auto minmax(121px, 1fr) auto"'),
+      '"grid-template-columns": "auto minmax(120px, 1fr) auto auto"',
+      '"grid-template-columns": "auto minmax(121px, 1fr) auto auto"'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style' }),
     greenCheck: () => !shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   // re-review N2：object property 誘餌（{ className: '…' }）曾可騙過 transform 後文字掃描
