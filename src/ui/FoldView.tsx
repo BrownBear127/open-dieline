@@ -302,6 +302,24 @@ export function FoldView({
   useEffect(() => () => cancelPendingUpload(), []);
 
   useEffect(() => {
+    if (!P3_TEST_HOOKS_ENABLED) return undefined;
+    const readArtworkPixel = (u: number, v: number): number[] | null => {
+      const canvas = customSourceRef.current?.canvas;
+      if (canvas === undefined || !Number.isFinite(u) || !Number.isFinite(v)) return null;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (context === null) return null;
+      const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(u * canvas.width)));
+      const y = Math.min(canvas.height - 1, Math.max(0, Math.floor((1 - v) * canvas.height)));
+      return [...context.getImageData(x, y, 1, 1).data];
+    };
+    const hooks = window as unknown as Record<string, unknown>;
+    hooks.__p3ReadArtworkPixel = readArtworkPixel;
+    return () => {
+      if (hooks.__p3ReadArtworkPixel === readArtworkPixel) delete hooks.__p3ReadArtworkPixel;
+    };
+  }, []);
+
+  useEffect(() => {
     if (validationErrors.length > 0) console.error(validationErrors);
   }, [validationErrors]);
 
@@ -428,11 +446,21 @@ export function FoldView({
   );
 
   return modelRuntime === null ? (
-    <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
+    <section
+      className="fold-view"
+      data-artwork-ready={artwork}
+      data-context-lost={String(contextLost)}
+      ref={containerRef}
+    >
       {artworkStatus}
     </section>
   ) : (
-    <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
+    <section
+      className="fold-view"
+      data-artwork-ready={artwork}
+      data-context-lost={String(contextLost)}
+      ref={containerRef}
+    >
       <canvas className="fold-canvas" ref={canvasRef} />
       {artworkStatus}
       <div className="fold-tools">

@@ -211,12 +211,16 @@ describe('FoldView controls', () => {
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
     const file = new File(['png'], 'art.png', { type: 'image/png' });
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const foldView = container.querySelector('.fold-view');
+
+    expect(foldView).toHaveAttribute('data-artwork-ready', 'none');
 
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => expect(onCustomSourceChange).toHaveBeenCalledExactlyOnceWith(source));
     expect(fake.handles[0]!.installCustomSource).toHaveBeenCalledExactlyOnceWith(source);
     expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('custom');
+    expect(foldView).toHaveAttribute('data-artwork-ready', 'custom');
     const art = screen.getByRole('group', { name: t('fold.art.label') });
     expect(within(art).getByRole('button', { name: t('fold.art.upload') }))
       .toHaveAttribute('aria-pressed', 'true');

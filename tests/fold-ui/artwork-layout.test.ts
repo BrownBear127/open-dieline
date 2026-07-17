@@ -50,6 +50,25 @@ describe('deriveArtworkLayout', () => {
     expect(layout.frame).toEqual(flatDielineUvFrame(flatGeometry));
   });
 
+  it('square UV frame 以最長軸為 span，並把全部 panel 角點包在 [0,1] UV 內', () => {
+    const layout = deriveArtworkLayout(defaultModel());
+    const points = layout.panels.flatMap(({ polygon }) => polygon);
+    const xs = points.map(({ x }) => x);
+    const ys = points.map(({ y }) => y);
+    const width = Math.max(...xs) - Math.min(...xs);
+    const height = Math.max(...ys) - Math.min(...ys);
+
+    expect(layout.frame.span).toBeCloseTo(Math.max(width, height), 10);
+    for (const point of points) {
+      const u = (point.x - layout.frame.minX + layout.frame.offsetX) / layout.frame.span;
+      const v = 1 - (point.y - layout.frame.minY + layout.frame.offsetY) / layout.frame.span;
+      expect(u).toBeGreaterThanOrEqual(0);
+      expect(u).toBeLessThanOrEqual(1);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+
   it('tuckLock=0（單片 lid）／tuckDepth=0（無插舌）／兩者皆零 三種變體不拋錯，面板數與 builder 輸出一致', () => {
     for (const overrides of [{ tuckLock: 0 }, { tuckDepth: 0 }, { tuckDepth: 0, dustFlapDepth: 0 }]) {
       const model = buildRteFoldModel(resolveParams(reverseTuckEnd, overrides));
