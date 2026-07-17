@@ -5,6 +5,7 @@ import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import { worldGeometry } from '@/fold/pose3d';
 import { foldPose } from '@/fold/schedule';
 import {
+  cameraOrbitPosition,
   computeCameraFrame,
   shadowPlacement,
   type GeometryBounds,
@@ -86,6 +87,23 @@ describe('computeCameraFrame', () => {
     expect(frame.fitDiagonal).toBeGreaterThanOrEqual(flatDiagonal);
     expect(Math.abs(frame.focusDiagonal - boxDiagonal)).toBeLessThanOrEqual(Math.max(4 * thickness, 5));
     expect(frame.focusDiagonal).toBeLessThanOrEqual(frame.fitDiagonal);
+  });
+});
+
+describe('cameraOrbitPosition', () => {
+  it('orbits around the frame target while preserving the fitted distance', () => {
+    const target = { x: 10, y: -4, z: 3 };
+    const distance = 120;
+    const position = cameraOrbitPosition(target, distance, 35, 25);
+
+    expect(Math.hypot(
+      position.x - target.x,
+      position.y - target.y,
+      position.z - target.z,
+    )).toBeCloseTo(distance, 10);
+    expect(position.x).toBeGreaterThan(target.x);
+    expect(position.y).toBeGreaterThan(target.y);
+    expect(position.z).toBeGreaterThan(target.z);
   });
 });
 
