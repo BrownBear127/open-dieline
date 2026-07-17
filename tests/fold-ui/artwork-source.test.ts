@@ -172,6 +172,18 @@ describe('validateArtworkFile', () => {
     await expect(validateArtworkFile(file)).resolves.toBeNull();
   });
 
+  it.each([
+    ['single-quoted url fragment', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><rect fill="url(\'#g\')"/></svg>'],
+    ['double-quoted url fragment', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><rect fill=\'url("#g")\'/></svg>'],
+    ['single-quoted src fragment', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><rect fill="src(\'#g\')"/></svg>'],
+    ['whitespace-padded url fragment', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><rect fill="url( #g )"/></svg>'],
+  ])('accepts a quoted or padded fragment reference (%s) without false rejection', async (_label, markup) => {
+    // 八審回歸：negative lookahead 消耗引號後回溯使帶引號 fragment 假陽性。
+    const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
   it('accepts fragment-only mask references under the strict mask scan', async () => {
     const file = new File([
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><mask id="m"/></defs><rect width="10" height="10" mask="url(#m)"/></svg>',

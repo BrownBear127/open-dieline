@@ -74,8 +74,10 @@ function hasExternalCssResource(css: string): boolean {
 
   // 右括號不是辨識條件：CSS Syntax 3 §2.2 的 EOF 自動閉合會把未閉合的
   // url('http://… 補完並照常取資源（七審實證 Chromium 對未閉合 url( 發請求）。
-  // 判準=開括號後（跳引號/空白）第一個實質字元非 #（含 EOF/空）即拒。
-  return /\b(?:url|src)\(\s*["']?\s*(?!#)/i.test(css);
+  // 判準=開括號後（跳引號/空白）非 # fragment 即拒。negative lookahead 整組
+  // 不消耗字元——`["']?` 若在主 pattern 內會回溯到引號位使 url('#g') 假陽性
+  //（八審抓的 fail-closed 誤拒回歸）；此形態同 raw-scan href/url 判準。
+  return /\b(?:url|src)\((?!\s*["']?\s*#)/i.test(css);
 }
 
 // style 位置（<style> 元素內容＋style attribute）的嚴格掃描。這裡能用完整 CSS
