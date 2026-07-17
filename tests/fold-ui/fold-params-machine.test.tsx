@@ -64,13 +64,23 @@ interface ParamCase {
 
 const PARAM_CASES: ParamCase[] = [
   { key: 'L', value: 65, dimension: 'P1 width', project: (model) => panelWidth(model, 'P1') },
-  { key: 'W', value: 65, dimension: 'P2 width and lid height', project: (model) => [panelWidth(model, 'P2'), panelHeight(model, 'topLid')] },
+  { key: 'W', value: 65, dimension: 'P2 width and lid height', project: (model) => [panelWidth(model, 'P2'), panelHeight(model, 'topLidC')] },
   { key: 'D', value: 127, dimension: 'P1 height', project: (model) => panelHeight(model, 'P1') },
   { key: 'thickness', value: 0.6, dimension: 'tuck liftOffset', project: (model) => [panel(model, 'topTuck').liftOffset, panel(model, 'bottomTuck').liftOffset] },
   { key: 'tuckDepth', value: 0, dimension: 'tuck panel count and active steps', project: (model) => [model.panels.map(({ id }) => id), model.steps] },
   { key: 'tuckRadius', value: 0, dimension: 'tuck polygon coordinates', project: (model) => panel(model, 'topTuck').polygon },
   { key: 'tuckClearance', value: 5, dimension: 'tuck polygon width', project: (model) => [panelWidth(model, 'topTuck'), panelWidth(model, 'bottomTuck')] },
-  { key: 'tuckLock', value: 0, dimension: 'lid polygons and active steps', project: (model) => [panel(model, 'topLid').polygon, panel(model, 'bottomLid').polygon, model.steps] },
+  {
+    key: 'tuckLock',
+    value: 12,
+    dimension: 'lid-slice hinge spans and friction-lock vertices',
+    project: (model) => [
+      panel(model, 'topLidL').hingeLine,
+      panel(model, 'topLidL').polygon,
+      panel(model, 'bottomLidR').hingeLine,
+      panel(model, 'bottomLidR').polygon,
+    ],
+  },
   { key: 'dustFlapDepth', value: 0, dimension: 'dust panel count and active steps', project: (model) => [model.panels.map(({ id }) => id), model.steps] },
   { key: 'flapNotch', value: 10, dimension: 'dust-flap polygon coordinates', project: (model) => [panel(model, 'topDustP2').polygon, panel(model, 'topDustP4').polygon] },
   { key: 'creaseRelief', value: 10, dimension: 'dust-flap relief polygon coordinates', project: (model) => [panel(model, 'bottomDustP2').polygon, panel(model, 'bottomDustP4').polygon] },
@@ -93,17 +103,7 @@ describe('FoldView B4-machine parameter linkage', () => {
     expect(PARAM_CASES.map(({ key }) => key)).toEqual(reverseTuckEnd.params.map(({ key }) => key));
   });
 
-  // tuckLock 暫不驗區分性（BLOCKED-ON-2026-07-17）：候選 A（左右 hinge 翼＋中央
-  // foldAngle=0 分片）已實證可通過現有 validator 且 world-space 接縫為 0——「validator
-  // 原理上無法表達」的舊說法已被此反例推翻（final review F1·re-review N1 修正文案）。
-  // 尚未接線的原因是設計選擇：候選 A 使預設模型 panels 13→17（爆破半徑穿透全部釘值
-  // 測試與 steps 語義）、完整 RTE/圓角/視覺 QA 未驗、且非唯一表示法（候選 B=validator
-  // 放寬至共線段集合·候選 C=延 M2 視覺輪連紙厚一起裁）。裁決 2026-07-17＝C
-  //（延 M2 落地·屆時再裁表示法 A/B）——詳 ledger progress-p3-m1.md；
-  // M2 落地時本 todo 轉真測試（區分維度視表示法定）。
-  it.todo('tuckLock changes the received model dimension — 延 M2 落地（裁決 C·2026-07-17·候選 A 已證可行）');
-
-  it.each(PARAM_CASES.filter(({ key }) => key !== 'tuckLock'))('$key changes the received model dimension: $dimension', async ({ key, value, project }) => {
+  it.each(PARAM_CASES)('$key changes the received model dimension: $dimension', async ({ key, value, project }) => {
     const fake = createFakeScene();
     const defaults = resolveParams(reverseTuckEnd, {});
     const view = render(<FoldView boxId="rte" values={defaults} createScene={fake.createScene} />);
