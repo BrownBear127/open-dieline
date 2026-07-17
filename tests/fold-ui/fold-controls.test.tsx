@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 describe('FoldView controls', () => {
-  it('renders the dict-labelled foldbar controls with the required vocabulary classes', async () => {
+  it('renders the two-column dict-labelled foldbar controls with the required vocabulary classes', async () => {
     const fake = createFakeScene();
     const { container } = render(
       <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />,
@@ -76,20 +76,39 @@ describe('FoldView controls', () => {
     const controls = await screen.findByRole('group', { name: t('fold.controls.aria') });
     const play = within(controls).getByRole('button', { name: t('fold.play') });
     const progress = within(controls).getByRole('slider', { name: t('fold.progress.aria') });
-    const autoRotate = within(controls).getByRole('checkbox', { name: t('fold.autorotate') });
 
     expect(controls).toHaveClass('foldbar');
     expect(play).toHaveClass('btn');
+    expect(within(controls).getAllByRole('button')).toEqual([play]);
+    expect(controls.children).toHaveLength(2);
     expect(progress).toHaveAttribute('type', 'range');
     expect(progress).toHaveAttribute('min', '0');
     expect(progress).toHaveAttribute('max', '1');
     expect(progress).toHaveAttribute('step', '0.001');
     expect(progress).toHaveValue('1');
-    expect(autoRotate).toHaveClass('tick');
-    // 2026-07-17 E2E 驗收裁決：自轉預設關閉——進場靜止、由使用者主動開啟。
-    expect(autoRotate).not.toBeChecked();
-    expect(autoRotate.closest('label')).toHaveClass('compat');
     expect(container.querySelector('.foldbar')).toBe(controls);
+  });
+
+  it('renders the owner-approved floating button stack between the canvas and foldbar', async () => {
+    const fake = createFakeScene();
+    const { container } = render(
+      <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />,
+    );
+
+    const cardGroup = await screen.findByRole('group', { name: t('fold.card.label') });
+    const artworkGroup = screen.getByRole('group', { name: t('fold.art.label') });
+    const tools = container.querySelector('.fold-tools');
+    const autoRotate = screen.getByRole('button', { name: t('fold.autorotate') });
+
+    expect(tools).not.toBeNull();
+    expect(cardGroup).toHaveClass('fold-tool-group');
+    expect(artworkGroup).toHaveClass('fold-tool-group');
+    expect(within(tools as HTMLElement).getAllByRole('button')).toHaveLength(5);
+    expect(autoRotate).toHaveClass('btn', 'tog', 'label');
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
+    // 自轉預設關閉：進場靜止、由使用者主動開啟。
+    expect(container.querySelector('.fold-canvas')?.nextElementSibling).toBe(tools);
+    expect(tools?.nextElementSibling).toBe(container.querySelector('.foldbar'));
   });
 
   it('renders three card recipes with kraft as the only pressed option', async () => {
@@ -105,6 +124,7 @@ describe('FoldView controls', () => {
       t('fold.card.kraft'),
       t('fold.card.black'),
     ]);
+    for (const button of buttons) expect(button).toHaveClass('btn', 'tog', 'label');
     expect(buttons.filter((button) => button.getAttribute('aria-pressed') === 'true'))
       .toEqual([within(cardGroup).getByRole('button', { name: t('fold.card.kraft') })]);
   });
@@ -138,29 +158,23 @@ describe('FoldView controls', () => {
       .toEqual(['白', '牛皮', '黑']);
   });
 
-  it('defaults artwork to NONE and applies SAMPLE/NONE while keeping exactly one option pressed', async () => {
+  it('defaults SAMPLE off and toggles SAMPLE/NONE through one aria-pressed button', async () => {
     const fake = createFakeScene();
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
     const artworkGroup = screen.getByRole('group', { name: 'ART' });
-    const none = within(artworkGroup).getByRole('button', { name: 'NONE' });
     const sample = within(artworkGroup).getByRole('button', { name: 'SAMPLE' });
 
-    expect(none).toHaveAttribute('aria-pressed', 'true');
     expect(sample).toHaveAttribute('aria-pressed', 'false');
+    expect(sample).toHaveClass('btn', 'tog', 'label');
 
     fireEvent.click(sample);
     expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('sample');
-    expect(none).toHaveAttribute('aria-pressed', 'false');
     expect(sample).toHaveAttribute('aria-pressed', 'true');
 
-    fireEvent.click(none);
+    fireEvent.click(sample);
     expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('none');
-    expect(none).toHaveAttribute('aria-pressed', 'true');
     expect(sample).toHaveAttribute('aria-pressed', 'false');
-    expect(within(artworkGroup).getAllByRole('button').filter(
-      (button) => button.getAttribute('aria-pressed') === 'true',
-    )).toHaveLength(1);
   });
 
   it('renders the approved English and Chinese artwork copy verbatim', async () => {
@@ -170,14 +184,14 @@ describe('FoldView controls', () => {
     );
     const englishGroup = await screen.findByRole('group', { name: 'ART' });
     expect(within(englishGroup).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['NONE', 'SAMPLE']);
+      .toEqual(['SAMPLE']);
 
     view.unmount();
     setLang('zh');
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     const chineseGroup = await screen.findByRole('group', { name: '圖稿' });
     expect(within(chineseGroup).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['無', '範例']);
+      .toEqual(['範例']);
   });
 
   it('drives the current scene pose from the progress slider without recreating the scene', async () => {
@@ -238,17 +252,20 @@ describe('FoldView controls', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('starts with auto-rotate off on mount and forwards both checkbox states', async () => {
+  it('starts with auto-rotate off on mount and forwards both button states', async () => {
     const fake = createFakeScene();
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
-    const autoRotate = await screen.findByRole('checkbox', { name: t('fold.autorotate') });
+    const autoRotate = await screen.findByRole('button', { name: t('fold.autorotate') });
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
 
     expect(fake.handles[0]!.setAutoRotate).toHaveBeenCalledExactlyOnceWith(false);
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(autoRotate);
     expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(true);
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(autoRotate);
     expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(false);
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('cancels the playback frame and leaves no timer when unmounted', async () => {
@@ -280,25 +297,25 @@ describe('FoldView controls', () => {
     expect(screen.queryByRole('group', { name: t('fold.controls.aria') })).not.toBeInTheDocument();
   });
 
-  it('使用者拖轉（onUserInteract）後自轉 checkbox 同步關閉、可手動重開（final review F3）', async () => {
+  it('使用者拖轉（onUserInteract）後自轉按鈕同步關閉、可手動重開（final review F3）', async () => {
     const fake = createFakeScene();
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
 
     // 預設關閉——先由使用者開啟自轉，才有「拖轉即停」可驗。
-    const checkbox = screen.getByRole('checkbox');
-    expect(checkbox).not.toBeChecked();
-    fireEvent.click(checkbox);
-    expect(checkbox).toBeChecked();
+    const autoRotate = screen.getByRole('button', { name: t('fold.autorotate') });
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(autoRotate);
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
 
     // fold-scene 在 controls start 事件已自行關 autoRotate 並回呼 onUserInteract——
-    // FoldView state 必須跟上，否則 checkbox 謊報開啟
+    // FoldView state 必須跟上，否則按鈕謊報開啟
     act(() => fake.options[0]!.onUserInteract?.());
-    expect(checkbox).not.toBeChecked();
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
 
-    // 手動重開走 checkbox → scene.setAutoRotate(true)
-    fireEvent.click(checkbox);
-    expect(checkbox).toBeChecked();
+    // 手動重開走按鈕 → scene.setAutoRotate(true)
+    fireEvent.click(autoRotate);
+    expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
     expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(true);
   });
 });

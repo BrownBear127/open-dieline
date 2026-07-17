@@ -20,6 +20,11 @@ const b4Scenarios = [
   { name: 'lock-zero', progress: 1, param: ['tuckLock', 0] },
   { name: 'lock-default', progress: 0.9, param: ['tuckLock', 20] },
 ];
+const t10FixScenarios = [
+  { name: 'kraft' },
+  { name: 'white', card: 'WHITE' },
+  { name: 'sample', artwork: true },
+];
 
 function findOpenPort() {
   for (let port = 4317; port < 4417; port += 1) {
@@ -147,9 +152,11 @@ async function enterFoldMode(page, baseUrl) {
     () => typeof window.__p3SetLook === 'function'
       && typeof window.__p3SetCameraOrbit === 'function',
   );
-  const autoRotate = page.locator('.foldbar .compat .tick');
-  if (await autoRotate.isChecked()) await autoRotate.uncheck();
-  if (await autoRotate.isChecked()) throw new Error('Auto-rotate must be off for look snapshots.');
+  const autoRotate = page.getByRole('button', { name: 'Auto-rotate', exact: true });
+  if (await autoRotate.getAttribute('aria-pressed') === 'true') await autoRotate.click();
+  if (await autoRotate.getAttribute('aria-pressed') !== 'false') {
+    throw new Error('Auto-rotate must be off for look snapshots.');
+  }
 }
 
 async function setLook(page, preset) {
@@ -176,10 +183,10 @@ async function assertB4Defaults(page) {
   const kraftPressed = await cardGroup
     .getByRole('button', { name: 'KRAFT', exact: true })
     .getAttribute('aria-pressed');
-  const nonePressed = await artworkGroup
-    .getByRole('button', { name: 'NONE', exact: true })
+  const samplePressed = await artworkGroup
+    .getByRole('button', { name: 'SAMPLE', exact: true })
     .getAttribute('aria-pressed');
-  if (kraftPressed !== 'true' || nonePressed !== 'true') {
+  if (kraftPressed !== 'true' || samplePressed !== 'false') {
     throw new Error('B4-final requires CARD=KRAFT and ART=NONE.');
   }
 }
@@ -196,6 +203,26 @@ async function captureB4Scenario(page, baseUrl, scenario) {
   await waitForStableRender(page);
   const filename = `b4final-${scenario.name}-t${scenario.progress}.png`;
   await page.screenshot({ path: path.join(b4OutputDir, filename) });
+  console.log(`SNAPSHOT ${filename}`);
+}
+
+async function captureT10FixScenario(page, baseUrl, scenario) {
+  await enterFoldMode(page, baseUrl);
+  await assertB4Defaults(page);
+  if (scenario.card !== undefined) {
+    await page.getByRole('group', { name: 'CARD', exact: true })
+      .getByRole('button', { name: scenario.card, exact: true })
+      .click();
+  }
+  if (scenario.artwork) {
+    await page.getByRole('group', { name: 'ART', exact: true })
+      .getByRole('button', { name: 'SAMPLE', exact: true })
+      .click();
+  }
+  await setCameraOrbit(page);
+  await waitForStableRender(page);
+  const filename = `t10fix-${scenario.name}.png`;
+  await page.screenshot({ path: path.join(outputDir, filename) });
   console.log(`SNAPSHOT ${filename}`);
 }
 
@@ -234,8 +261,12 @@ try {
     await captureB4Scenario(page, baseUrl, scenario);
   }
 
+  for (const scenario of t10FixScenarios) {
+    await captureT10FixScenario(page, baseUrl, scenario);
+  }
+
   await context.close();
-  console.log(`SNAPSHOTS-DONE count=${recipes.length + b4Scenarios.length} port=${port}`);
+  console.log(`SNAPSHOTS-DONE count=${recipes.length + b4Scenarios.length + t10FixScenarios.length} port=${port}`);
 } finally {
   await browser?.close();
   await stopDevServer(server);
