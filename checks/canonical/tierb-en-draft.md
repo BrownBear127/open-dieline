@@ -170,6 +170,17 @@ Vendor date: 2026-07-17
 
 ---
 
+## B9 摺盒卡色短件（4·P3 M2 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | zh（照抄·對照用） | EN（你的稿） | 譯註（僅必要時） |
+|---|---|---|---|
+| fold.card.label | 卡色 | CARD | production 三態切換標籤。 |
+| fold.card.white | 白 | WHITE | production 配方名。 |
+| fold.card.kraft | 牛皮 | KRAFT | production 配方名。 |
+| fold.card.black | 黑 | BLACK | production 配方名。 |
+
+---
+
 ## 複核記錄（小稜·2026-07-16）
 
 全稿採納（99/99·零駁回）。檢核項：D7 禁詞零違規／模板變數逐字保留（含運算式形）／

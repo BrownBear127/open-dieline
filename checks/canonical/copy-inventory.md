@@ -232,6 +232,15 @@ Vendor date: 2026-07-17
 （mode.fold 的 EN 顯示形＝label 聲部 uppercase 由 CSS 管，字典存 Title case——同 mode.design 慣例；
 兩條 aria 不渲染。）
 
+### A9 摺盒卡色（P3 M2 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.card.label | CARD | 卡色 | | label |
+| fold.card.white | WHITE | 白 | | label |
+| fold.card.kraft | KRAFT | 牛皮 | | label |
+| fold.card.black | BLACK | 黑 | | label |
+
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 
 §A 補漏 4 key（`param.reset.glyph` ↺·lock／`overlay.unit.pt/mm/px` lock 規格值／

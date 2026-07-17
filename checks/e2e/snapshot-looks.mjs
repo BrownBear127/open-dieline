@@ -6,7 +6,6 @@ import { chromium } from '@playwright/test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const outputDir = path.join(root, '.superpowers/sdd/m2-snapshots');
-const presets = ['plain', 'kraft', 'black', 'engineering'];
 const disallowedPorts = new Set([4173, 5173]);
 const cameraOrbit = { azimuthDeg: 35, elevationDeg: 25 };
 
@@ -160,21 +159,23 @@ try {
   });
   const page = await context.newPage();
   await enterFoldMode(page, baseUrl);
+  const recipes = await page.evaluate(async () => {
+    const { FOLD_RECIPES } = await import('/src/ui/fold-scene.ts');
+    return Object.keys(FOLD_RECIPES);
+  });
 
-  for (const preset of presets) {
-    await setLook(page, preset);
-    for (const [value, suffix] of [[1, 't1'], [0.5, 't05']]) {
-      await setSlider(page, value);
-      await setCameraOrbit(page);
-      await waitForStableRender(page);
-      const filename = `p3m2-look-${preset}-${suffix}.png`;
-      await page.screenshot({ path: path.join(outputDir, filename) });
-      console.log(`SNAPSHOT ${filename}`);
-    }
+  for (const recipe of recipes) {
+    await setLook(page, recipe);
+    await setSlider(page, 1);
+    await setCameraOrbit(page);
+    await waitForStableRender(page);
+    const filename = `t4-frozen-${recipe}.png`;
+    await page.screenshot({ path: path.join(outputDir, filename) });
+    console.log(`SNAPSHOT ${filename}`);
   }
 
   await context.close();
-  console.log(`SNAPSHOTS-DONE count=${presets.length * 2} port=${port}`);
+  console.log(`SNAPSHOTS-DONE count=${recipes.length} port=${port}`);
 } finally {
   await browser?.close();
   await stopDevServer(server);

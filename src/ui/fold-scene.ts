@@ -25,10 +25,6 @@ import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
-import {
-  createPaperDevPanel,
-  type PaperDevPanelHandle,
-} from './fold-paper-dev-panel';
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
 const CARD_COLOR = 0xffffff;
@@ -46,7 +42,6 @@ const SHADOW_PADDING_FACTOR = 1.18;
 const SHADOW_MIN_SPAN_FACTOR = 0.35;
 const SHADOW_LIFT_OFFSET_FACTOR = 0.003;
 const DIELINE_TO_THREE_Y = -1;
-const PRINT_LINE_COLOR = 'rgb(32, 36, 40)';
 const PAPER_TEXTURE_SIZE = 512;
 const PAPER_PATTERN_UNITS = 5;
 const ROUGHNESS_COORDINATE_SCALE = 1.5;
@@ -588,75 +583,101 @@ export function createPaperBumpTexture(params: PaperParams): CanvasTexture {
   return renderPaperTextures(params, CARD_COLOR, false, true).bump!;
 }
 
-export interface FoldLook {
-  cardColor: number;
-  roughness: number;
-  metalness: number;
-  keyIntensity: number;
-  keyColor: number;
-  fillIntensity: number;
-  fillColor: number;
-  ambientIntensity: number;
-  printOverlay: 'none' | 'dieline-faint';
+export interface FoldRecipe {
+  look: {
+    cardColor: number;
+    keyIntensity: number;
+    keyColor: number;
+    fillIntensity: number;
+    fillColor: number;
+    ambientIntensity: number;
+    printOverlay: 'none';
+  };
+  paper: PaperParams;
 }
 
-export function lookNeedsPaperTextureRegeneration(
-  current: FoldLook,
-  next: FoldLook,
-): boolean {
-  return current.cardColor !== next.cardColor;
-}
+export type FoldLook = FoldRecipe['look'];
 
-export const FOLD_LOOK_PRESETS: Record<
-  'plain' | 'kraft' | 'black' | 'engineering',
-  FoldLook
-> = {
-  plain: {
-    // T2.5b fix3·待 owner 調參定案。
-    cardColor: 0xf4f1ea,
-    roughness: CARD_ROUGHNESS,
-    metalness: CARD_METALNESS,
-    keyIntensity: 2,
-    keyColor: 0xffffff,
-    fillIntensity: 2,
-    fillColor: 0xdde8ff,
-    ambientIntensity: 0.4,
-    printOverlay: 'none',
+export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
+  white: {
+    look: {
+      cardColor: 0xd1d0cc,
+      keyIntensity: 2,
+      keyColor: 0xffffff,
+      fillIntensity: 2,
+      fillColor: 0xdde8ff,
+      ambientIntensity: 0.4,
+      printOverlay: 'none',
+    },
+    paper: {
+      contrast: 0.42,
+      roughness: 0.23,
+      fiber: 0,
+      fiberSize: 0,
+      crumples: 0.1,
+      crumpleSize: 0,
+      folds: 0.93,
+      foldCount: 1,
+      drops: 0,
+      fade: 0.12,
+      seed: 3203,
+      bumpScale: 0.116,
+    },
   },
   kraft: {
-    cardColor: 0xc9a06c,
-    roughness: 0.95,
-    metalness: 0,
-    keyIntensity: 6,
-    keyColor: 0xfff1dd,
-    fillIntensity: 3,
-    fillColor: 0xdde8ff,
-    ambientIntensity: 1.2,
-    printOverlay: 'none',
+    look: {
+      cardColor: 0x332615,
+      keyIntensity: 6,
+      keyColor: 0xfff1dd,
+      fillIntensity: 3,
+      fillColor: 0xdde8ff,
+      ambientIntensity: 1.2,
+      printOverlay: 'none',
+    },
+    paper: {
+      contrast: 0.42,
+      roughness: 0.23,
+      fiber: 0,
+      fiberSize: 0,
+      crumples: 0.1,
+      crumpleSize: 0,
+      folds: 0.93,
+      foldCount: 1,
+      drops: 0,
+      fade: 0.12,
+      seed: 3203,
+      bumpScale: 0.116,
+    },
   },
   black: {
-    cardColor: 0x1c1a17,
-    roughness: 0.85,
-    metalness: 0,
-    keyIntensity: 5,
-    keyColor: 0xffffff,
-    fillIntensity: 2,
-    fillColor: 0xdde8ff,
-    ambientIntensity: 0.35,
-    printOverlay: 'none',
-  },
-  engineering: {
-    cardColor: 0xf5f2ea,
-    roughness: 0.9,
-    metalness: 0,
-    keyIntensity: 6,
-    keyColor: 0xffffff,
-    fillIntensity: 3,
-    fillColor: 0xdde8ff,
-    ambientIntensity: 1,
-    printOverlay: 'dieline-faint',
+    look: {
+      cardColor: 0x1c1a17,
+      keyIntensity: 5,
+      keyColor: 0xffffff,
+      fillIntensity: 2,
+      fillColor: 0xdde8ff,
+      ambientIntensity: 0.35,
+      printOverlay: 'none',
+    },
+    paper: {
+      contrast: 0.36,
+      roughness: 0.2,
+      fiber: 0,
+      fiberSize: 0,
+      crumples: 0.1,
+      crumpleSize: 0,
+      folds: 0.93,
+      foldCount: 1,
+      drops: 0,
+      fade: 0.12,
+      seed: 3203,
+      bumpScale: 0.116,
+    },
   },
 };
+
+export type FoldRecipeName = keyof typeof FOLD_RECIPES;
+export const FOLD_DEFAULT_RECIPE: 'kraft' = 'kraft';
 
 function mapDielineY(y: number): number {
   if (y === 0) return 0;
@@ -736,6 +757,7 @@ export interface FoldSceneHandle {
   updatePose(t: number): void;
   replaceModel(model: FoldModel, opts?: { thickness?: number }): void;
   setAutoRotate(on: boolean): void;
+  applyRecipe(name: FoldRecipeName): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }
@@ -759,10 +781,6 @@ interface ContactShadow {
   material: MeshBasicMaterial;
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
   texture: CanvasTexture;
-}
-
-interface PanelOverlay {
-  material: MeshStandardMaterial;
 }
 
 /**
@@ -853,14 +871,11 @@ function paperColor(): Color {
   return new Color(token || PAPER_FALLBACK);
 }
 
-function createCardMaterial(
-  look: FoldLook,
-  thickness: number,
-): MeshStandardMaterial {
+function createCardMaterial(thickness: number): MeshStandardMaterial {
   return new MeshStandardMaterial({
-    color: look.cardColor,
-    metalness: look.metalness,
-    roughness: look.roughness,
+    color: CARD_COLOR,
+    metalness: CARD_METALNESS,
+    roughness: CARD_ROUGHNESS,
     side: thickness > 0 ? FrontSide : DoubleSide,
   });
 }
@@ -922,42 +937,6 @@ function flatUv(
     u: (vertex.x - frame.minX + frame.offsetX) / frame.span,
     v: 1 - (vertex.y - frame.minY + frame.offsetY) / frame.span,
   };
-}
-
-function createDielineTexture(
-  model: FoldModel,
-  frame: FlatDielineUvFrame,
-  paperTexture: CanvasTexture,
-): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = PAPER_TEXTURE_SIZE;
-  canvas.height = PAPER_TEXTURE_SIZE;
-
-  const context = canvas.getContext('2d');
-  if (context) {
-    context.drawImage(paperTexture.image as CanvasImageSource, 0, 0);
-    for (const panel of model.panels) {
-      const coordinates = panel.polygon.map((vertex) => flatUv(vertex, frame));
-      const first = coordinates[0];
-      if (!first) continue;
-      context.beginPath();
-      context.moveTo(first.u * PAPER_TEXTURE_SIZE, (1 - first.v) * PAPER_TEXTURE_SIZE);
-      for (const coordinate of coordinates.slice(1)) {
-        context.lineTo(
-          coordinate.u * PAPER_TEXTURE_SIZE,
-          (1 - coordinate.v) * PAPER_TEXTURE_SIZE,
-        );
-      }
-      context.closePath();
-      context.lineWidth = 1;
-      context.strokeStyle = PRINT_LINE_COLOR;
-      context.stroke();
-    }
-  }
-
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  return texture;
 }
 
 export function panelSolidUvs(
@@ -1189,8 +1168,8 @@ export function createFoldScene(
   controls.enableDamping = true;
   controls.target.set(0, 0, 0);
 
-  let activeLook = FOLD_LOOK_PRESETS.plain;
-  let activePaper: PaperParams = { ...PAPER_PRESETS.standard };
+  let activeLook = FOLD_RECIPES[FOLD_DEFAULT_RECIPE].look;
+  let activePaper: PaperParams = { ...FOLD_RECIPES[FOLD_DEFAULT_RECIPE].paper };
   const initialPaperTextures = createPaperTextureSet(activePaper, activeLook.cardColor);
   let paperAlbedoTexture = initialPaperTextures.albedo;
   let paperBumpTexture = initialPaperTextures.bump;
@@ -1214,11 +1193,8 @@ export function createFoldScene(
     string,
     Mesh<BufferGeometry, MeshStandardMaterial>
   >();
-  const panelOverlays = new Map<string, PanelOverlay>();
-  let printOverlayTexture: CanvasTexture | null = null;
   let panelMaterial: MeshStandardMaterial | null = null;
   let currentModel: FoldModel | null = null;
-  let currentUvFrame: FlatDielineUvFrame | null = null;
   let currentThickness = 0;
   let currentT = 0;
   let frameId: number | null = null;
@@ -1226,43 +1202,7 @@ export function createFoldScene(
   let contextLost = false;
   let disposed = false;
 
-  const clearPanelOverlay = (): void => {
-    if (panelMaterial) {
-      for (const mesh of panelMeshes.values()) mesh.material = panelMaterial;
-    }
-    for (const { material } of panelOverlays.values()) {
-      material.dispose();
-    }
-    panelOverlays.clear();
-    printOverlayTexture?.dispose();
-    printOverlayTexture = null;
-  };
-
-  const applyPrintOverlay = (overlay: FoldLook['printOverlay']): void => {
-    clearPanelOverlay();
-    if (overlay === 'none' || !panelMaterial || !currentModel) return;
-
-    if (!currentUvFrame) return;
-    printOverlayTexture = createDielineTexture(
-      currentModel,
-      currentUvFrame,
-      paperAlbedoTexture,
-    );
-
-    for (const panel of currentModel.panels) {
-      const mesh = panelMeshes.get(panel.id);
-      if (!mesh) continue;
-
-      const material = panelMaterial.clone();
-      material.map = printOverlayTexture;
-      material.needsUpdate = true;
-      mesh.material = material;
-      panelOverlays.set(panel.id, { material });
-    }
-  };
-
   const disposePanelTree = (): void => {
-    clearPanelOverlay();
     for (const mesh of panelMeshes.values()) {
       mesh.geometry.dispose();
     }
@@ -1270,11 +1210,10 @@ export function createFoldScene(
     panelRoot.clear();
     panelMaterial?.dispose();
     panelMaterial = null;
-    currentUvFrame = null;
   };
 
   const buildPanelTree = (model: FoldModel): void => {
-    panelMaterial = createCardMaterial(activeLook, currentThickness);
+    panelMaterial = createCardMaterial(currentThickness);
     configurePaperMaterial(
       panelMaterial,
       activePaper,
@@ -1283,7 +1222,7 @@ export function createFoldScene(
     );
     const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
     const flatGeometryByPanel = worldGeometry(model, foldPose(0, model));
-    currentUvFrame = flatDielineUvFrame(flatGeometryByPanel);
+    const uvFrame = flatDielineUvFrame(flatGeometryByPanel);
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
@@ -1294,7 +1233,7 @@ export function createFoldScene(
       geometry.setAttribute(
         'uv',
         new BufferAttribute(
-          panelSolidUvs(flatVertices, currentUvFrame, currentThickness),
+          panelSolidUvs(flatVertices, uvFrame, currentThickness),
           2,
         ),
       );
@@ -1305,8 +1244,6 @@ export function createFoldScene(
       panelMeshes.set(panel.id, mesh);
       panelRoot.add(mesh);
     }
-
-    applyPrintOverlay(activeLook.printOverlay);
   };
 
   const updateContactShadow = (bounds: GeometryBounds): void => {
@@ -1410,11 +1347,6 @@ export function createFoldScene(
   };
 
   const applyLook = (look: FoldLook): void => {
-    const previousLook = activeLook;
-    const regeneratePaperTextures = lookNeedsPaperTextureRegeneration(
-      previousLook,
-      look,
-    );
     activeLook = look;
     keyLightBaseIntensity = look.keyIntensity;
     fillLightBaseIntensity = look.fillIntensity;
@@ -1422,39 +1354,6 @@ export function createFoldScene(
     fillLight.color.setHex(look.fillColor);
     ambient.intensity = look.ambientIntensity;
     updateLightRig();
-
-    let previousAlbedoTexture: CanvasTexture | null = null;
-    let previousBumpTexture: CanvasTexture | null = null;
-    if (regeneratePaperTextures) {
-      const nextTextures = createPaperTextureSet(activePaper, look.cardColor);
-      previousAlbedoTexture = paperAlbedoTexture;
-      previousBumpTexture = paperBumpTexture;
-      paperAlbedoTexture = nextTextures.albedo;
-      paperBumpTexture = nextTextures.bump;
-    }
-
-    if (panelMaterial) {
-      panelMaterial.metalness = look.metalness;
-      panelMaterial.roughness = look.roughness;
-      if (regeneratePaperTextures) {
-        configurePaperMaterial(
-          panelMaterial,
-          activePaper,
-          paperAlbedoTexture,
-          paperBumpTexture,
-        );
-      }
-      if (
-        regeneratePaperTextures
-        || previousLook.printOverlay !== look.printOverlay
-      ) {
-        applyPrintOverlay(look.printOverlay);
-      }
-    }
-    previousAlbedoTexture?.dispose();
-    previousBumpTexture?.dispose();
-
-    markNeedsRender();
   };
 
   const applyPaper = (params: PaperParams): void => {
@@ -1473,35 +1372,22 @@ export function createFoldScene(
         paperAlbedoTexture,
         paperBumpTexture,
       );
-      applyPrintOverlay(activeLook.printOverlay);
     }
     previousAlbedoTexture.dispose();
     previousBumpTexture.dispose();
     markNeedsRender();
   };
 
-  let devSetLook: ((name: keyof typeof FOLD_LOOK_PRESETS) => void) | null = null;
-  let devSetPaper: ((
-    paramsOrPresetName: PaperParams | keyof typeof PAPER_PRESETS,
-  ) => void) | null = null;
+  const applyRecipe = (name: FoldRecipeName): void => {
+    const recipe = FOLD_RECIPES[name];
+    applyLook(recipe.look);
+    applyPaper(recipe.paper);
+  };
+
+  let devSetLook: ((name: FoldRecipeName) => void) | null = null;
   let devSetCameraOrbit: ((azimuthDeg: number, elevationDeg: number) => void) | null = null;
-  let devPanel: PaperDevPanelHandle | null = null;
   if (import.meta.env.DEV) {
-    devSetLook = (name: keyof typeof FOLD_LOOK_PRESETS) => {
-      const look = FOLD_LOOK_PRESETS[name];
-      applyLook(look);
-      devPanel?.setLook(name, look);
-    };
-    devSetPaper = (
-      paramsOrPresetName: PaperParams | keyof typeof PAPER_PRESETS,
-    ) => {
-      const params = typeof paramsOrPresetName === 'string'
-        ? PAPER_PRESETS[paramsOrPresetName]
-        : paramsOrPresetName;
-      if (!params) return;
-      applyPaper(params);
-      devPanel?.setPaper(params);
-    };
+    devSetLook = applyRecipe;
     devSetCameraOrbit = (azimuthDeg: number, elevationDeg: number) => {
       const target = {
         x: controls.target.x,
@@ -1518,18 +1404,7 @@ export function createFoldScene(
       controls.update();
       markNeedsRender();
     };
-    devPanel = createPaperDevPanel({
-      host: canvas.parentElement ?? document.body,
-      initialLook: 'plain',
-      lookPresets: FOLD_LOOK_PRESETS,
-      initialPaper: activePaper,
-      paperPresets: PAPER_PRESETS,
-      onLook: (name) => applyLook(FOLD_LOOK_PRESETS[name]),
-      onLookParams: applyLook,
-      onPaper: applyPaper,
-    });
     (window as unknown as Record<string, unknown>).__p3SetLook = devSetLook;
-    (window as unknown as Record<string, unknown>).__p3SetPaper = devSetPaper;
     (window as unknown as Record<string, unknown>).__p3SetCameraOrbit = devSetCameraOrbit;
   }
 
@@ -1613,6 +1488,7 @@ export function createFoldScene(
       controls.autoRotate = on;
       markNeedsRender();
     },
+    applyRecipe,
     resize,
     dispose() {
       if (disposed) return;
@@ -1626,20 +1502,11 @@ export function createFoldScene(
       }
       if (
         import.meta.env.DEV
-        && devSetPaper
-        && (window as unknown as Record<string, unknown>).__p3SetPaper === devSetPaper
-      ) {
-        delete (window as unknown as Record<string, unknown>).__p3SetPaper;
-      }
-      if (
-        import.meta.env.DEV
         && devSetCameraOrbit
         && (window as unknown as Record<string, unknown>).__p3SetCameraOrbit === devSetCameraOrbit
       ) {
         delete (window as unknown as Record<string, unknown>).__p3SetCameraOrbit;
       }
-      devPanel?.dispose();
-      devPanel = null;
       cancelRenderLoop();
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);

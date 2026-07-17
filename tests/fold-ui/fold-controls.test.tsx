@@ -24,6 +24,7 @@ function createFakeScene(): FakeScene {
       updatePose: vi.fn(),
       replaceModel: vi.fn(),
       setAutoRotate: vi.fn(),
+      applyRecipe: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };
@@ -84,6 +85,52 @@ describe('FoldView controls', () => {
     expect(autoRotate).not.toBeChecked();
     expect(autoRotate.closest('label')).toHaveClass('compat');
     expect(container.querySelector('.foldbar')).toBe(controls);
+  });
+
+  it('renders three card recipes with kraft as the only pressed option', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+
+    const cardGroup = await screen.findByRole('group', { name: t('fold.card.label') });
+    const buttons = within(cardGroup).getAllByRole('button');
+
+    expect(buttons).toHaveLength(3);
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      t('fold.card.white'),
+      t('fold.card.kraft'),
+      t('fold.card.black'),
+    ]);
+    expect(buttons.filter((button) => button.getAttribute('aria-pressed') === 'true'))
+      .toEqual([within(cardGroup).getByRole('button', { name: t('fold.card.kraft') })]);
+  });
+
+  it('applies the clicked card recipe and transfers the single pressed state', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const cardGroup = screen.getByRole('group', { name: t('fold.card.label') });
+    const black = within(cardGroup).getByRole('button', { name: t('fold.card.black') });
+
+    fireEvent.click(black);
+
+    expect(fake.handles[0]!.applyRecipe).toHaveBeenCalledExactlyOnceWith('black');
+    expect(black).toHaveAttribute('aria-pressed', 'true');
+    expect(within(cardGroup).getByRole('button', { name: t('fold.card.kraft') }))
+      .toHaveAttribute('aria-pressed', 'false');
+    expect(within(cardGroup).getAllByRole('button').filter(
+      (button) => button.getAttribute('aria-pressed') === 'true',
+    )).toEqual([black]);
+  });
+
+  it('renders the owner-approved zh card copy verbatim', async () => {
+    setLang('zh');
+    const fake = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+
+    const cardGroup = await screen.findByRole('group', { name: '卡色' });
+
+    expect(within(cardGroup).getAllByRole('button').map((button) => button.textContent))
+      .toEqual(['白', '牛皮', '黑']);
   });
 
   it('drives the current scene pose from the progress slider without recreating the scene', async () => {

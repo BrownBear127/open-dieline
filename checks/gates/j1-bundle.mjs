@@ -40,13 +40,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
 }
 
 // ── J1 gate（2026-07-17 法蘭裁決：動態 import＋雙預算·shrink-only）──
-// 主 bundle ≤117,000B（防 fold 代碼漏進主 bundle 的「動態假象」）；
-// 全部 JS gzip 總和 ≤260,000B（M1 成長餘裕 4.8%）。
+// 主 bundle ≤118,000B（防 fold 代碼漏進主 bundle 的「動態假象」）；
+// 全部 JS gzip 總和 ≤265,000B。
+// M2 rebudget（2026-07-17 法蘭裁決「一次裁到收官」）：117,000→118,000／
+// 260,000→265,000——覆蓋 M2 production 新功能（卡色切換＋設計稿貼圖＋tuckLock
+// ＋loadFailed）；shrink-only 精神不變，新預算仍為硬頂。
 // 基準=正式 minified 產物：.gate-dist 是 --minify false 私有建置（G2 需求）、
 // gzip 數字失真——本 gate 自跑一次正式 `vite build`（dist/）再量。
 // GATE_SKIP_BUILD 時跳過（該 flag 僅配 GATE_ONLY 給純 source gate 的 probe 提速用）。
-const MAIN_BUNDLE_BUDGET = 117_000;
-const TOTAL_BUDGET = 260_000;
+const MAIN_BUNDLE_BUDGET = 118_000;
+const TOTAL_BUDGET = 265_000;
 
 export async function run({ root: gateRoot }) {
   if (process.env.GATE_SKIP_BUILD) {

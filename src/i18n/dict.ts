@@ -165,6 +165,10 @@ export const dict = {
   'fold.autorotate': { en: 'Auto-rotate', zh: '自動旋轉' },
   'fold.progress.aria': { en: 'Fold progress', zh: '摺合進度' },
   'fold.controls.aria': { en: 'Fold controls', zh: '摺盒控制' },
+  'fold.card.label': { en: 'CARD', zh: '卡色' },
+  'fold.card.white': { en: 'WHITE', zh: '白' },
+  'fold.card.kraft': { en: 'KRAFT', zh: '牛皮' },
+  'fold.card.black': { en: 'BLACK', zh: '黑' },
   'fold.unsupported': {
     en: '3D fold preview is not yet available for this box style.',
     zh: '此盒型尚未支援 3D 摺盒預覽。',
