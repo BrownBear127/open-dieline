@@ -241,6 +241,14 @@ Vendor date: 2026-07-17
 | fold.card.kraft | KRAFT | 牛皮 | | label |
 | fold.card.black | BLACK | 黑 | | label |
 
+### A10 摺盒圖稿（P3 M2 T2.6 新增·2026-07-17 controller 提案·待 B5-final 追認）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.art.label | ART | 圖稿 | | label |
+| fold.art.none | NONE | 無 | | label |
+| fold.art.sample | SAMPLE | 範例 | | label |
+
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 
 §A 補漏 4 key（`param.reset.glyph` ↺·lock／`overlay.unit.pt/mm/px` lock 規格值／

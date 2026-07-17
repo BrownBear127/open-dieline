@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ResolvedParams } from '@/core/types';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
-import type { createFoldScene, FoldRecipeName, FoldSceneHandle } from '@/ui/fold-scene';
+import type {
+  ArtworkMode,
+  createFoldScene,
+  FoldRecipeName,
+  FoldSceneHandle,
+} from '@/ui/fold-scene';
 
 const defaultLoadScene = () => import('./fold-scene');
 const FOLD_PLAY_DURATION_MS = 2400;
@@ -11,6 +16,10 @@ const FOLD_CARD_RECIPES = [
   { name: 'kraft', labelKey: 'fold.card.kraft' },
   { name: 'black', labelKey: 'fold.card.black' },
 ] as const satisfies ReadonlyArray<{ name: FoldRecipeName; labelKey: string }>;
+const FOLD_ARTWORK_MODES = [
+  { mode: 'none', labelKey: 'fold.art.none' },
+  { mode: 'sample', labelKey: 'fold.art.sample' },
+] as const satisfies ReadonlyArray<{ mode: ArtworkMode; labelKey: string }>;
 
 type FoldModelBuilder = (values: ResolvedParams) => FoldModel;
 
@@ -54,12 +63,14 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const playbackOriginRef = useRef(1);
   const foldProgressRef = useRef(1);
   const cardRecipeRef = useRef<FoldRecipeName>('kraft');
+  const artworkRef = useRef<ArtworkMode>('none');
   // 自轉預設關閉（2026-07-17 法蘭 E2E 裁決）：進場靜止，由使用者主動開啟。
   const autoRotateRef = useRef(false);
   const [foldProgress, setFoldProgress] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
+  const [artwork, setArtwork] = useState<ArtworkMode>('none');
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
   // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 空狀態殼
@@ -130,6 +141,12 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     cardRecipeRef.current = name;
     setCardRecipe(name);
     sceneRef.current?.applyRecipe(name);
+  };
+
+  const selectArtwork = (mode: ArtworkMode): void => {
+    artworkRef.current = mode;
+    setArtwork(mode);
+    sceneRef.current?.applyArtwork(mode);
   };
 
   useEffect(() => {
@@ -215,6 +232,9 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       if (cardRecipeRef.current !== 'kraft') {
         nextScene.applyRecipe(cardRecipeRef.current);
       }
+      if (artworkRef.current !== 'none') {
+        nextScene.applyArtwork(artworkRef.current);
+      }
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver((entries) => {
@@ -285,6 +305,20 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
               className={`mode label${cardRecipe === name ? ' on' : ''}`}
               aria-pressed={cardRecipe === name}
               onClick={() => selectCardRecipe(name)}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </div>
+        <div className="compat mono" role="group" aria-label={t('fold.art.label')}>
+          <span>{t('fold.art.label')}</span>
+          {FOLD_ARTWORK_MODES.map(({ mode, labelKey }) => (
+            <button
+              key={mode}
+              type="button"
+              className={`mode label${artwork === mode ? ' on' : ''}`}
+              aria-pressed={artwork === mode}
+              onClick={() => selectArtwork(mode)}
             >
               {t(labelKey)}
             </button>

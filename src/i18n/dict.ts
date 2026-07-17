@@ -169,6 +169,9 @@ export const dict = {
   'fold.card.white': { en: 'WHITE', zh: '白' },
   'fold.card.kraft': { en: 'KRAFT', zh: '牛皮' },
   'fold.card.black': { en: 'BLACK', zh: '黑' },
+  'fold.art.label': { en: 'ART', zh: '圖稿' },
+  'fold.art.none': { en: 'NONE', zh: '無' },
+  'fold.art.sample': { en: 'SAMPLE', zh: '範例' },
   'fold.unsupported': {
     en: '3D fold preview is not yet available for this box style.',
     zh: '此盒型尚未支援 3D 摺盒預覽。',
