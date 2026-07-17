@@ -318,6 +318,33 @@ test('switching the card recipe to black renders a non-background frame and tran
   await expectNonBackgroundFrame(page.locator('.fold-canvas'));
 });
 
+test('switching SAMPLE artwork changes the rendered frame and transfers the single aria state', async ({ page }) => {
+  await enterFold(page);
+  const canvas = page.locator('.fold-canvas');
+  const artworkGroup = page.getByRole('group', { name: dict['fold.art.label'].en, exact: true });
+  const none = artworkGroup.getByRole('button', { name: dict['fold.art.none'].en, exact: true });
+  const sample = artworkGroup.getByRole('button', { name: dict['fold.art.sample'].en, exact: true });
+
+  await expect(none).toHaveAttribute('aria-pressed', 'true');
+  await expect(sample).toHaveAttribute('aria-pressed', 'false');
+  const noneFrame = await stableShot(canvas);
+
+  await sample.click();
+  await expect(none).toHaveAttribute('aria-pressed', 'false');
+  await expect(sample).toHaveAttribute('aria-pressed', 'true');
+  const autoRotate = page.getByRole('checkbox', { name: dict['fold.autorotate'].en, exact: true });
+  await autoRotate.check();
+  await expectNonBackgroundFrame(canvas);
+  await autoRotate.uncheck();
+  const sampleFrame = await stableShot(canvas);
+  const artworkDiff = await pixelDiff(page, sampleFrame, noneFrame);
+
+  expect(
+    artworkDiff.diffPx / artworkDiff.totalPx,
+    'SAMPLE artwork must visibly differ from the NONE paper frame',
+  ).toBeGreaterThan(0.001);
+});
+
 test('zh fold controls use exact dictionary copy and the zh voice classes', async ({ page }) => {
   await enterFold(page, 'zh');
 

@@ -6,7 +6,11 @@ import { resolveParams } from '@/core/registry';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
 import { FoldView } from '@/ui/FoldView';
-import type { FoldSceneHandle, FoldSceneOptions, createFoldScene } from '@/ui/fold-scene';
+import type {
+  FoldSceneHandle,
+  FoldSceneOptions,
+  createFoldScene,
+} from '@/ui/fold-scene';
 
 const RTE_VALUES = resolveParams(reverseTuckEnd, {});
 
@@ -25,6 +29,7 @@ function createFakeScene(): FakeScene {
       replaceModel: vi.fn(),
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
+      applyArtwork: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };
@@ -131,6 +136,48 @@ describe('FoldView controls', () => {
 
     expect(within(cardGroup).getAllByRole('button').map((button) => button.textContent))
       .toEqual(['白', '牛皮', '黑']);
+  });
+
+  it('defaults artwork to NONE and applies SAMPLE/NONE while keeping exactly one option pressed', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const artworkGroup = screen.getByRole('group', { name: 'ART' });
+    const none = within(artworkGroup).getByRole('button', { name: 'NONE' });
+    const sample = within(artworkGroup).getByRole('button', { name: 'SAMPLE' });
+
+    expect(none).toHaveAttribute('aria-pressed', 'true');
+    expect(sample).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(sample);
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('sample');
+    expect(none).toHaveAttribute('aria-pressed', 'false');
+    expect(sample).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(none);
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('none');
+    expect(none).toHaveAttribute('aria-pressed', 'true');
+    expect(sample).toHaveAttribute('aria-pressed', 'false');
+    expect(within(artworkGroup).getAllByRole('button').filter(
+      (button) => button.getAttribute('aria-pressed') === 'true',
+    )).toHaveLength(1);
+  });
+
+  it('renders the approved English and Chinese artwork copy verbatim', async () => {
+    const fake = createFakeScene();
+    const view = render(
+      <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />,
+    );
+    const englishGroup = await screen.findByRole('group', { name: 'ART' });
+    expect(within(englishGroup).getAllByRole('button').map((button) => button.textContent))
+      .toEqual(['NONE', 'SAMPLE']);
+
+    view.unmount();
+    setLang('zh');
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+    const chineseGroup = await screen.findByRole('group', { name: '圖稿' });
+    expect(within(chineseGroup).getAllByRole('button').map((button) => button.textContent))
+      .toEqual(['無', '範例']);
   });
 
   it('drives the current scene pose from the progress slider without recreating the scene', async () => {

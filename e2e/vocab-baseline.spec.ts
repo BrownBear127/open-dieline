@@ -96,12 +96,12 @@ const EXPECTED_COUNTS = {
   },
   fold: {
     'input[type="range"]': 1,
-    '.mode': 6,
-    '.mode.on': 2,
+    '.mode': 8,
+    '.mode.on': 3,
     '.btn': 3,
     '.btn.quiet': 0,
     '.btn.tog.on': 0,
-    '.foldbar .compat': 2,
+    '.foldbar .compat': 3,
     '.foldbar .compat .tick': 1,
   },
   imposition: {
