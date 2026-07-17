@@ -7,6 +7,7 @@ import {
   P3_TEST_HOOKS_ENABLED,
   peekInitialFoldProgress,
 } from '@/ui/fold-hooks';
+import type { ArtworkLoadResult } from '@/ui/artwork-source';
 import type {
   ArtworkMode,
   createFoldScene,
@@ -67,7 +68,9 @@ export interface ArtworkFileLoadOptions {
 export type ArtworkFileLoader = (
   file: File,
   options: ArtworkFileLoadOptions,
-) => Promise<unknown>;
+) => Promise<ArtworkLoadResult>;
+
+type UploadStatus = 'idle' | 'loading' | 'error';
 
 function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
   return (
@@ -75,6 +78,22 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
       <p className="mono">{copy}</p>
     </div>
   );
+}
+
+function FoldArtworkStatus({
+  uploadStatus,
+  staleTemplate,
+}: {
+  uploadStatus: UploadStatus;
+  staleTemplate: boolean;
+}) {
+  if (uploadStatus === 'error') {
+    return <p className="fold-status mono" role="alert">{t('fold.art.invalidFile')}</p>;
+  }
+  if (staleTemplate) {
+    return <p className="fold-status mono" role="status">{t('fold.art.staleTemplate')}</p>;
+  }
+  return null;
 }
 
 export function FoldView({
@@ -109,6 +128,8 @@ export function FoldView({
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
   const [artwork, setArtwork] = useState<ArtworkMode>(initialArtwork);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [staleTemplate, setStaleTemplate] = useState(false);
   const artworkEnabled = artwork === 'sample';
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
@@ -118,6 +139,7 @@ export function FoldView({
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
   const model = useMemo<FoldModel | undefined>(() => builder?.(values), [boxId, values, builder]);
+  const artworkSignature = useMemo(() => JSON.stringify([boxId, values]), [boxId, values]);
   const validationErrors = useMemo(
     () => model === undefined ? [] : modelRuntime?.validate(model) ?? [],
     [model, modelRuntime],
@@ -188,6 +210,8 @@ export function FoldView({
 
   const selectArtwork = (mode: ArtworkMode): void => {
     cancelPendingUpload();
+    setUploadStatus('idle');
+    setStaleTemplate(false);
     artworkRef.current = mode;
     setArtwork(mode);
     sceneRef.current?.applyArtwork(mode);
@@ -212,6 +236,7 @@ export function FoldView({
       selectArtwork('none');
       return;
     }
+    setUploadStatus('idle');
     fileInputRef.current?.click();
   };
 
@@ -222,12 +247,13 @@ export function FoldView({
     cancelPendingUpload();
     const controller = new AbortController();
     uploadAbortRef.current = controller;
+    setUploadStatus('loading');
 
     const startUpload = async (): Promise<void> => {
       const loader = loadArtwork ?? (await import('./artwork-source')).loadArtworkFile;
       if (controller.signal.aborted) return;
-      await loader(file, {
-        signature: JSON.stringify([boxId, values]),
+      const result = await loader(file, {
+        signature: artworkSignature,
         signal: controller.signal,
         onCommit: (source) => {
           customSourceRef.current = source;
@@ -236,9 +262,17 @@ export function FoldView({
           selectArtwork('custom');
         },
       });
+      if (uploadAbortRef.current !== controller) return;
+      uploadAbortRef.current = null;
+      setUploadStatus(result === 'committed' || result === 'cancelled' ? 'idle' : 'error');
     };
 
-    void startUpload().catch((error: unknown) => console.error(error));
+    void startUpload().catch((error: unknown) => {
+      if (uploadAbortRef.current !== controller) return;
+      uploadAbortRef.current = null;
+      setUploadStatus('error');
+      console.error(error);
+    });
   };
 
   const toggleAutoRotate = (): void => {
@@ -270,6 +304,16 @@ export function FoldView({
   useEffect(() => {
     if (validationErrors.length > 0) console.error(validationErrors);
   }, [validationErrors]);
+
+  useEffect(() => {
+    if (
+      artwork === 'custom'
+      && customSourceRef.current !== null
+      && customSourceRef.current.signature !== artworkSignature
+    ) {
+      setStaleTemplate(true);
+    }
+  }, [artwork, artworkSignature]);
 
   useEffect(() => {
     if (canCreateScene && model !== undefined) {
@@ -379,11 +423,18 @@ export function FoldView({
     return <FoldEmpty copy={t('fold.webglUnavailable')} />;
   }
 
+  const artworkStatus = (
+    <FoldArtworkStatus uploadStatus={uploadStatus} staleTemplate={staleTemplate} />
+  );
+
   return modelRuntime === null ? (
-    <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef} />
+    <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
+      {artworkStatus}
+    </section>
   ) : (
     <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
       <canvas className="fold-canvas" ref={canvasRef} />
+      {artworkStatus}
       <div className="fold-tools">
         <div className="fold-tool-group" role="group" aria-label={t('fold.card.label')}>
           {FOLD_CARD_RECIPES.map(({ name, labelKey }) => (

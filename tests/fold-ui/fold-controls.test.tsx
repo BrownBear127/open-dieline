@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { resolveParams } from '@/core/registry';
+import type { ResolvedParams } from '@/core/types';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
 import { FoldView, type ArtworkFileLoader } from '@/ui/FoldView';
@@ -42,6 +43,14 @@ function createFakeScene(): FakeScene {
   });
 
   return { createScene, handles, options };
+}
+
+function artworkSignature(values: ResolvedParams = RTE_VALUES): string {
+  return JSON.stringify(['rte', values]);
+}
+
+function customSource(signature = artworkSignature()): CustomArtworkSource {
+  return { canvas: document.createElement('canvas'), signature };
 }
 
 function installTimerBackedAnimationFrame() {
@@ -183,14 +192,11 @@ describe('FoldView controls', () => {
 
   it('commits an uploaded source, installs it before selecting custom, and keeps SAMPLE mutually exclusive', async () => {
     const fake = createFakeScene();
-    const source: CustomArtworkSource = {
-      canvas: document.createElement('canvas'),
-      signature: 'rte:fixture',
-    };
+    const source = customSource();
     const onCustomSourceChange = vi.fn();
-    const loadArtwork: ArtworkFileLoader = vi.fn(async (_file, options) => {
+    const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
       options.onCommit(source);
-      return { status: 'committed', source };
+      return 'committed';
     });
     const { container } = render(
       <FoldView
@@ -270,7 +276,7 @@ describe('FoldView controls', () => {
 
   it('clears the file input so selecting the same file twice starts two requests', async () => {
     const fake = createFakeScene();
-    const loadArtwork: ArtworkFileLoader = vi.fn(async () => ({ status: 'cancelled' }));
+    const loadArtwork = vi.fn<ArtworkFileLoader>(async () => 'cancelled');
     const { container } = render(
       <FoldView
         boxId="rte"
@@ -290,12 +296,206 @@ describe('FoldView controls', () => {
     await waitFor(() => expect(loadArtwork).toHaveBeenCalledTimes(2));
   });
 
+  it('marks custom artwork stale after a parameter change, keeps it sticky after revert, and preserves the preview', async () => {
+    const fake = createFakeScene();
+    const source = customSource();
+    const view = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={source}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    const artworkCalls = vi.mocked(fake.handles[0]!.applyArtwork).mock.calls.length;
+
+    const changedValues: ResolvedParams = { ...RTE_VALUES, L: (RTE_VALUES.L as number) + 10 };
+    view.rerender(
+      <FoldView
+        boxId="rte"
+        values={changedValues}
+        createScene={fake.createScene}
+        customSource={source}
+      />,
+    );
+
+    const stale = await screen.findByRole('status');
+    expect(stale).toHaveTextContent(t('fold.art.staleTemplate'));
+    expect(stale).toHaveClass('fold-status', 'mono');
+    expect(stale.closest('.fold-view')).not.toBeNull();
+    await waitFor(() => expect(fake.handles[0]!.replaceModel).toHaveBeenCalledTimes(2));
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenCalledTimes(artworkCalls);
+
+    view.rerender(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={source}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(t('fold.art.staleTemplate'));
+  });
+
+  it('does not mark matching custom artwork stale for card, progress, autorotate, or camera changes', async () => {
+    const fake = createFakeScene();
+    render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={customSource()}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.card.white') }));
+    fireEvent.change(screen.getByRole('slider', { name: t('fold.progress.aria') }), {
+      target: { value: '0.4' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('fold.autorotate') }));
+    act(() => fake.options[0]!.onUserInteract?.());
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['NONE', 'upload'],
+    ['SAMPLE', 'sample'],
+  ] as const)('clears sticky stale when switching to %s', async (_label, target) => {
+    const fake = createFakeScene();
+    const source = customSource();
+    const changedValues: ResolvedParams = { ...RTE_VALUES, W: (RTE_VALUES.W as number) + 5 };
+    render(
+      <FoldView
+        boxId="rte"
+        values={changedValues}
+        createScene={fake.createScene}
+        customSource={source}
+      />,
+    );
+    await screen.findByRole('status');
+
+    fireEvent.click(screen.getByRole('button', {
+      name: t(target === 'upload' ? 'fold.art.upload' : 'fold.art.sample'),
+    }));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('clears sticky stale after the next successful upload', async () => {
+    const fake = createFakeScene();
+    const source = customSource();
+    const changedValues: ResolvedParams = { ...RTE_VALUES, D: (RTE_VALUES.D as number) + 5 };
+    const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
+      options.onCommit(customSource(options.signature));
+      return 'committed';
+    });
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={changedValues}
+        createScene={fake.createScene}
+        customSource={source}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await screen.findByRole('status');
+
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(['png'], 'fresh.png', { type: 'image/png' })] },
+    });
+
+    await waitFor(() => expect(loadArtwork).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(loadArtwork).toHaveBeenCalledWith(
+      expect.any(File),
+      expect.objectContaining({ signature: artworkSignature(changedValues) }),
+    );
+  });
+
+  it('shows a dict-backed DOM alert for a structured rejection and keeps the previous mode', async () => {
+    const fake = createFakeScene();
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
+    const loadArtwork = vi.fn<ArtworkFileLoader>(async () => ({ code: 'type' }));
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const sample = screen.getByRole('button', { name: t('fold.art.sample') });
+    fireEvent.click(sample);
+
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(['bad'], 'bad.txt', { type: 'text/plain' })] },
+    });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(t('fold.art.invalidFile'));
+    expect(alert).toHaveClass('fold-status', 'mono');
+    expect(alert.closest('.fold-view')).not.toBeNull();
+    expect(sample).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: t('fold.art.upload') }))
+      .toHaveAttribute('aria-pressed', 'false');
+    expect(getContext).not.toHaveBeenCalledWith('2d');
+  });
+
+  it('clears an upload error on picker open, successful upload, or mode switch', async () => {
+    const fake = createFakeScene();
+    let succeeds = false;
+    const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
+      if (!succeeds) return { code: 'type' };
+      options.onCommit(customSource(options.signature));
+      return 'committed';
+    });
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const upload = screen.getByRole('button', { name: t('fold.art.upload') });
+    const rejectFile = (): void => {
+      fireEvent.change(input, {
+        target: { files: [new File(['bad'], 'bad.txt', { type: 'text/plain' })] },
+      });
+    };
+
+    rejectFile();
+    await screen.findByRole('alert');
+    fireEvent.click(upload);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    rejectFile();
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    rejectFile();
+    await screen.findByRole('alert');
+    succeeds = true;
+    fireEvent.change(input, {
+      target: { files: [new File(['png'], 'fresh.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
   it('aborts an in-flight upload when the artwork mode changes', async () => {
     const fake = createFakeScene();
     let signal: AbortSignal | undefined;
-    const loadArtwork: ArtworkFileLoader = vi.fn((_file, options) => {
+    const loadArtwork = vi.fn<ArtworkFileLoader>((_file, options) => {
       signal = options.signal;
-      return new Promise(() => undefined);
+      return new Promise<never>(() => undefined);
     });
     const { container } = render(
       <FoldView
