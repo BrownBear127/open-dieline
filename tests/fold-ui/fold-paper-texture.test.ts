@@ -5,6 +5,11 @@ import {
   SRGBColorSpace,
 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { resolveParams } from '@/core/registry';
+import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
+import { worldGeometry } from '@/fold/pose3d';
+import { foldPose } from '@/fold/schedule';
 import {
   PAPER_PRESETS,
   configurePaperMaterial,
@@ -221,6 +226,24 @@ describe('sampleArtworkPlan', () => {
       ['dot', 'bottomLid'],
     ]);
     expect(first.commands.every((command) => command.clipPolygon.length === 4)).toBe(true);
+  });
+
+  it('keeps both lid dots centered on the fallback center panels in a sliced model', () => {
+    const model = buildRteFoldModel(resolveParams(reverseTuckEnd, {}));
+    const slicedGeometry = worldGeometry(model, foldPose(0, model));
+
+    expect(slicedGeometry.has('topLid')).toBe(false);
+    expect(slicedGeometry.has('bottomLid')).toBe(false);
+    expect(sampleArtworkPlan(slicedGeometry).commands.filter(({ kind }) => kind === 'dot')).toEqual([
+      expect.objectContaining({
+        panelId: 'topLidC',
+        center: { x: 137.5, y: -27.5 },
+      }),
+      expect.objectContaining({
+        panelId: 'bottomLidC',
+        center: { x: 27.5, y: 144.5 },
+      }),
+    ]);
   });
 
   it('recomputes the centered P1 artwork when flat model dimensions change', () => {

@@ -1048,7 +1048,11 @@ export function sampleArtworkPlan(
     });
   }
 
-  for (const panelId of ['topLid', 'bottomLid']) {
+  for (const [legacyPanelId, centerPanelId] of [
+    ['topLid', 'topLidC'],
+    ['bottomLid', 'bottomLidC'],
+  ] as const) {
+    const panelId = flatGeometry.has(legacyPanelId) ? legacyPanelId : centerPanelId;
     const polygon = artworkPolygon(flatGeometry.get(panelId));
     const bounds = artworkBounds(polygon);
     if (!bounds) continue;
