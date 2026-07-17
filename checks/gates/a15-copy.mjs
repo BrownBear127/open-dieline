@@ -3,13 +3,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const VERIFIED_TIER_B_SECTIONS = ['B3', 'B4', 'B6', 'B8'];
+const VERIFIED_TIER_B_SECTIONS = ['B3', 'B4', 'B6', 'B8', 'B9'];
 
-// B8 是末號 B 節——無 B9 可作節尾。顯式指定兩檔各自的下一個標題：
+// B9 是末號 B 節——無 B10 可作節尾。顯式指定兩檔各自的下一個標題：
 // expansion 用「節 2」；tierb 用「附錄 A」（跨過「複核記錄」純文字段——該段無表格 row·
 // markdownRows 過濾後零污染；不用「複核記錄」是因 regex \b 對中文結尾不成立）。
 const SECTION_END_OVERRIDES = {
-  B8: { expansion: '節 2', tierb: '附錄 A' },
+  B9: { expansion: '節 2', tierb: '附錄 A' },
 };
 
 function cells(line) {

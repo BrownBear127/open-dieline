@@ -21,7 +21,7 @@
 
 .foldbar {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) auto;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   padding: 13px 24px;

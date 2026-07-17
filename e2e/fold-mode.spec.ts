@@ -212,7 +212,7 @@ async function stableShot(canvas: Locator): Promise<Buffer> {
 test('fold mode mounts its canvas and transfers the single pressed mode state', async ({ page }) => {
   await gotoReady(page);
 
-  const modes = page.locator('.mode');
+  const modes = page.locator('.moderow .mode');
   await expect(modes).toHaveCount(3);
   await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
 
@@ -229,8 +229,8 @@ test('fold controls use the vocabulary declarations and render the real range th
 
   const button = page.locator('.foldbar .btn');
   const range = page.locator('.foldbar input[type="range"]');
-  const compat = page.locator('.foldbar .compat');
-  const tick = page.locator('.foldbar .compat .tick');
+  const tick = page.getByRole('checkbox', { name: dict['fold.autorotate'].en, exact: true });
+  const compat = tick.locator('..');
   await expect(button).toHaveCount(1);
   await expect(range).toHaveCount(1);
   await expect(compat).toHaveCount(1);
@@ -298,6 +298,26 @@ test('dragging fold progress to one renders a non-background canvas frame', asyn
   ).toBeLessThan(0.0005);
 });
 
+test('switching the card recipe to black renders a non-background frame and transfers aria state', async ({ page }) => {
+  await enterFold(page);
+  const cardGroup = page.getByRole('group', { name: dict['fold.card.label'].en, exact: true });
+  const white = cardGroup.getByRole('button', { name: dict['fold.card.white'].en, exact: true });
+  const kraft = cardGroup.getByRole('button', { name: dict['fold.card.kraft'].en, exact: true });
+  const black = cardGroup.getByRole('button', { name: dict['fold.card.black'].en, exact: true });
+
+  await expect(white).toHaveAttribute('aria-pressed', 'false');
+  await expect(kraft).toHaveAttribute('aria-pressed', 'true');
+  await expect(black).toHaveAttribute('aria-pressed', 'false');
+
+  await black.click();
+
+  await expect(white).toHaveAttribute('aria-pressed', 'false');
+  await expect(kraft).toHaveAttribute('aria-pressed', 'false');
+  await expect(black).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('checkbox', { name: dict['fold.autorotate'].en, exact: true }).check();
+  await expectNonBackgroundFrame(page.locator('.fold-canvas'));
+});
+
 test('zh fold controls use exact dictionary copy and the zh voice classes', async ({ page }) => {
   await enterFold(page, 'zh');
 
@@ -306,7 +326,9 @@ test('zh fold controls use exact dictionary copy and the zh voice classes', asyn
   await expect(controls).toBeVisible();
   await expect(controls.getByRole('button', { name: dict['fold.play'].zh, exact: true })).toHaveClass(/(^|\s)label(\s|$)/);
   await expect(controls.getByRole('slider', { name: dict['fold.progress.aria'].zh, exact: true })).toBeVisible();
-  const autoRotate = controls.locator('.compat');
+  const autoRotate = controls
+    .getByRole('checkbox', { name: dict['fold.autorotate'].zh, exact: true })
+    .locator('..');
   await expect(autoRotate).toHaveClass(/(^|\s)mono(\s|$)/);
   await expect(autoRotate).toHaveText(dict['fold.autorotate'].zh);
 });
