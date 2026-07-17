@@ -6,8 +6,20 @@ import { chromium } from '@playwright/test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const outputDir = path.join(root, '.superpowers/sdd/m2-snapshots');
+const b4OutputDir = path.join(outputDir, 'b4-final');
 const disallowedPorts = new Set([4173, 5173]);
 const cameraOrbit = { azimuthDeg: 35, elevationDeg: 25 };
+const b4Scenarios = [
+  { name: 'default', progress: 1 },
+  { name: 'default', progress: 0.9 },
+  { name: 'l65', progress: 1, param: ['L', 65] },
+  { name: 'thick', progress: 1, param: ['thickness', 0.8] },
+  { name: 'zero-thickness', progress: 1, param: ['thickness', 0] },
+  { name: 'zero-tuck', progress: 1, param: ['tuckDepth', 0] },
+  { name: 'large-clearance', progress: 1, param: ['tuckClearance', 3] },
+  { name: 'lock-zero', progress: 1, param: ['tuckLock', 0] },
+  { name: 'lock-default', progress: 0.9, param: ['tuckLock', 20] },
+];
 
 function findOpenPort() {
   for (let port = 4317; port < 4417; port += 1) {
@@ -90,6 +102,20 @@ async function setSlider(page, value) {
   );
 }
 
+async function setParam(page, key, value) {
+  const input = page.locator(`#param-${key}`);
+  await input.fill(String(value));
+  await page.waitForFunction(
+    ({ inputId, expected }) => document.querySelector(inputId)?.value === expected,
+    { inputId: `#param-${key}`, expected: String(value) },
+  );
+  await page.locator('.fold-canvas').waitFor({ state: 'visible' });
+  await page.waitForFunction(
+    () => typeof window.__p3SetLook === 'function'
+      && typeof window.__p3SetCameraOrbit === 'function',
+  );
+}
+
 async function waitForStableRender(page) {
   const canvas = page.locator('.fold-canvas');
   let previous = null;
@@ -144,6 +170,35 @@ async function setCameraOrbit(page) {
   }, cameraOrbit);
 }
 
+async function assertB4Defaults(page) {
+  const cardGroup = page.getByRole('group', { name: 'CARD', exact: true });
+  const artworkGroup = page.getByRole('group', { name: 'ART', exact: true });
+  const kraftPressed = await cardGroup
+    .getByRole('button', { name: 'KRAFT', exact: true })
+    .getAttribute('aria-pressed');
+  const nonePressed = await artworkGroup
+    .getByRole('button', { name: 'NONE', exact: true })
+    .getAttribute('aria-pressed');
+  if (kraftPressed !== 'true' || nonePressed !== 'true') {
+    throw new Error('B4-final requires CARD=KRAFT and ART=NONE.');
+  }
+}
+
+async function captureB4Scenario(page, baseUrl, scenario) {
+  await enterFoldMode(page, baseUrl);
+  await assertB4Defaults(page);
+  if (scenario.param !== undefined) {
+    await setParam(page, scenario.param[0], scenario.param[1]);
+  }
+  await setLook(page, 'kraft');
+  await setSlider(page, scenario.progress);
+  await setCameraOrbit(page);
+  await waitForStableRender(page);
+  const filename = `b4final-${scenario.name}-t${scenario.progress}.png`;
+  await page.screenshot({ path: path.join(b4OutputDir, filename) });
+  console.log(`SNAPSHOT ${filename}`);
+}
+
 const port = findOpenPort();
 const baseUrl = `http://127.0.0.1:${port}`;
 const server = startDevServer(port);
@@ -152,6 +207,7 @@ let browser;
 try {
   await waitForDevServer(server, baseUrl);
   await mkdir(outputDir, { recursive: true });
+  await mkdir(b4OutputDir, { recursive: true });
   browser = await chromium.launch();
   const context = await browser.newContext({
     locale: 'en-US',
@@ -174,8 +230,12 @@ try {
     console.log(`SNAPSHOT ${filename}`);
   }
 
+  for (const scenario of b4Scenarios) {
+    await captureB4Scenario(page, baseUrl, scenario);
+  }
+
   await context.close();
-  console.log(`SNAPSHOTS-DONE count=${recipes.length} port=${port}`);
+  console.log(`SNAPSHOTS-DONE count=${recipes.length + b4Scenarios.length} port=${port}`);
 } finally {
   await browser?.close();
   await stopDevServer(server);
