@@ -69,6 +69,9 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const canCreateScene = model !== undefined && validationErrors.length === 0;
   const modelRef = useRef(model);
   modelRef.current = model;
+  const thickness = values.thickness as number;
+  const thicknessRef = useRef(thickness);
+  thicknessRef.current = thickness;
 
   const updateFoldProgress = (nextProgress: number): void => {
     const progress = Math.min(1, Math.max(0, nextProgress));
@@ -138,8 +141,10 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   }, [validationErrors]);
 
   useEffect(() => {
-    if (canCreateScene && model !== undefined) sceneRef.current?.replaceModel(model);
-  }, [canCreateScene, model]);
+    if (canCreateScene && model !== undefined) {
+      sceneRef.current?.replaceModel(model, { thickness });
+    }
+  }, [canCreateScene, model, thickness]);
 
   useEffect(() => {
     if (!canCreateScene) return;
@@ -189,7 +194,9 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       scene = nextScene;
       sceneRef.current = nextScene;
       const currentModel = modelRef.current;
-      if (currentModel !== undefined) nextScene.replaceModel(currentModel);
+      if (currentModel !== undefined) {
+        nextScene.replaceModel(currentModel, { thickness: thicknessRef.current });
+      }
       nextScene.updatePose(foldProgressRef.current);
       nextScene.setAutoRotate(autoRotateRef.current);
 

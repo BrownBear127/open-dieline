@@ -5,6 +5,7 @@ import {
   CanvasTexture,
   Color,
   DoubleSide,
+  FrontSide,
   Group,
   Mesh,
   MeshBasicMaterial,
@@ -39,7 +40,7 @@ const FILL_LIGHT_INTENSITY = 12;
 const SHADOW_TEXTURE_SIZE = 256;
 const SHADOW_PADDING_FACTOR = 1.18;
 const SHADOW_MIN_SPAN_FACTOR = 0.35;
-const SHADOW_Z_OFFSET_FACTOR = 0.003;
+const SHADOW_LIFT_OFFSET_FACTOR = 0.003;
 const DIELINE_TO_THREE_Y = -1;
 
 function mapDielineY(y: number): number {
@@ -57,6 +58,59 @@ function writeThreeVertex(
   positions[offset + 2] = vertex.z;
 }
 
+function writePosition(
+  positions: Float32Array,
+  offset: number,
+  vertex: Vec3,
+): void {
+  positions[offset] = vertex.x;
+  positions[offset + 1] = vertex.y;
+  positions[offset + 2] = vertex.z;
+}
+
+function toThreeVertex(vertex: Vec3): Vec3 {
+  return { x: vertex.x, y: mapDielineY(vertex.y), z: vertex.z };
+}
+
+function normalizedFaceNormal(first: Vec3, second: Vec3, third: Vec3): Vec3 | null {
+  const abX = second.x - first.x;
+  const abY = second.y - first.y;
+  const abZ = second.z - first.z;
+  const acX = third.x - first.x;
+  const acY = third.y - first.y;
+  const acZ = third.z - first.z;
+  const normal = {
+    x: abY * acZ - abZ * acY,
+    y: abZ * acX - abX * acZ,
+    z: abX * acY - abY * acX,
+  };
+  const length = Math.hypot(normal.x, normal.y, normal.z);
+
+  if (length <= Number.EPSILON) return null;
+  return {
+    x: normal.x / length,
+    y: normal.y / length,
+    z: normal.z / length,
+  };
+}
+
+function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
+  for (let firstIndex = 0; firstIndex < vertices.length - 2; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < vertices.length - 1; secondIndex += 1) {
+      for (let thirdIndex = secondIndex + 1; thirdIndex < vertices.length; thirdIndex += 1) {
+        const normal = normalizedFaceNormal(
+          vertices[firstIndex]!,
+          vertices[secondIndex]!,
+          vertices[thirdIndex]!,
+        );
+        if (normal) return normal;
+      }
+    }
+  }
+
+  return null;
+}
+
 export interface FoldSceneOptions {
   onContextLost?: () => void;
   onContextRestored?: () => void;
@@ -65,19 +119,24 @@ export interface FoldSceneOptions {
 
 export interface FoldSceneHandle {
   updatePose(t: number): void;
-  replaceModel(model: FoldModel): void;
+  replaceModel(model: FoldModel, opts?: { thickness?: number }): void;
   setAutoRotate(on: boolean): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }
 
-interface GeometryBounds {
+export interface GeometryBounds {
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
   minZ: number;
   maxZ: number;
+}
+
+export interface ShadowPlacement {
+  center: Vec3;
+  size: { w: number; h: number };
 }
 
 interface ContactShadow {
@@ -109,6 +168,65 @@ export function panelGeometryPositions(worldVertices: Vec3[]): Float32Array {
   return positions;
 }
 
+/**
+ * Builds a closed, thin panel solid in Three.js coordinates. The nominal
+ * polygon remains the front face; board thickness extends behind it.
+ */
+export function panelSolidPositions(
+  worldVertices: Vec3[],
+  thickness: number,
+): Float32Array {
+  if (!(thickness > 0)) return panelGeometryPositions(worldVertices);
+
+  const frontVertices = worldVertices.map(toThreeVertex);
+  const normal = firstFaceNormal(frontVertices);
+  if (!normal) return panelGeometryPositions(worldVertices);
+
+  const backVertices = frontVertices.map((vertex) => ({
+    x: vertex.x - normal.x * thickness,
+    y: vertex.y - normal.y * thickness,
+    z: vertex.z - normal.z * thickness,
+  }));
+  const faceTriangleCount = Math.max(0, frontVertices.length - 2);
+  const sideTriangleCount = frontVertices.length * 2;
+  const positions = new Float32Array(
+    (faceTriangleCount * 2 + sideTriangleCount) * 9,
+  );
+
+  let offset = 0;
+  for (let index = 1; index < frontVertices.length - 1; index += 1) {
+    writePosition(positions, offset, frontVertices[0]!);
+    writePosition(positions, offset + 3, frontVertices[index]!);
+    writePosition(positions, offset + 6, frontVertices[index + 1]!);
+    offset += 9;
+  }
+
+  for (let index = 1; index < backVertices.length - 1; index += 1) {
+    writePosition(positions, offset, backVertices[0]!);
+    writePosition(positions, offset + 3, backVertices[index + 1]!);
+    writePosition(positions, offset + 6, backVertices[index]!);
+    offset += 9;
+  }
+
+  for (let index = 0; index < frontVertices.length; index += 1) {
+    const nextIndex = (index + 1) % frontVertices.length;
+    const frontStart = frontVertices[index]!;
+    const frontEnd = frontVertices[nextIndex]!;
+    const backStart = backVertices[index]!;
+    const backEnd = backVertices[nextIndex]!;
+
+    writePosition(positions, offset, frontStart);
+    writePosition(positions, offset + 3, backStart);
+    writePosition(positions, offset + 6, backEnd);
+    writePosition(positions, offset + 9, frontStart);
+    writePosition(positions, offset + 12, backEnd);
+    writePosition(positions, offset + 15, frontEnd);
+    offset += 18;
+  }
+
+  return positions;
+}
+
 function paperColor(): Color {
   const token = getComputedStyle(document.documentElement)
     .getPropertyValue('--paper')
@@ -116,12 +234,12 @@ function paperColor(): Color {
   return new Color(token || PAPER_FALLBACK);
 }
 
-function createCardMaterial(): MeshStandardMaterial {
+function createCardMaterial(thickness: number): MeshStandardMaterial {
   return new MeshStandardMaterial({
     color: CARD_COLOR,
     metalness: CARD_METALNESS,
     roughness: CARD_ROUGHNESS,
-    side: DoubleSide,
+    side: thickness > 0 ? FrontSide : DoubleSide,
   });
 }
 
@@ -158,6 +276,7 @@ function createContactShadow(): ContactShadow {
   });
   const mesh = new Mesh(geometry, material);
   mesh.name = 'fold-contact-shadow';
+  mesh.rotation.x = -Math.PI / 2;
   mesh.renderOrder = -1;
 
   return { geometry, material, mesh, texture };
@@ -207,6 +326,30 @@ function boundsDiagonal(bounds: GeometryBounds): number {
     bounds.maxY - bounds.minY,
     bounds.maxZ - bounds.minZ,
   );
+}
+
+/** Places a padded contact shadow on the XZ ground plane below the model. */
+export function shadowPlacement(bounds: GeometryBounds): ShadowPlacement {
+  const diagonal = Math.max(boundsDiagonal(bounds), MIN_SCENE_SCALE);
+  const minimumSpan = diagonal * SHADOW_MIN_SPAN_FACTOR;
+
+  return {
+    center: {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: bounds.minY - diagonal * SHADOW_LIFT_OFFSET_FACTOR,
+      z: (bounds.minZ + bounds.maxZ) / 2,
+    },
+    size: {
+      w: Math.max(
+        (bounds.maxX - bounds.minX) * SHADOW_PADDING_FACTOR,
+        minimumSpan,
+      ),
+      h: Math.max(
+        (bounds.maxZ - bounds.minZ) * SHADOW_PADDING_FACTOR,
+        minimumSpan,
+      ),
+    },
+  };
 }
 
 export interface CameraFrame {
@@ -294,6 +437,7 @@ export function createFoldScene(
   >();
   let panelMaterial: MeshStandardMaterial | null = null;
   let currentModel: FoldModel | null = null;
+  let currentThickness = 0;
   let currentT = 0;
   let frameId: number | null = null;
   let needsRender = true;
@@ -311,12 +455,13 @@ export function createFoldScene(
   };
 
   const buildPanelTree = (model: FoldModel): void => {
-    panelMaterial = createCardMaterial();
+    panelMaterial = createCardMaterial(currentThickness);
+    const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
-      const positionCount = Math.max(0, panel.polygon.length - 2) * 9;
-      const positions = new Float32Array(positionCount);
+      const vertices = geometryByPanel.get(panel.id) ?? [];
+      const positions = panelSolidPositions(vertices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
 
       const mesh = new Mesh(geometry, panelMaterial);
@@ -328,22 +473,14 @@ export function createFoldScene(
   };
 
   const updateContactShadow = (bounds: GeometryBounds): void => {
-    const diagonal = Math.max(boundsDiagonal(bounds), MIN_SCENE_SCALE);
-    const width = Math.max(
-      (bounds.maxX - bounds.minX) * SHADOW_PADDING_FACTOR,
-      diagonal * SHADOW_MIN_SPAN_FACTOR,
-    );
-    const height = Math.max(
-      (bounds.maxY - bounds.minY) * SHADOW_PADDING_FACTOR,
-      diagonal * SHADOW_MIN_SPAN_FACTOR,
-    );
+    const placement = shadowPlacement(bounds);
 
     contactShadow.mesh.position.set(
-      (bounds.minX + bounds.maxX) / 2,
-      (bounds.minY + bounds.maxY) / 2,
-      bounds.minZ - diagonal * SHADOW_Z_OFFSET_FACTOR,
+      placement.center.x,
+      placement.center.y,
+      placement.center.z,
     );
-    contactShadow.mesh.scale.set(width, height, 1);
+    contactShadow.mesh.scale.set(placement.size.w, placement.size.h, 1);
   };
 
   const updateModelPose = (): GeometryBounds | null => {
@@ -358,7 +495,7 @@ export function createFoldScene(
       if (!mesh || !vertices) continue;
 
       const attribute = mesh.geometry.getAttribute('position') as BufferAttribute;
-      attribute.copyArray(panelGeometryPositions(vertices));
+      attribute.copyArray(panelSolidPositions(vertices, currentThickness));
       attribute.needsUpdate = true;
       mesh.geometry.computeVertexNormals();
       mesh.geometry.computeBoundingSphere();
@@ -501,8 +638,9 @@ export function createFoldScene(
       updateModelPose();
       scheduleRender();
     },
-    replaceModel(model) {
+    replaceModel(model, replaceOpts = {}) {
       currentModel = model;
+      currentThickness = replaceOpts.thickness ?? 0;
       disposePanelTree();
       buildPanelTree(model);
       updateModelPose();
