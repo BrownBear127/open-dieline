@@ -14,7 +14,7 @@ import { transform } from 'esbuild';
 // 否則 `https://konvolut.art.evil-phish.example/steal` 這類網域混淆字串會被靜默放行
 //（修前實測打穿）。w3.org／react.dev 以既有的必帶 `\/` 錨定；github 條目連 repo 路徑也
 // 補 `(\/|$)`（防 `open-dieline-evil` 這類 repo 名前綴混淆）。
-// P3 M1 T4 增列（controller 裁決·法蘭 review 待追認）：three.js GLSL shader 模板字串內嵌
+// P3 M1 T4 增列（controller 裁決·法蘭 2026-07-17 已追認）：three.js GLSL shader 模板字串內嵌
 // 的學術參考連結（GGX VNDF importance sampling·Heitz 2018 論文）——字串內容 minify 剝不掉、
 // 隨 fold chunk 真出貨（2026-07-17 真 dist 實測 17 筆中唯一出貨殘留·其餘 16 筆為 JS 註解
 // 已由下方 minify 掃描消解）。與 react.dev 前例同類：依賴自嵌惰性字面、非追蹤非 CDN、
