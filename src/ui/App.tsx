@@ -67,7 +67,17 @@
  * 處理」寫法慣例，不需要 `useEffect`），不碰 `impositionState`／`boxId`／`values` 任何一項，
  * 三者合起來就是 F6 表逐欄列舉的「全部保留」。
  */
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import { listBoxes } from '@/core/registry';
 // side-effect import：觸發 RTE 於模組載入時自我註冊（registry.ts 的 registerBox）。
 // 沒有這行 listBoxes() 恆為空、整個 App 沒有盒型可渲染——registry.ts 的設計是
@@ -91,6 +101,7 @@ import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
 import { setLang, useLang } from '@/i18n/lang';
 import type { CustomArtworkSource } from '@/ui/fold-scene';
+import type { FoldViewProps } from '@/ui/FoldView';
 
 // P3 M3 C7b lazy boundary：FOLD 模式整包（FoldView＋其後的 fold-scene）切換才載入——
 // main gzip −1.9KB（117,856→115,919B·T0 探針實測），M3 的 overlay/接線增量落 FoldView
@@ -98,7 +109,22 @@ import type { CustomArtworkSource } from '@/ui/fold-scene';
 //（與 FoldView 內部 fold-scene 動態載入失敗同一文案語義·同險同待遇）。
 // side-effect import：e2e 測試接線（__p3SetInitialFoldProgress）須先於 FOLD chunk 存在。
 import '@/ui/fold-hooks';
-const FoldView = lazy(() => import('@/ui/FoldView').then((m) => ({ default: m.FoldView })));
+export type FoldViewLoader = () => Promise<{ default: ComponentType<FoldViewProps> }>;
+
+const defaultLoadFoldView: FoldViewLoader = () => import('@/ui/FoldView')
+  .then((module) => ({ default: module.FoldView }));
+
+function RetryableFoldView({
+  loadFoldView,
+  ...props
+}: FoldViewProps & { loadFoldView: FoldViewLoader }) {
+  const FoldView = useMemo(() => lazy(loadFoldView), [loadFoldView]);
+  return (
+    <Suspense fallback={null}>
+      <FoldView {...props} />
+    </Suspense>
+  );
+}
 
 class FoldChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -132,7 +158,7 @@ function emphasisParts(copy: string): [before: string, emphasis: string, after: 
   return [match[1]!, match[2]!, match[3]!];
 }
 
-export function App() {
+export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: FoldViewLoader } = {}) {
   // root 訂閱讓語言變更重繪全樹；後代既有 t()/getLang() 呼叫不需逐點訂閱。
   const lang = useLang();
   const boxes = useMemo(() => listBoxes(), []);
@@ -447,14 +473,13 @@ export function App() {
             </section>
           ) : (
             <FoldChunkBoundary>
-              <Suspense fallback={null}>
-                <FoldView
-                  boxId={boxId}
-                  values={values}
-                  customSource={customArtworkSourceRef.current}
-                  onCustomSourceChange={replaceCustomArtworkSource}
-                />
-              </Suspense>
+              <RetryableFoldView
+                loadFoldView={loadFoldView}
+                boxId={boxId}
+                values={values}
+                customSource={customArtworkSourceRef.current}
+                onCustomSourceChange={replaceCustomArtworkSource}
+              />
             </FoldChunkBoundary>
           )}
         </main>

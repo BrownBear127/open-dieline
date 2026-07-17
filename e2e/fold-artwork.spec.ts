@@ -517,6 +517,57 @@ test('re-selecting the same file re-triggers upload', async ({ page }) => {
   await expect(uploadButton).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('retained custom artwork reports none before custom while returning from DESIGN to FOLD', async ({ page }) => {
+  await enterFold(page);
+  await upload(page, genericSvgFixture());
+
+  await page.getByRole('button', { name: dict['mode.design'].en, exact: true }).click();
+  await expect(page.locator('.fold-view')).toHaveCount(0);
+  await page.evaluate(() => {
+    const observations: string[] = [];
+    const record = (element: Element): void => {
+      if (element.matches('.fold-view')) {
+        observations.push(element.getAttribute('data-artwork-ready') ?? 'missing');
+      }
+      for (const foldView of element.querySelectorAll('.fold-view')) {
+        observations.push(foldView.getAttribute('data-artwork-ready') ?? 'missing');
+      }
+    };
+    const observer = new MutationObserver((records) => {
+      for (const mutation of records) {
+        if (mutation.type === 'attributes') {
+          record(mutation.target as Element);
+          continue;
+        }
+        for (const node of mutation.addedNodes) {
+          if (node instanceof Element) record(node);
+        }
+      }
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['data-artwork-ready'],
+      childList: true,
+      subtree: true,
+    });
+    const hooks = window as unknown as Record<string, unknown>;
+    hooks.__p3ArtworkReadySequence = observations;
+    hooks.__p3ArtworkReadyObserver = observer;
+  });
+
+  await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
+  await expect(page.locator('.fold-view')).toHaveAttribute('data-artwork-ready', 'custom');
+
+  const sequence = await page.evaluate(() => {
+    const hooks = window as unknown as Record<string, unknown>;
+    (hooks.__p3ArtworkReadyObserver as MutationObserver).disconnect();
+    return hooks.__p3ArtworkReadySequence as string[];
+  });
+  expect(sequence[0]).toBe('none');
+  expect(sequence).toContain('custom');
+  expect(sequence.indexOf('none')).toBeLessThan(sequence.indexOf('custom'));
+});
+
 test('switching artwork mode during decode discards the stale request', async ({ page }) => {
   await page.addInitScript(() => {
     const originalDecode = HTMLImageElement.prototype.decode;

@@ -6,6 +6,11 @@ import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  assertNamedTests,
+  REQUIRED_ARTWORK_E2E,
+  REQUIRED_ARTWORK_UNIT,
+} from './test-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sh = (cmd, env = {}) => execSync(cmd, { cwd: root, stdio: 'pipe', env: { ...process.env, ...env } }).toString();
@@ -31,18 +36,7 @@ const revert = () => {
   originals = new Map();
 };
 
-const EXPECTED_E2E_TOTAL = 49;
-const REQUIRED_ARTWORK_E2E = [
-  'upload png artwork renders a custom frame distinct from none and sample',
-  'upload jpeg artwork renders a custom frame distinct from none and sample',
-  'upload svg artwork renders a custom frame distinct from none and sample',
-  'uploaded artwork lands on the correct panel after folding',
-  'upload rejects an invalid file and keeps the previous artwork',
-  'upload cancel via file chooser keeps state unchanged',
-  're-selecting the same file re-triggers upload',
-  'switching artwork mode during decode discards the stale request',
-  'fold artwork upload makes no request outside the localhost origin',
-];
+const EXPECTED_E2E_TOTAL = 50;
 
 const assertE2eManifest = () => {
   const listing = sh('npx playwright test --list');
@@ -50,8 +44,12 @@ const assertE2eManifest = () => {
   if (total !== EXPECTED_E2E_TOTAL) {
     throw new Error(`e2e 總數漂移：expected ${EXPECTED_E2E_TOTAL}, got ${total}`);
   }
-  const missing = REQUIRED_ARTWORK_E2E.filter((name) => !listing.includes(`› ${name}`));
-  if (missing.length > 0) throw new Error(`e2e manifest 缺案：${missing.join(', ')}`);
+  assertNamedTests(listing, REQUIRED_ARTWORK_E2E, 'e2e');
+};
+
+const assertUnitManifest = () => {
+  const listing = sh('npx vitest list tests/fold-ui/artwork-source.test.ts');
+  assertNamedTests(listing, REQUIRED_ARTWORK_UNIT, 'unit');
 };
 
 const PROBES = [
@@ -243,6 +241,7 @@ const PROBES = [
 ];
 
 assertE2eManifest();
+assertUnitManifest();
 const probeOnly = process.env.PROBE_ONLY;
 const selectedProbes = probeOnly === undefined
   ? PROBES

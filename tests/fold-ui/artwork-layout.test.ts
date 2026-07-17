@@ -4,7 +4,11 @@ import { resolveParams } from '@/core/registry';
 import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import { worldGeometry } from '@/fold/pose3d';
 import { foldPose } from '@/fold/schedule';
-import { deriveArtworkLayout, flatDielineUvFrame } from '@/ui/artwork-layout';
+import {
+  artworkLayoutSignature,
+  deriveArtworkLayout,
+  flatDielineUvFrame,
+} from '@/ui/artwork-layout';
 
 function defaultModel() {
   return buildRteFoldModel(resolveParams(reverseTuckEnd, {}));
@@ -82,5 +86,23 @@ describe('flatDielineUvFrame — fold-scene re-export 為同一顆函式（F1.0 
   it('@/ui/fold-scene 匯出的 flatDielineUvFrame 與 @/ui/artwork-layout 是同一個 function reference', async () => {
     const foldScene = await import('@/ui/fold-scene');
     expect(foldScene.flatDielineUvFrame).toBe(flatDielineUvFrame);
+  });
+});
+
+describe('artworkLayoutSignature', () => {
+  it('紙厚本身不改名義攤平版面時維持同一 signature（F6：不得假 stale）', () => {
+    const values = resolveParams(reverseTuckEnd, {});
+    const changedThickness = { ...values, thickness: (values.thickness as number) + 0.1 };
+
+    expect(artworkLayoutSignature(buildRteFoldModel(changedThickness)))
+      .toBe(artworkLayoutSignature(buildRteFoldModel(values)));
+  });
+
+  it('L 改變面板 polygon 與 frame 時產生不同 signature（F6：必須 stale）', () => {
+    const values = resolveParams(reverseTuckEnd, {});
+    const changedLength = { ...values, L: (values.L as number) + 10 };
+
+    expect(artworkLayoutSignature(buildRteFoldModel(changedLength)))
+      .not.toBe(artworkLayoutSignature(buildRteFoldModel(values)));
   });
 });

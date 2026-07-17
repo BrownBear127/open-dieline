@@ -30,8 +30,8 @@ import type { FoldModel } from '../fold/types';
 // 既有 fold-scene-geometry/fold-paper-texture 兩份測試 `import { flatDielineUvFrame }
 // from '@/ui/fold-scene'` 零改動，且拿到的仍是同一顆 function reference（不是各自
 // 維護一份公式）。
-import { flatDielineUvFrame } from './artwork-layout';
-import type { FlatDielineUvFrame } from './artwork-layout';
+import { deriveArtworkLayout, flatDielineUvFrame } from './artwork-layout';
+import type { ArtworkLayout, FlatDielineUvFrame } from './artwork-layout';
 
 export { flatDielineUvFrame };
 export type { FlatDielineUvFrame };
@@ -1181,7 +1181,7 @@ export function createCustomArtworkTexture(
   return createTexture(canvas, true);
 }
 
-function flatUv(
+export function artworkPointUv(
   vertex: Pick<Vec3, 'x' | 'y'>,
   frame: FlatDielineUvFrame,
 ): { u: number; v: number } {
@@ -1192,11 +1192,11 @@ function flatUv(
 }
 
 export function panelSolidUvs(
-  flatVertices: Vec3[],
+  flatVertices: ReadonlyArray<Pick<Vec3, 'x' | 'y'>>,
   frame: FlatDielineUvFrame,
   thickness: number,
 ): Float32Array {
-  const coordinates = flatVertices.map((vertex) => flatUv(vertex, frame));
+  const coordinates = flatVertices.map((vertex) => artworkPointUv(vertex, frame));
   const values: number[] = [];
   const write = (index: number): void => {
     const coordinate = coordinates[index];
@@ -1226,6 +1226,21 @@ export function panelSolidUvs(
   }
 
   return new Float32Array(values);
+}
+
+export interface PanelArtworkUvs {
+  layout: ArtworkLayout;
+  uvs: Map<string, Float32Array>;
+}
+
+/** Production UV input: panel polygons and the square frame come from one ArtworkLayout. */
+export function buildPanelArtworkUvs(model: FoldModel, thickness: number): PanelArtworkUvs {
+  const layout = deriveArtworkLayout(model);
+  const uvs = new Map(layout.panels.map((panel) => [
+    panel.id,
+    panelSolidUvs(panel.polygon, layout.frame, thickness),
+  ]));
+  return { layout, uvs };
 }
 
 function createContactShadow(): ContactShadow {
@@ -1476,19 +1491,17 @@ export function createFoldScene(
       paperBumpTexture,
     );
     const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
-    const flatGeometryByPanel = worldGeometry(model, foldPose(0, model));
-    const uvFrame = flatDielineUvFrame(flatGeometryByPanel);
+    const panelArtworkUvs = buildPanelArtworkUvs(model, currentThickness);
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
       const vertices = geometryByPanel.get(panel.id) ?? [];
-      const flatVertices = flatGeometryByPanel.get(panel.id) ?? [];
       const positions = panelSolidPositions(vertices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
       geometry.setAttribute(
         'uv',
         new BufferAttribute(
-          panelSolidUvs(flatVertices, uvFrame, currentThickness),
+          panelArtworkUvs.uvs.get(panel.id) ?? new Float32Array(),
           2,
         ),
       );

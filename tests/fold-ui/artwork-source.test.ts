@@ -165,6 +165,34 @@ describe('validateArtworkFile', () => {
     expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      'external CSS @import',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><style>@import "https://example.com/a.css";</style></svg>',
+    ],
+    [
+      'foreignObject with a nested image src',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"><img src="https://example.com/a.png"/></div></foreignObject></svg>',
+    ],
+    [
+      'style attribute with an external url',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect style="fill:url(https://example.com/a.svg)"/></svg>',
+    ],
+    [
+      'mixed-case xlink namespace href',
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:XLink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><use XLink:href="https://example.com/a.svg#shape"/></svg>',
+    ],
+    [
+      'data URI href',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="data:image/png;base64,AA=="/></svg>',
+    ],
+  ])('rejects %s during the mandatory DOM resource scan', async (_label, markup) => {
+    const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toEqual({ code: 'external' });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
   it('rejects SVG parser errors', async () => {
     const file = new File([
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g></svg>',

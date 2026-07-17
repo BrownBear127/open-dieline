@@ -8,6 +8,7 @@ import {
   peekInitialFoldProgress,
 } from '@/ui/fold-hooks';
 import type { ArtworkLoadResult } from '@/ui/artwork-source';
+import { artworkLayoutSignature } from '@/ui/artwork-layout';
 import type {
   ArtworkMode,
   createFoldScene,
@@ -128,6 +129,7 @@ export function FoldView({
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
   const [artwork, setArtwork] = useState<ArtworkMode>(initialArtwork);
+  const [sceneArtwork, setSceneArtwork] = useState<ArtworkMode>('none');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [staleTemplate, setStaleTemplate] = useState(false);
   const artworkEnabled = artwork === 'sample';
@@ -139,7 +141,10 @@ export function FoldView({
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
   const model = useMemo<FoldModel | undefined>(() => builder?.(values), [boxId, values, builder]);
-  const artworkSignature = useMemo(() => JSON.stringify([boxId, values]), [boxId, values]);
+  const artworkSignature = useMemo(
+    () => model === undefined ? null : artworkLayoutSignature(model),
+    [model],
+  );
   const validationErrors = useMemo(
     () => model === undefined ? [] : modelRuntime?.validate(model) ?? [],
     [model, modelRuntime],
@@ -214,9 +219,13 @@ export function FoldView({
     setStaleTemplate(false);
     artworkRef.current = mode;
     setArtwork(mode);
-    sceneRef.current?.applyArtwork(mode);
+    const scene = sceneRef.current;
+    if (scene !== null) {
+      scene.applyArtwork(mode);
+      setSceneArtwork(mode);
+    }
     if (mode !== 'custom' && customSourceRef.current !== null) {
-      sceneRef.current?.removeCustomSource();
+      scene?.removeCustomSource();
       customSourceRef.current = null;
       onCustomSourceChange?.(null);
     }
@@ -253,7 +262,7 @@ export function FoldView({
       const loader = loadArtwork ?? (await import('./artwork-source')).loadArtworkFile;
       if (controller.signal.aborted) return;
       const result = await loader(file, {
-        signature: artworkSignature,
+        signature: artworkSignature ?? '',
         signal: controller.signal,
         onCommit: (source) => {
           customSourceRef.current = source;
@@ -326,6 +335,7 @@ export function FoldView({
   useEffect(() => {
     if (
       artwork === 'custom'
+      && artworkSignature !== null
       && customSourceRef.current !== null
       && customSourceRef.current.signature !== artworkSignature
     ) {
@@ -402,6 +412,7 @@ export function FoldView({
       if (artworkRef.current !== 'none') {
         nextScene.applyArtwork(artworkRef.current);
       }
+      setSceneArtwork(artworkRef.current);
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver((entries) => {
@@ -448,7 +459,7 @@ export function FoldView({
   return modelRuntime === null ? (
     <section
       className="fold-view"
-      data-artwork-ready={artwork}
+      data-artwork-ready={sceneArtwork}
       data-context-lost={String(contextLost)}
       ref={containerRef}
     >
@@ -457,7 +468,7 @@ export function FoldView({
   ) : (
     <section
       className="fold-view"
-      data-artwork-ready={artwork}
+      data-artwork-ready={sceneArtwork}
       data-context-lost={String(contextLost)}
       ref={containerRef}
     >

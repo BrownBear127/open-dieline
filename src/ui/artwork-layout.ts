@@ -101,3 +101,24 @@ export function deriveArtworkLayout(model: FoldModel): ArtworkLayout {
 
   return { panels, frame: flatDielineUvFrame(flatGeometry) };
 }
+
+/**
+ * Stable identity for the coordinates that an uploaded square artwork is aligned to.
+ * Fold-only metadata such as paper thickness and pose is intentionally absent.
+ */
+export function artworkLayoutSignature(model: FoldModel): string {
+  const layout = deriveArtworkLayout(model);
+  return JSON.stringify([
+    [
+      layout.frame.minX,
+      layout.frame.minY,
+      layout.frame.span,
+      layout.frame.offsetX,
+      layout.frame.offsetY,
+    ],
+    layout.panels.map(({ id, polygon }) => [
+      id,
+      polygon.map(({ x, y }) => [x, y]),
+    ]),
+  ]);
+}

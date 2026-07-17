@@ -51,6 +51,44 @@ function hasExternalSvgResource(markup: string): boolean {
     .test(markup);
 }
 
+const RESOURCE_ATTRIBUTE_NAMES = new Set([
+  'action',
+  'background',
+  'cite',
+  'data',
+  'formaction',
+  'href',
+  'poster',
+  'src',
+]);
+
+function hasExternalCssResource(css: string): boolean {
+  if (/@import\b/i.test(css)) return true;
+
+  const urls = css.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi);
+  for (const match of urls) {
+    if (!match[2]!.trim().startsWith('#')) return true;
+  }
+  return false;
+}
+
+function hasExternalDomResource(documentNode: Document): boolean {
+  const elements = [documentNode.documentElement, ...documentNode.querySelectorAll('*')];
+  for (const element of elements) {
+    const elementName = element.localName.toLowerCase();
+    if (elementName === 'foreignobject' || elementName === 'script') return true;
+    if (elementName === 'style' && hasExternalCssResource(element.textContent ?? '')) return true;
+
+    for (const attribute of element.attributes) {
+      const attributeName = attribute.localName.toLowerCase();
+      const value = attribute.value.trim();
+      if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) return true;
+      if (hasExternalCssResource(value)) return true;
+    }
+  }
+  return false;
+}
+
 async function validateSvg(file: File): Promise<ArtworkValidationResult> {
   const markup = await file.text();
   if (hasExternalSvgResource(markup)) return reject('external');
@@ -59,6 +97,7 @@ async function validateSvg(file: File): Promise<ArtworkValidationResult> {
   if (documentNode.querySelector('parsererror') !== null || root.localName !== 'svg') {
     return reject('parse');
   }
+  if (hasExternalDomResource(documentNode)) return reject('external');
 
   const viewBox = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
   if (

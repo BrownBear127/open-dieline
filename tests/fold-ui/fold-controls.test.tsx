@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { resolveParams } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
+import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
 import { FoldView, type ArtworkFileLoader } from '@/ui/FoldView';
+import { artworkLayoutSignature } from '@/ui/artwork-layout';
 import type {
   CustomArtworkSource,
   FoldSceneHandle,
@@ -46,7 +48,7 @@ function createFakeScene(): FakeScene {
 }
 
 function artworkSignature(values: ResolvedParams = RTE_VALUES): string {
-  return JSON.stringify(['rte', values]);
+  return artworkLayoutSignature(buildRteFoldModel(values));
 }
 
 function customSource(signature = artworkSignature()): CustomArtworkSource {
@@ -362,6 +364,32 @@ describe('FoldView controls', () => {
     fireEvent.click(screen.getByRole('button', { name: t('fold.autorotate') }));
     act(() => fake.options[0]!.onUserInteract?.());
 
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not mark custom artwork stale when only paper thickness changes without changing the flat layout', async () => {
+    const fake = createFakeScene();
+    const source = customSource();
+    const view = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        customSource={source}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <FoldView
+        boxId="rte"
+        values={{ ...RTE_VALUES, thickness: (RTE_VALUES.thickness as number) + 0.1 }}
+        createScene={fake.createScene}
+        customSource={source}
+      />,
+    );
+
+    await waitFor(() => expect(fake.handles[0]!.replaceModel).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
