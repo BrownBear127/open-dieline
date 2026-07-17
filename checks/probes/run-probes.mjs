@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 28 probes：既有 18 項＋P3 style contract 三項＋G4 fold 四項（import/dynamic/template/computed+jsspec 家族）＋F4 decoy 兩項＋N4 前身一項——見各 probe 註解。
+// 共 30 probes：既有 28 項＋FOLD_RECIPES 凍結漂移一項＋tuckLock 分片 hinge 退化一項——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -175,6 +175,11 @@ const PROBES = [
   { id: 'a15-value-drift', gate: 'a15-copy',
     run: () => mutate('src/i18n/dict.ts', "'imp.err.default': { en: 'Calculation error.", "'imp.err.default': { en: 'Calculation drift."),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
+  // — Fold look frozen family：任一 FOLD_RECIPES 宣告值漂移都必須被逐欄凍結測試抓到 —
+  { id: 'look-frozen-drift', gate: 'fold-look-frozen',
+    run: () => mutate('src/ui/fold-scene.ts', 'cardColor: 0x332615', 'cardColor: 0x332616'),
+    check: () => shFails('npx vitest run tests/fold-ui/fold-look-frozen.test.ts'),
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/fold-look-frozen.test.ts') },
   // — Fold model / 2D reconciliation —
   { id: 'fold-hinge-break', gate: 'fold-model',
     run: () => mutate('src/fold/models/reverse-tuck-end.ts', 'hingeLine: { a: { x: x1, y: 0 }, b: { x: x1, y: D } }', 'hingeLine: { a: { x: x1 + 1, y: 0 }, b: { x: x1 + 1, y: D } }'),
@@ -183,6 +188,13 @@ const PROBES = [
   { id: 'fold-comp-drift', gate: 'fold-reconcile',
     run: () => mutate('tests/fold/rte-reconcile.test.ts', '[0, 1, 1, 2]', '[0, 1, 1, 1]'),
     check: () => shFails('npx vitest run tests/fold/rte-reconcile.test.ts'),
+    greenCheck: () => !shFails('npx vitest run tests/fold/') },
+  // tuckLock sliced-lid family：分片 hinge 兩端必須留在同一條 parent/child 共邊上。
+  { id: 'tucklock-degenerate', gate: 'fold-model-validate',
+    run: () => mutate('src/fold/models/reverse-tuck-end.ts',
+      'b: { x: hingeSegments[index]![1]!, y: hingeY },',
+      'b: { x: hingeSegments[index]![1]!, y: hingeY + 0.5 },'),
+    check: () => shFails('npx vitest run tests/fold/rte-model.test.ts -t "預設模型通過 validateFoldModel"'),
     greenCheck: () => !shFails('npx vitest run tests/fold/') },
 ];
 
