@@ -13,6 +13,7 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
+  RepeatWrapping,
   Scene,
   SRGBColorSpace,
   Vector3,
@@ -23,6 +24,10 @@ import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel, FoldPanel } from '../fold/types';
+import {
+  createPaperDevPanel,
+  type PaperDevPanelHandle,
+} from './fold-paper-dev-panel';
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
 const CARD_COLOR = 0xffffff;
@@ -46,6 +51,197 @@ const DIELINE_TO_THREE_Y = -1;
 const PRINT_TEXTURE_SIZE = 64;
 const PRINT_TEXTURE_PADDING = 2;
 const PRINT_LINE_COLOR = 'rgb(32, 36, 40)';
+const PAPER_TEXTURE_SIZE = 512;
+
+export interface PaperParams {
+  fiberStrength: number;
+  fiberScale: number;
+  grainStrength: number;
+  crumpleStrength: number;
+  crumpleScale: number;
+  bumpScale: number;
+  roughnessBase: number;
+  roughnessVariation: number;
+  seed: number;
+}
+
+export const PAPER_PRESETS: Record<
+  'subtle' | 'standard' | 'coarse',
+  PaperParams
+> = {
+  subtle: {
+    fiberStrength: 0.12,
+    fiberScale: 96,
+    grainStrength: 0.06,
+    crumpleStrength: 0.05,
+    crumpleScale: 3,
+    bumpScale: 0.018,
+    roughnessBase: 0.88,
+    roughnessVariation: 0.05,
+    seed: 1013,
+  },
+  standard: {
+    fiberStrength: 0.28,
+    fiberScale: 72,
+    grainStrength: 0.12,
+    crumpleStrength: 0.16,
+    crumpleScale: 5,
+    bumpScale: 0.035,
+    roughnessBase: 0.82,
+    roughnessVariation: 0.12,
+    seed: 3203,
+  },
+  coarse: {
+    fiberStrength: 0.42,
+    fiberScale: 46,
+    grainStrength: 0.2,
+    crumpleStrength: 0.32,
+    crumpleScale: 3,
+    bumpScale: 0.065,
+    roughnessBase: 0.76,
+    roughnessVariation: 0.2,
+    seed: 7919,
+  },
+};
+
+function paperHash(x: number, y: number, seed: number): number {
+  let value = Math.imul(x, 374_761_393)
+    + Math.imul(y, 668_265_263)
+    + Math.imul(seed | 0, 1_442_695_041);
+  value = Math.imul(value ^ (value >>> 13), 1_274_126_177);
+  return ((value ^ (value >>> 16)) >>> 0) / 0xffff_ffff;
+}
+
+function wrappedTextureCoordinate(value: number): number {
+  return ((value % PAPER_TEXTURE_SIZE) + PAPER_TEXTURE_SIZE) % PAPER_TEXTURE_SIZE;
+}
+
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function smoothStep(value: number): number {
+  return value * value * (3 - 2 * value);
+}
+
+function periodicValueNoise(
+  x: number,
+  y: number,
+  xFrequency: number,
+  yFrequency: number,
+  seed: number,
+): number {
+  const xPeriod = Math.max(1, Math.round(xFrequency));
+  const yPeriod = Math.max(1, Math.round(yFrequency));
+  const sampleX = wrappedTextureCoordinate(x) / PAPER_TEXTURE_SIZE * xPeriod;
+  const sampleY = wrappedTextureCoordinate(y) / PAPER_TEXTURE_SIZE * yPeriod;
+  const x0 = Math.floor(sampleX);
+  const y0 = Math.floor(sampleY);
+  const blendX = smoothStep(sampleX - x0);
+  const blendY = smoothStep(sampleY - y0);
+  const leftTop = paperHash(x0 % xPeriod, y0 % yPeriod, seed);
+  const rightTop = paperHash((x0 + 1) % xPeriod, y0 % yPeriod, seed);
+  const leftBottom = paperHash(x0 % xPeriod, (y0 + 1) % yPeriod, seed);
+  const rightBottom = paperHash((x0 + 1) % xPeriod, (y0 + 1) % yPeriod, seed);
+  const top = leftTop + (rightTop - leftTop) * blendX;
+  const bottom = leftBottom + (rightBottom - leftBottom) * blendX;
+  return top + (bottom - top) * blendY;
+}
+
+function fractalValueNoise(
+  x: number,
+  y: number,
+  frequency: number,
+  seed: number,
+): number {
+  let value = 0;
+  let amplitude = 4 / 7;
+  for (let octave = 0; octave < 3; octave += 1) {
+    const octaveFrequency = frequency * 2 ** octave;
+    value += periodicValueNoise(
+      x,
+      y,
+      octaveFrequency,
+      octaveFrequency,
+      seed + octave * 101,
+    ) * amplitude;
+    amplitude /= 2;
+  }
+  return value;
+}
+
+export function paperHeightAt(
+  x: number,
+  y: number,
+  params: PaperParams,
+): number {
+  const wrappedX = wrappedTextureCoordinate(x);
+  const wrappedY = wrappedTextureCoordinate(y);
+  const fiber = periodicValueNoise(
+    wrappedX,
+    wrappedY,
+    params.fiberScale,
+    params.fiberScale / 24,
+    params.seed + 17,
+  );
+  const grain = paperHash(Math.floor(wrappedX), Math.floor(wrappedY), params.seed + 37);
+  const crumple = fractalValueNoise(
+    wrappedX,
+    wrappedY,
+    params.crumpleScale,
+    params.seed + 71,
+  );
+  const height = 0.5
+    + (fiber - 0.5) * params.fiberStrength
+    + (grain - 0.5) * params.grainStrength
+    + (crumple - 0.5) * params.crumpleStrength;
+  return clampUnit(height);
+}
+
+function createPaperTexture(
+  params: PaperParams,
+  valueAt: (height: number) => number,
+): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = PAPER_TEXTURE_SIZE;
+  canvas.height = PAPER_TEXTURE_SIZE;
+  const context = canvas.getContext('2d');
+
+  if (context) {
+    const image = context.createImageData(PAPER_TEXTURE_SIZE, PAPER_TEXTURE_SIZE);
+    for (let pixel = 0; pixel < PAPER_TEXTURE_SIZE ** 2; pixel += 1) {
+      const height = paperHeightAt(
+        pixel % PAPER_TEXTURE_SIZE,
+        Math.floor(pixel / PAPER_TEXTURE_SIZE),
+        params,
+      );
+      const byte = Math.round(clampUnit(valueAt(height)) * 255);
+      const offset = pixel * 4;
+      image.data[offset] = byte;
+      image.data[offset + 1] = byte;
+      image.data[offset + 2] = byte;
+      image.data[offset + 3] = 255;
+    }
+    context.putImageData(image, 0, 0);
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+  return texture;
+}
+
+export function createPaperBumpTexture(params: PaperParams): CanvasTexture {
+  return createPaperTexture(params, (height) => height);
+}
+
+export function createPaperRoughnessTexture(params: PaperParams): CanvasTexture {
+  return createPaperTexture(
+    params,
+    (height) => params.roughnessBase
+      + (height - 0.5) * 2 * params.roughnessVariation,
+  );
+}
 
 export interface FoldLook {
   cardColor: number;
@@ -315,6 +511,19 @@ function createCardMaterial(
     roughness: look.roughness,
     side: thickness > 0 ? FrontSide : DoubleSide,
   });
+}
+
+export function configurePaperMaterial(
+  material: MeshStandardMaterial,
+  params: PaperParams,
+  bumpMap: CanvasTexture,
+  roughnessMap: CanvasTexture,
+): void {
+  material.bumpMap = bumpMap;
+  material.roughnessMap = roughnessMap;
+  material.bumpScale = params.bumpScale;
+  material.roughness = 1;
+  material.needsUpdate = true;
 }
 
 interface PanelTextureCoordinates {
@@ -609,6 +818,9 @@ export function createFoldScene(
   controls.target.set(0, 0, 0);
 
   let activeLook = FOLD_LOOK_PRESETS.plain;
+  let activePaper: PaperParams = { ...PAPER_PRESETS.standard };
+  let paperBumpTexture = createPaperBumpTexture(activePaper);
+  let paperRoughnessTexture = createPaperRoughnessTexture(activePaper);
   let keyLightBaseIntensity = activeLook.keyIntensity;
   let fillLightBaseIntensity = activeLook.fillIntensity;
   const ambient = new AmbientLight(0xffffff, activeLook.ambientIntensity);
@@ -680,6 +892,12 @@ export function createFoldScene(
 
   const buildPanelTree = (model: FoldModel): void => {
     panelMaterial = createCardMaterial(activeLook, currentThickness);
+    configurePaperMaterial(
+      panelMaterial,
+      activePaper,
+      paperBumpTexture,
+      paperRoughnessTexture,
+    );
     const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
 
     for (const panel of model.panels) {
@@ -813,7 +1031,6 @@ export function createFoldScene(
 
     if (panelMaterial) {
       panelMaterial.color.setHex(look.cardColor);
-      panelMaterial.roughness = look.roughness;
       panelMaterial.metalness = look.metalness;
       panelMaterial.needsUpdate = true;
       applyPrintOverlay(look.printOverlay);
@@ -822,11 +1039,50 @@ export function createFoldScene(
     markNeedsRender();
   };
 
+  const applyPaper = (params: PaperParams): void => {
+    const nextParams = { ...params };
+    const nextBumpTexture = createPaperBumpTexture(nextParams);
+    const nextRoughnessTexture = createPaperRoughnessTexture(nextParams);
+    const previousBumpTexture = paperBumpTexture;
+    const previousRoughnessTexture = paperRoughnessTexture;
+
+    activePaper = nextParams;
+    paperBumpTexture = nextBumpTexture;
+    paperRoughnessTexture = nextRoughnessTexture;
+    if (panelMaterial) {
+      configurePaperMaterial(
+        panelMaterial,
+        activePaper,
+        paperBumpTexture,
+        paperRoughnessTexture,
+      );
+      applyPrintOverlay(activeLook.printOverlay);
+    }
+    previousBumpTexture.dispose();
+    previousRoughnessTexture.dispose();
+    markNeedsRender();
+  };
+
   let devSetLook: ((name: keyof typeof FOLD_LOOK_PRESETS) => void) | null = null;
+  let devSetPaper: ((
+    paramsOrPresetName: PaperParams | keyof typeof PAPER_PRESETS,
+  ) => void) | null = null;
   let devSetCameraOrbit: ((azimuthDeg: number, elevationDeg: number) => void) | null = null;
+  let devPanel: PaperDevPanelHandle | null = null;
   if (import.meta.env.DEV) {
     devSetLook = (name: keyof typeof FOLD_LOOK_PRESETS) => {
       applyLook(FOLD_LOOK_PRESETS[name]);
+      devPanel?.setLook(name);
+    };
+    devSetPaper = (
+      paramsOrPresetName: PaperParams | keyof typeof PAPER_PRESETS,
+    ) => {
+      const params = typeof paramsOrPresetName === 'string'
+        ? PAPER_PRESETS[paramsOrPresetName]
+        : paramsOrPresetName;
+      if (!params) return;
+      applyPaper(params);
+      devPanel?.setPaper(params);
     };
     devSetCameraOrbit = (azimuthDeg: number, elevationDeg: number) => {
       const target = {
@@ -844,7 +1100,16 @@ export function createFoldScene(
       controls.update();
       markNeedsRender();
     };
+    devPanel = createPaperDevPanel({
+      host: canvas.parentElement ?? document.body,
+      initialLook: 'plain',
+      initialPaper: activePaper,
+      paperPresets: PAPER_PRESETS,
+      onLook: (name) => applyLook(FOLD_LOOK_PRESETS[name]),
+      onPaper: applyPaper,
+    });
     (window as unknown as Record<string, unknown>).__p3SetLook = devSetLook;
+    (window as unknown as Record<string, unknown>).__p3SetPaper = devSetPaper;
     (window as unknown as Record<string, unknown>).__p3SetCameraOrbit = devSetCameraOrbit;
   }
 
@@ -941,11 +1206,20 @@ export function createFoldScene(
       }
       if (
         import.meta.env.DEV
+        && devSetPaper
+        && (window as unknown as Record<string, unknown>).__p3SetPaper === devSetPaper
+      ) {
+        delete (window as unknown as Record<string, unknown>).__p3SetPaper;
+      }
+      if (
+        import.meta.env.DEV
         && devSetCameraOrbit
         && (window as unknown as Record<string, unknown>).__p3SetCameraOrbit === devSetCameraOrbit
       ) {
         delete (window as unknown as Record<string, unknown>).__p3SetCameraOrbit;
       }
+      devPanel?.dispose();
+      devPanel = null;
       cancelRenderLoop();
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
@@ -953,6 +1227,8 @@ export function createFoldScene(
       controls.removeEventListener('start', onControlsStart);
       controls.dispose();
       disposePanelTree();
+      paperBumpTexture.dispose();
+      paperRoughnessTexture.dispose();
       disposeContactShadow(contactShadow);
       scene.clear();
       renderer.dispose();
