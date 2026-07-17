@@ -75,14 +75,16 @@ function roundedBottomRectangle(
 
 function activeSteps(panels: FoldPanel[]): FoldStep[] {
   const panelIds = new Set(panels.map(({ id }) => id));
+  // 摺序物理約束（2026-07-17 E2E 驗收裁決）：tuck 是 lid 的子面板，插舌時間窗
+  // 必須在蓋板起摺前收完——蓋板帶著已折好的插舌蓋上；反序插舌會穿盒壁。
   const steps: FoldStep[] = [
     { panelIds: ['P2', 'P3', 'P4', 'glue'], t0: 0, t1: 0.35, ease: 'powerInOut' },
     { panelIds: ['bottomDustP2', 'bottomDustP4'], t0: 0.35, t1: 0.5, ease: 'backIn' },
-    { panelIds: ['bottomLid'], t0: 0.5, t1: 0.64, ease: 'powerInOut' },
-    { panelIds: ['bottomTuck'], t0: 0.6, t1: 0.72, ease: 'backIn' },
+    { panelIds: ['bottomTuck'], t0: 0.5, t1: 0.6, ease: 'backIn' },
+    { panelIds: ['bottomLid'], t0: 0.6, t1: 0.72, ease: 'powerInOut' },
     { panelIds: ['topDustP2', 'topDustP4'], t0: 0.72, t1: 0.84, ease: 'backIn' },
-    { panelIds: ['topLid'], t0: 0.84, t1: 0.95, ease: 'powerInOut' },
-    { panelIds: ['topTuck'], t0: 0.92, t1: 1, ease: 'backIn' },
+    { panelIds: ['topTuck'], t0: 0.84, t1: 0.92, ease: 'backIn' },
+    { panelIds: ['topLid'], t0: 0.92, t1: 1, ease: 'powerInOut' },
   ];
 
   return steps
