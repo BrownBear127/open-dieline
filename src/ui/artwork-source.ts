@@ -72,11 +72,10 @@ function hasExternalCssResource(css: string): boolean {
   if (css.includes('\\')) return true;
   if (/@import\b/i.test(css)) return true;
 
-  const urls = css.matchAll(/\b(?:url|src)\(\s*(["']?)(.*?)\1\s*\)/gi);
-  for (const match of urls) {
-    if (!match[2]!.trim().startsWith('#')) return true;
-  }
-  return false;
+  // 右括號不是辨識條件：CSS Syntax 3 §2.2 的 EOF 自動閉合會把未閉合的
+  // url('http://… 補完並照常取資源（七審實證 Chromium 對未閉合 url( 發請求）。
+  // 判準=開括號後（跳引號/空白）第一個實質字元非 #（含 EOF/空）即拒。
+  return /\b(?:url|src)\(\s*["']?\s*(?!#)/i.test(css);
 }
 
 // style 位置（<style> 元素內容＋style attribute）的嚴格掃描。這裡能用完整 CSS

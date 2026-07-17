@@ -34,6 +34,8 @@ describe('probe test manifest fail-loud contract (F4)', () => {
       'rejects image-set string reference in a cursor presentation attribute during the mandatory DOM resource scan',
       // V5 六審：CSS Values 4 <url>=url()|src()——url-token 位置的 src() 形態。
       'rejects src() url reference in a fill presentation attribute during the mandatory DOM resource scan',
+      // V5 七審：CSS EOF 自動閉合——未閉合 url(/src( 同拒（右括號非辨識條件）。
+      'rejects unclosed url() reference recovered by CSS EOF auto-close during the mandatory DOM resource scan',
     ]);
   });
 

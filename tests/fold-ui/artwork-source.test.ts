@@ -249,6 +249,14 @@ describe('validateArtworkFile', () => {
       'src() url reference in a clip-path presentation attribute',
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect clip-path="src(\'http://probe.invalid/c.svg\')"/></svg>',
     ],
+    [
+      'unclosed url() reference recovered by CSS EOF auto-close',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path fill="url(\'http://probe.invalid/unclosed.svg\'"/></svg>',
+    ],
+    [
+      'unclosed src() reference recovered by CSS EOF auto-close',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path fill="src(\'http://probe.invalid/unclosed.svg\'"/></svg>',
+    ],
   ])('rejects %s during the mandatory DOM resource scan', async (_label, markup) => {
     const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });
 
