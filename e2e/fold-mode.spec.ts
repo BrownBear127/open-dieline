@@ -42,6 +42,22 @@ async function enterFold(page: Page, lang: Language = 'en'): Promise<void> {
   await expect(page.locator('.foldbar')).toBeVisible();
 }
 
+async function setInitialFoldProgress(page: Page, progress: number): Promise<void> {
+  await expect.poll(
+    () => page.evaluate(
+      () => typeof (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress,
+    ),
+    { message: '__p3SetInitialFoldProgress test hook must be available before entering FOLD' },
+  ).toBe('function');
+  await page.evaluate((nextProgress) => {
+    const hook = (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress;
+    if (typeof hook !== 'function') {
+      throw new Error('__p3SetInitialFoldProgress test hook is unavailable.');
+    }
+    hook(nextProgress);
+  }, progress);
+}
+
 async function computedDeclarationMismatches(
   locator: Locator,
   sourceSelector: string,
@@ -252,10 +268,16 @@ test('fold controls use the vocabulary declarations and render the real range th
 });
 
 test('dragging fold progress to one renders a non-background canvas frame', async ({ page }) => {
-  await enterFold(page);
+  await gotoReady(page);
+  await setInitialFoldProgress(page, 0);
+  await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
+  await expect(page.locator('.fold-view')).toBeVisible();
+  await expect(page.locator('.fold-canvas')).toBeVisible();
+  await expect(page.locator('.foldbar')).toBeVisible();
 
-  // final review F6：t=0 與 t=1 的穩態畫面必須互異（雙背景空白 ⇒ 相等 ⇒ 紅），
-  // 否則 updatePose no-op 也能靠「初始任意一張非空白幀」假綠；補 t=1→t=0 反向驗可逆。
+  // final review F6/F1：用建場景前注入的 t=0 首幀當獨立 flat oracle；這張 baseline
+  // 從未經過非零 pose，不會和回程的 stateful reset regression 錯成同一張圖。
+  // t=0 與 t=1 的穩態畫面必須互異（雙背景空白 ⇒ 相等 ⇒ 紅），再補 0→1→0 反向驗可逆。
   // 先開自轉（持續渲染·預設已關）驗有真內容，再關回自轉取穩態對比——
   // toDataURL 取樣依賴持續渲染（preserveDrawingBuffer:false）。
   const canvas = page.locator('.fold-canvas');
@@ -264,8 +286,7 @@ test('dragging fold progress to one renders a non-background canvas frame', asyn
   await page.locator('.foldbar .compat .tick').uncheck();
 
   const range = page.locator('.foldbar input[type="range"]');
-
-  await range.fill('0');
+  await expect(range).toHaveValue('0');
   const flat = await stableShot(canvas);
 
   const box = await range.boundingBox();

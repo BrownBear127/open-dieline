@@ -177,6 +177,22 @@ describe('RTE FoldModel integration contracts', () => {
     expect(validateFoldModel(defaultModel())).toEqual([]);
   });
 
+  it('L=20、tuckLock=60 的極端 fallback 維持有效模型與三等分 lid hinges', () => {
+    const L = 20;
+    const model = buildRteFoldModel(resolveParams(reverseTuckEnd, { L, tuckLock: 60 }));
+
+    expect(validateFoldModel(model)).toEqual([]);
+    for (const side of ['top', 'bottom'] as const) {
+      const hingeWidths = ['L', 'C', 'R'].map((suffix) => {
+        const hinge = panel(model, `${side}Lid${suffix}`).hingeLine;
+        expect(hinge, `${side}Lid${suffix} must have a fallback hinge`).toBeDefined();
+        return Math.abs(hinge!.b.x - hinge!.a.x);
+      });
+      for (const width of hingeWidths) expect(width).toBeCloseTo(L / 3, 12);
+      expect(hingeWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(L, 12);
+    }
+  });
+
   it('registry 以 rte id 提供 RTE builder', () => {
     expect(FOLD_MODEL_BUILDERS).toEqual({ rte: buildRteFoldModel });
   });
