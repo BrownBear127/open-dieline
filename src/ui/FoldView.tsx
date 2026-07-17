@@ -46,9 +46,9 @@ export interface FoldViewProps {
   loadScene?: () => Promise<{ createFoldScene: typeof createFoldScene }>;
 }
 
-function FoldEmpty({ copy }: { copy: string }) {
+function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
   return (
-    <div className="fold-empty">
+    <div className="fold-empty" data-fold-error={loadFailed ? 'true' : undefined}>
       <p className="mono">{copy}</p>
     </div>
   );
@@ -73,9 +73,8 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const [artwork, setArtwork] = useState<ArtworkMode>('none');
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
-  // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 空狀態殼
-  //（final review F2——否則空白或死 UI）。M1 不出新文案（copy checkpoint 前置）；失敗態
-  // 文案 key 提案（fold.loadFailed）待終裁後補。切走再進＝remount 重試。
+  // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 文案空狀態。
+  // 切走再進＝remount 重試。
   const [loadFailed, setLoadFailed] = useState(false);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
@@ -263,8 +262,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   }, [canCreateScene, createScene, loadScene]);
 
   if (loadFailed) {
-    // 無文案的空狀態殼（M1 copy checkpoint 約束）——data-fold-error 供測試/e2e 斷言。
-    return <div className="fold-empty" data-fold-error="true" />;
+    return <FoldEmpty copy={t('fold.loadFailed')} loadFailed />;
   }
 
   if (modelRuntime !== null && (builder === undefined || validationErrors.length > 0)) {

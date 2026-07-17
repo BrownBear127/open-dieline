@@ -159,7 +159,7 @@ Vendor date: 2026-07-17
 
 ---
 
-## B8 摺盒模式狀態文案（2·P3 M1 新增·2026-07-17 簽核）
+## B8 摺盒模式狀態文案（3·P3 M1 新增·2026-07-17 簽核）
 
 語調：儀器陳述式（同 B2 家族）；mono 聲部置中；無 audit 前身。
 
@@ -167,6 +167,7 @@ Vendor date: 2026-07-17
 |---|---|---|---|
 | fold.unsupported | 此盒型尚未支援 3D 摺盒預覽。 | 3D fold preview is not yet available for this box style. | |
 | fold.webglUnavailable | 瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。 | 3D fold preview requires WebGL, which is not available in this browser. | |
+| fold.loadFailed | 3D 摺盒預覽載入失敗，切換模式可重試。 | 3D fold preview failed to load. Switch modes to retry. | |
 
 ---
 
