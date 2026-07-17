@@ -758,7 +758,7 @@ export interface FoldSceneOptions {
   onUserInteract?: () => void;
 }
 
-export type ArtworkMode = 'none' | 'sample';
+export type ArtworkMode = 'none' | 'sample' | 'custom';
 
 export interface FoldSceneHandle {
   updatePose(t: number): void;

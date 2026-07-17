@@ -103,7 +103,8 @@ describe('FoldView controls', () => {
     expect(tools).not.toBeNull();
     expect(cardGroup).toHaveClass('fold-tool-group');
     expect(artworkGroup).toHaveClass('fold-tool-group');
-    expect(within(tools as HTMLElement).getAllByRole('button')).toHaveLength(5);
+    // M3：CARD 3＋ART 3（SAMPLE/TEMPLATE/UPLOAD）＋AUTO-ROTATE 1。
+    expect(within(tools as HTMLElement).getAllByRole('button')).toHaveLength(7);
     expect(autoRotate).toHaveClass('btn', 'tog', 'label');
     expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
     // 自轉預設關閉：進場靜止、由使用者主動開啟。
@@ -184,14 +185,14 @@ describe('FoldView controls', () => {
     );
     const englishGroup = await screen.findByRole('group', { name: 'ART' });
     expect(within(englishGroup).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['SAMPLE']);
+      .toEqual(['SAMPLE', 'TEMPLATE', 'UPLOAD']);
 
     view.unmount();
     setLang('zh');
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     const chineseGroup = await screen.findByRole('group', { name: '圖稿' });
     expect(within(chineseGroup).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['範例']);
+      .toEqual(['範例', '模板', '上傳']);
   });
 
   it('drives the current scene pose from the progress slider without recreating the scene', async () => {

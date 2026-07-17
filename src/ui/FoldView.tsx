@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import type { ResolvedParams } from '@/core/types';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
@@ -77,6 +77,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const foldProgressRef = useRef(initialFoldProgress);
   const cardRecipeRef = useRef<FoldRecipeName>('kraft');
   const artworkRef = useRef<ArtworkMode>('none');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 自轉預設關閉（2026-07-17 E2E 驗收裁決）：進場靜止，由使用者主動開啟。
   const autoRotateRef = useRef(false);
   const [foldProgress, setFoldProgress] = useState(initialFoldProgress);
@@ -160,6 +161,26 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     artworkRef.current = mode;
     setArtwork(mode);
     sceneRef.current?.applyArtwork(mode);
+  };
+
+  // P3 M3 T0 skeleton——重邏輯（builder/decode）恆走 lazy import（J1 C7b：main 只收接線）。
+  const handleTemplateDownload = (): void => {
+    void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate());
+  };
+
+  const handleUploadClick = (): void => {
+    if (artwork === 'custom') {
+      selectArtwork('none');
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleUploadFile = (event: ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file === undefined) return;
+    void import('./artwork-source').then(({ loadArtworkFile }) => loadArtworkFile(file));
   };
 
   const toggleAutoRotate = (): void => {
@@ -323,6 +344,24 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
           >
             {t('fold.art.sample')}
           </button>
+          <button type="button" className="btn label" onClick={handleTemplateDownload}>
+            {t('fold.art.template')}
+          </button>
+          <button
+            type="button"
+            className={`btn tog label${artwork === 'custom' ? ' on' : ''}`}
+            aria-pressed={artwork === 'custom'}
+            onClick={handleUploadClick}
+          >
+            {t('fold.art.upload')}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml"
+            hidden
+            onChange={handleUploadFile}
+          />
         </div>
         <button
           type="button"

@@ -190,6 +190,15 @@ Vendor date: 2026-07-17
 | fold.art.none | 無 | NONE | 素面紙張。 |
 | fold.art.sample | 範例 | SAMPLE | 內建程序化範例稿。 |
 
+## B11 設計稿上傳（4·P3 M3 T0 新增·2026-07-17 review 草案＋採納·待 C9 簽核輪終裁）
+
+| key | zh（照抄·對照用） | EN（英文稿） | 譯註（僅必要時） |
+|---|---|---|---|
+| fold.art.template | 模板 | TEMPLATE | 對位模板下載鈕。 |
+| fold.art.upload | 上傳 | UPLOAD | 設計稿傳回鈕（toggle）。 |
+| fold.art.staleTemplate | 參數已變更，建議重新下載模板對位。 | Parameters changed. Download a new template to realign your artwork. | stale overlay·role=status。 |
+| fold.art.invalidFile | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | error overlay·role=alert。 |
+
 ---
 
 ## 複核記錄（2026-07-16）
