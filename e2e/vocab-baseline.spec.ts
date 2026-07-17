@@ -98,7 +98,8 @@ const EXPECTED_COUNTS = {
     'input[type="range"]': 1,
     '.mode': 3,
     '.mode.on': 1,
-    '.btn': 8,
+    // M3：+TEMPLATE（btn label）+UPLOAD（btn tog label）→ 8+2。
+    '.btn': 10,
     '.btn.quiet': 0,
     '.btn.tog.on': 1,
     '.foldbar .compat': 0,

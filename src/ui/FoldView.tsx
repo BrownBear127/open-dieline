@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import type { ResolvedParams } from '@/core/types';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
+import {
+  clearInitialFoldProgress,
+  P3_TEST_HOOKS_ENABLED,
+  peekInitialFoldProgress,
+} from '@/ui/fold-hooks';
 import type {
   ArtworkMode,
   createFoldScene,
@@ -12,17 +17,10 @@ import type {
 const defaultLoadScene = () => import('./fold-scene');
 const FOLD_PLAY_DURATION_MS = 2400;
 const DEFAULT_FOLD_PROGRESS = 1;
-const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
-let nextInitialFoldProgress: number | undefined;
+// __p3SetInitialFoldProgress 註冊已遷 fold-hooks.ts（main 側·lazy 化後須先於本 chunk 存在）。
 
 function clampFoldProgress(progress: number): number {
   return Math.min(1, Math.max(0, progress));
-}
-
-if (P3_TEST_HOOKS_ENABLED && typeof window !== 'undefined') {
-  (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress = (progress: number) => {
-    nextInitialFoldProgress = Number.isFinite(progress) ? clampFoldProgress(progress) : 0;
-  };
 }
 
 const FOLD_CARD_RECIPES = [
@@ -66,7 +64,7 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
 
 export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProps) {
   const initialFoldProgress = P3_TEST_HOOKS_ENABLED
-    ? nextInitialFoldProgress ?? DEFAULT_FOLD_PROGRESS
+    ? peekInitialFoldProgress() ?? DEFAULT_FOLD_PROGRESS
     : DEFAULT_FOLD_PROGRESS;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLElement>(null);
@@ -262,7 +260,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
         return;
       }
 
-      if (P3_TEST_HOOKS_ENABLED) nextInitialFoldProgress = undefined;
+      if (P3_TEST_HOOKS_ENABLED) clearInitialFoldProgress();
       scene = nextScene;
       sceneRef.current = nextScene;
       const currentModel = modelRef.current;
