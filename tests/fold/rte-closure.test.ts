@@ -153,7 +153,11 @@ function expectLidSlicesCoplanarAndJoined(
     }
   }
 
-  for (const [leftId, rightId] of [[ids[0]!, ids[1]!], [ids[1]!, ids[2]!]]) {
+  const seamPairs: ReadonlyArray<readonly [string, string]> = [
+    [ids[0]!, ids[1]!],
+    [ids[1]!, ids[2]!],
+  ];
+  for (const [leftId, rightId] of seamPairs) {
     const leftPanel = panelById(model, leftId);
     const rightPanel = panelById(model, rightId);
     const shared = leftPanel.polygon.filter((point) => rightPanel.polygon.some(

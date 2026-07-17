@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 30 probes：既有 28 項＋FOLD_RECIPES 凍結漂移一項＋tuckLock 分片 hinge 退化一項——見各 probe 註解。
+// 共 31 probes：既有 28 項＋FOLD_RECIPES 凍結漂移＋tuckLock 分片 hinge 退化＋fold reset 卡死——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -196,11 +196,26 @@ const PROBES = [
       'b: { x: hingeSegments[index]![1]!, y: hingeY + 0.5 },'),
     check: () => shFails('npx vitest run tests/fold/rte-model.test.ts -t "預設模型通過 validateFoldModel"'),
     greenCheck: () => !shFails('npx vitest run tests/fold/') },
+  // final fix F1：updatePose 從非零回到 0 時若卡在 0.5，獨立 flat oracle 必須翻紅。
+  { id: 'fold-reset-stuck', gate: 'fold-reset-reversibility',
+    run: () => mutate('src/ui/fold-scene.ts',
+      'currentT = Number.isFinite(t) ? t : 0;',
+      'currentT = t === 0 && currentT !== 0 ? 0.5 : (Number.isFinite(t) ? t : 0);'),
+    check: () => shFails('npm run build:e2e && npx playwright test e2e/fold-mode.spec.ts -g "dragging fold progress to one"'),
+    greenCheck: () => !shFails('npm run build:e2e && npx playwright test e2e/fold-mode.spec.ts -g "dragging fold progress to one"') },
 ];
+
+const probeOnly = process.env.PROBE_ONLY;
+const selectedProbes = probeOnly === undefined
+  ? PROBES
+  : PROBES.filter(({ id }) => id === probeOnly);
+if (selectedProbes.length === 0) {
+  throw new Error(`未知 PROBE_ONLY=${probeOnly}；可用 id：${PROBES.map(({ id }) => id).join(', ')}`);
+}
 
 let allOk = true;
 const lines = ['## mutation probe 證據（Spec §8.2）', ''];
-for (const p of PROBES) {
+for (const p of selectedProbes) {
   let redOk = false, greenOk = false;
   try { p.run(); redOk = p.check(); } finally { revert(); }
   greenOk = !shFails('node checks/style-gate.mjs')
@@ -211,5 +226,7 @@ for (const p of PROBES) {
   lines.push(`- [${verdict}] ${p.id} → ${p.gate}：目標紅=${redOk}、復原全綠=${greenOk}`);
   console.log(lines[lines.length - 1]);
 }
-writeFileSync(path.join(root, 'checks/probes/last-run.md'), lines.join('\n') + '\n');
+if (probeOnly === undefined) {
+  writeFileSync(path.join(root, 'checks/probes/last-run.md'), lines.join('\n') + '\n');
+}
 process.exit(allOk ? 0 : 1);

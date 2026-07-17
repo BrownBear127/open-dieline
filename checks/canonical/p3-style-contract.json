@@ -109,7 +109,7 @@
       "padding": "13px 24px",
       "border-top": "1px solid var(--ink)"
     },
-    "source": "derived — 三件控制項的 machine-level 彈性佈局·簽核=M2 視覺輪"
+    "source": "derived — 五件控制項（PLAY／拉桿／CARD／ART／AUTO-ROTATE）的 machine-level 彈性佈局·簽核=M2 視覺輪"
   },
   {
     "selector": ".fold-empty",

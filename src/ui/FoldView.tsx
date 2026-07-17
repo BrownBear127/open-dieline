@@ -11,6 +11,20 @@ import type {
 
 const defaultLoadScene = () => import('./fold-scene');
 const FOLD_PLAY_DURATION_MS = 2400;
+const DEFAULT_FOLD_PROGRESS = 1;
+const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
+let nextInitialFoldProgress: number | undefined;
+
+function clampFoldProgress(progress: number): number {
+  return Math.min(1, Math.max(0, progress));
+}
+
+if (P3_TEST_HOOKS_ENABLED && typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress = (progress: number) => {
+    nextInitialFoldProgress = Number.isFinite(progress) ? clampFoldProgress(progress) : 0;
+  };
+}
+
 const FOLD_CARD_RECIPES = [
   { name: 'white', labelKey: 'fold.card.white' },
   { name: 'kraft', labelKey: 'fold.card.kraft' },
@@ -55,18 +69,21 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
 }
 
 export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProps) {
+  const initialFoldProgress = P3_TEST_HOOKS_ENABLED
+    ? nextInitialFoldProgress ?? DEFAULT_FOLD_PROGRESS
+    : DEFAULT_FOLD_PROGRESS;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<FoldSceneHandle | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const playbackStartedAtRef = useRef<number | null>(null);
-  const playbackOriginRef = useRef(1);
-  const foldProgressRef = useRef(1);
+  const playbackOriginRef = useRef(DEFAULT_FOLD_PROGRESS);
+  const foldProgressRef = useRef(initialFoldProgress);
   const cardRecipeRef = useRef<FoldRecipeName>('kraft');
   const artworkRef = useRef<ArtworkMode>('none');
   // 自轉預設關閉（2026-07-17 法蘭 E2E 裁決）：進場靜止，由使用者主動開啟。
   const autoRotateRef = useRef(false);
-  const [foldProgress, setFoldProgress] = useState(1);
+  const [foldProgress, setFoldProgress] = useState(initialFoldProgress);
   const [playing, setPlaying] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
@@ -91,7 +108,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   thicknessRef.current = thickness;
 
   const updateFoldProgress = (nextProgress: number): void => {
-    const progress = Math.min(1, Math.max(0, nextProgress));
+    const progress = clampFoldProgress(nextProgress);
     foldProgressRef.current = progress;
     setFoldProgress(progress);
     sceneRef.current?.updatePose(progress);
@@ -220,6 +237,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
         return;
       }
 
+      if (P3_TEST_HOOKS_ENABLED) nextInitialFoldProgress = undefined;
       scene = nextScene;
       sceneRef.current = nextScene;
       const currentModel = modelRef.current;

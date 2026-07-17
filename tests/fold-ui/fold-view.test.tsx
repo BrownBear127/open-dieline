@@ -110,6 +110,27 @@ describe('FoldView scene lifecycle', () => {
     expect(fake.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
   });
 
+  it('uses the DEV hook once to initialize the next scene without a prior non-zero pose', async () => {
+    const setInitialFoldProgress = (
+      window as unknown as Record<string, unknown>
+    ).__p3SetInitialFoldProgress;
+    expect(setInitialFoldProgress).toBeTypeOf('function');
+    (setInitialFoldProgress as (progress: number) => void)(0);
+
+    const first = createFakeScene();
+    const firstView = render(
+      <FoldView boxId="rte" values={RTE_VALUES} createScene={first.createScene} />,
+    );
+    await waitFor(() => expect(first.createScene).toHaveBeenCalledOnce());
+    expect(first.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(0);
+    firstView.unmount();
+
+    const second = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={second.createScene} />);
+    await waitFor(() => expect(second.createScene).toHaveBeenCalledOnce());
+    expect(second.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
   it('replaces the model without recreating the scene or resetting fold progress', async () => {
     const fake = createFakeScene();
     const view = render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);

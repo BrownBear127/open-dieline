@@ -750,6 +750,8 @@ function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
   return null;
 }
 
+const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
+
 export interface FoldSceneOptions {
   onContextLost?: () => void;
   onContextRestored?: () => void;
@@ -1676,7 +1678,7 @@ export function createFoldScene(
 
   let devSetLook: ((name: FoldRecipeName) => void) | null = null;
   let devSetCameraOrbit: ((azimuthDeg: number, elevationDeg: number) => void) | null = null;
-  if (import.meta.env.DEV) {
+  if (P3_TEST_HOOKS_ENABLED) {
     devSetLook = applyRecipe;
     devSetCameraOrbit = (azimuthDeg: number, elevationDeg: number) => {
       const target = {
@@ -1786,14 +1788,14 @@ export function createFoldScene(
       if (disposed) return;
       disposed = true;
       if (
-        import.meta.env.DEV
+        P3_TEST_HOOKS_ENABLED
         && devSetLook
         && (window as unknown as Record<string, unknown>).__p3SetLook === devSetLook
       ) {
         delete (window as unknown as Record<string, unknown>).__p3SetLook;
       }
       if (
-        import.meta.env.DEV
+        P3_TEST_HOOKS_ENABLED
         && devSetCameraOrbit
         && (window as unknown as Record<string, unknown>).__p3SetCameraOrbit === devSetCameraOrbit
       ) {
