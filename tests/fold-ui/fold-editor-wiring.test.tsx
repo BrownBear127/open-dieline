@@ -9,7 +9,11 @@ import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import type { DictKey } from '@/i18n/dict';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
-import { FoldView, type ArtworkFileLoader } from '@/ui/FoldView';
+import {
+  FoldView,
+  type ArtworkFileLoader,
+  type EditorViewLoader,
+} from '@/ui/FoldView';
 import {
   artworkLayoutSignature,
   deriveArtworkLayout,
@@ -157,6 +161,7 @@ interface HarnessProps {
   initialSource?: CustomArtworkSource | null;
   initialEditable?: EditableArtworkAsset | null;
   loadArtwork?: ArtworkFileLoader;
+  loadEditorView?: EditorViewLoader;
 }
 
 function Harness({
@@ -165,6 +170,7 @@ function Harness({
   initialSource = null,
   initialEditable = null,
   loadArtwork,
+  loadEditorView,
 }: HarnessProps) {
   const fake = useState(createFakeScene)[0];
   const [session, setSession] = useState(initialSession);
@@ -186,6 +192,7 @@ function Harness({
         editorSession={session}
         onEditorSessionChange={setSession}
         loadArtwork={loadArtwork}
+        loadEditorView={loadEditorView}
       />
       <div data-testid="session-probe">
         {session === null
@@ -233,6 +240,61 @@ afterEach(() => {
   setLang('en');
 });
 
+async function openEditor(): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+  await act(async () => {
+    await import('@/ui/editor/EditorView');
+  });
+  expect(screen.getByTestId('editor-stub')).toBeInTheDocument();
+}
+
+describe('FoldView editor chunk boundary', () => {
+  it('shows the existing empty-state shell while the editor chunk is loading', async () => {
+    const loadEditorView = vi.fn<EditorViewLoader>(() => new Promise(() => undefined));
+    render(<Harness loadEditorView={loadEditorView} />);
+    await screen.findByRole('button', { name: t('fold.art.edit') });
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+
+    const loading = document.querySelector('[data-editor-loading="true"]');
+    expect(loading).toHaveClass('fold-empty');
+    expect(loading).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByTestId('editor-stub')).not.toBeInTheDocument();
+    expect(loadEditorView).toHaveBeenCalledOnce();
+  });
+
+  it('renders a loaded editor and reuses it after DONE', async () => {
+    const editorModule = await import('@/ui/editor/EditorView');
+    const loadEditorView = vi.fn<EditorViewLoader>(async () => editorModule);
+    render(<Harness loadEditorView={loadEditorView} />);
+    await screen.findByRole('button', { name: t('fold.art.edit') });
+    expect(loadEditorView).not.toHaveBeenCalled();
+
+    await openEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'DONE' }));
+    await openEditor();
+
+    expect(screen.getByTestId('editor-stub')).toBeInTheDocument();
+    expect(loadEditorView).toHaveBeenCalledOnce();
+  });
+
+  it('shows the established load-failure state when the editor chunk rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const loadEditorView = vi.fn<EditorViewLoader>(() => Promise.reject(new Error('chunk unavailable')));
+    render(<Harness loadEditorView={loadEditorView} />);
+    await screen.findByRole('button', { name: t('fold.art.edit') });
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+
+    const failure = await screen.findByText(t('fold.loadFailed'));
+    expect(failure.parentElement).toHaveClass('fold-empty');
+    expect(failure.parentElement).toHaveAttribute('data-fold-error', 'true');
+    expect(screen.queryByTestId('editor-stub')).not.toBeInTheDocument();
+    expect(loadEditorView).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalled();
+  });
+});
+
 describe('FoldView editor transition matrix', () => {
   it.each(['none', 'sample'] as const)(
     'opens an empty session from %s when no session exists',
@@ -243,9 +305,9 @@ describe('FoldView editor transition matrix', () => {
         fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
       }
 
-      fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+      await openEditor();
 
-      expect(await screen.findByTestId('editor-stub')).toBeInTheDocument();
+      expect(screen.getByTestId('editor-stub')).toBeInTheDocument();
       expect(screen.getByTestId('editor-state')).toHaveTextContent('"objects":[]');
       expect(screen.getByTestId('session-probe')).toHaveTextContent('0:0:');
     },
@@ -266,7 +328,7 @@ describe('FoldView editor transition matrix', () => {
     );
     await screen.findByRole('button', { name: t('fold.art.edit') });
 
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
 
     const state = JSON.parse(screen.getByTestId('editor-state').textContent!) as EditorState;
     expect(state.objects).toEqual([
@@ -295,7 +357,7 @@ describe('FoldView editor transition matrix', () => {
         fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
       }
 
-      fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+      await openEditor();
 
       const state = JSON.parse(screen.getByTestId('editor-state').textContent!) as EditorState;
       expect(state.objects).toHaveLength(1);
@@ -308,7 +370,7 @@ describe('FoldView editor transition matrix', () => {
     vi.useFakeTimers();
     render(<Harness initialSession={sessionWithText()} />);
     await act(async () => undefined);
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
     fireEvent.click(screen.getByRole('button', { name: 'STUB TEXT' }));
     expect(composeArtworkMock).not.toHaveBeenCalled();
 
@@ -335,7 +397,7 @@ describe('FoldView editor transition matrix', () => {
     vi.useFakeTimers();
     render(<Harness initialSession={sessionWithText()} />);
     await act(async () => undefined);
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
     fireEvent.click(screen.getByRole('button', { name: 'STUB BLANK' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'DONE' }));
@@ -414,7 +476,7 @@ describe('FoldView editor transition matrix', () => {
       target: { files: [new File(['png'], 'over-limit.png', { type: 'image/png' })] },
     });
     expect(await screen.findByRole('status')).toHaveTextContent(t('editor.limit.objects'));
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'STUB DELETE' }));
 
@@ -433,7 +495,7 @@ describe('FoldView editor transition matrix', () => {
     expect(screen.getByTestId('session-probe')).toHaveTextContent('1:1:');
     fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
     expect(screen.getByTestId('session-probe')).toHaveTextContent('1:1:');
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
 
     expect(screen.getByTestId('editor-state')).toHaveTextContent('KEPT');
   });
@@ -457,7 +519,7 @@ describe('FoldView artwork download', () => {
     });
     render(<Harness initialSession={session} />);
     await screen.findByRole('button', { name: t('fold.art.edit') });
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'STUB DOWNLOAD' }));
 
@@ -482,7 +544,7 @@ describe('FoldView artwork download', () => {
     composeArtworkMock.mockReturnValueOnce(composed);
     render(<Harness initialSession={sessionWithText()} />);
     await screen.findByRole('button', { name: t('fold.art.edit') });
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'STUB DOWNLOAD' }));
 
@@ -498,7 +560,7 @@ describe('FoldView editor stale and synchronization', () => {
     const previousSource = source('previous-frame');
     render(<Harness initialSession={sessionWithText()} initialSource={previousSource} />);
     await screen.findByRole('button', { name: t('fold.art.edit') });
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
     composeArtworkMock.mockImplementationOnce(() => {
       throw new Error('compose failed');
     });
@@ -510,7 +572,7 @@ describe('FoldView editor stale and synchronization', () => {
     expect(document.querySelector('[data-fold-error="true"]')).toBeNull();
     expect(screen.getByTestId('source-probe')).toHaveTextContent('previous-frame');
 
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
     fireEvent.click(screen.getByRole('button', { name: 'DONE' }));
 
     await waitFor(() => expect(screen.queryByText(t('editor.error.compose'))).not.toBeInTheDocument());
@@ -528,7 +590,7 @@ describe('FoldView editor stale and synchronization', () => {
     view.rerender(<Harness initialSession={session} values={changed} />);
 
     expect(await screen.findByRole('status')).toHaveTextContent(t('editor.stale'));
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
     expect(screen.getByRole('status')).toHaveTextContent(t('editor.stale'));
     const before = screen.getByTestId('editor-state').textContent;
 
@@ -549,7 +611,7 @@ describe('FoldView editor stale and synchronization', () => {
     vi.useFakeTimers();
     render(<Harness initialSession={createEditorSession(RTE_SIGNATURE, RTE_LAYOUT)} />);
     await act(async () => undefined);
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'STUB TEXT' }));
     act(() => vi.advanceTimersByTime(200));
@@ -566,7 +628,7 @@ describe('FoldView editor stale and synchronization', () => {
     vi.useFakeTimers();
     const view = render(<Harness initialSession={createEditorSession(RTE_SIGNATURE, RTE_LAYOUT)} />);
     await act(async () => undefined);
-    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+    await openEditor();
     fireEvent.click(screen.getByRole('button', { name: 'STUB TEXT' }));
 
     view.unmount();

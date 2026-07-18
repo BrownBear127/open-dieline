@@ -1,4 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import {
+  Component,
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import type { ResolvedParams } from '@/core/types';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
@@ -12,7 +23,7 @@ import {
   artworkLayoutSignature,
   deriveArtworkLayout,
 } from '@/ui/artwork-layout';
-import EditorView from '@/ui/editor/EditorView';
+import type { EditorViewProps } from '@/ui/editor/EditorView';
 import { composeArtwork } from '@/ui/editor/editor-compose';
 import { MAX_EDITOR_OBJECTS } from '@/ui/editor/editor-state';
 import {
@@ -31,6 +42,7 @@ import type {
 } from '@/ui/fold-scene';
 
 const defaultLoadScene = () => import('./fold-scene');
+const defaultLoadEditorView: EditorViewLoader = () => import('@/ui/editor/EditorView');
 const FOLD_PLAY_DURATION_MS = 2400;
 const DEFAULT_FOLD_PROGRESS = 1;
 const EDITOR_COMPOSE_SIZE = 2048;
@@ -98,7 +110,10 @@ export interface FoldViewProps {
   loadArtwork?: ArtworkFileLoader;
   createScene?: typeof createFoldScene;
   loadScene?: () => Promise<{ createFoldScene: typeof createFoldScene }>;
+  loadEditorView?: EditorViewLoader;
 }
+
+export type EditorViewLoader = () => Promise<{ default: ComponentType<EditorViewProps> }>;
 
 export interface ArtworkFileLoadOptions {
   signature: string;
@@ -121,6 +136,23 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
       <p className="mono">{copy}</p>
     </div>
   );
+}
+
+function EditorChunkLoading() {
+  return <div className="fold-empty" data-editor-loading="true" aria-busy="true" />;
+}
+
+class EditorChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) return <FoldEmpty copy={t('fold.loadFailed')} loadFailed />;
+    return this.props.children;
+  }
 }
 
 function FoldArtworkStatus({
@@ -162,7 +194,12 @@ export function FoldView({
   loadArtwork,
   createScene,
   loadScene,
+  loadEditorView,
 }: FoldViewProps) {
+  const EditorView = useMemo(
+    () => lazy(loadEditorView ?? defaultLoadEditorView),
+    [loadEditorView],
+  );
   const initialFoldProgress = P3_TEST_HOOKS_ENABLED
     ? peekInitialFoldProgress() ?? DEFAULT_FOLD_PROGRESS
     : DEFAULT_FOLD_PROGRESS;
@@ -847,19 +884,23 @@ export function FoldView({
           {staleEditor && editorStatusKey === null && (
             <p className="fold-status mono" role="status">{t('editor.stale')}</p>
           )}
-          <EditorView
-            state={currentEditorSession.state}
-            dispatch={dispatchEditorState}
-            history={currentEditorSession.history}
-            layout={artworkLayout}
-            registry={currentEditorSession.assetRegistry}
-            viewCssPx={512}
-            dpr={window.devicePixelRatio || 1}
-            statusKey={editorStatusKey ?? undefined}
-            onAddImage={() => fileInputRef.current?.click()}
-            onDownload={downloadEditorArtwork}
-            onExit={exitEditor}
-          />
+          <EditorChunkBoundary>
+            <Suspense fallback={<EditorChunkLoading />}>
+              <EditorView
+                state={currentEditorSession.state}
+                dispatch={dispatchEditorState}
+                history={currentEditorSession.history}
+                layout={artworkLayout}
+                registry={currentEditorSession.assetRegistry}
+                viewCssPx={512}
+                dpr={window.devicePixelRatio || 1}
+                statusKey={editorStatusKey ?? undefined}
+                onAddImage={() => fileInputRef.current?.click()}
+                onDownload={downloadEditorArtwork}
+                onExit={exitEditor}
+              />
+            </Suspense>
+          </EditorChunkBoundary>
         </>
       )}
     </section>
