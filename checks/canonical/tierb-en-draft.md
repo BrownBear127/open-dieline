@@ -83,7 +83,7 @@ Vendor date: 2026-07-17
 
 | key | zh（照抄·對照用） | EN（英文稿） | 譯註（僅必要時） |
 |---|---|---|---|
-| modal.body.p1 | 一個印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。<br>幾何規則以真實生產刀模逆向量測校準。 | A print-dieline generator—packaging structure made into an instrument whose measures can be adjusted, printed, and folded for trial.<br>Its geometry is calibrated by reverse-measuring production dielines. | 保留原換行。 |
+| modal.body.p1 | 一個刀模（dieline）快速原型工具——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具，產出接近真實刀模的原型展示。<br>幾何規則以真實生產刀模逆向量測校準；正式生產前請與刀模廠校對打樣。 | A rapid-prototyping dieline instrument—packaging structure made into a tool whose measures can be adjusted, printed, and folded for trial, close to real production dielines.<br>Its geometry is calibrated by reverse-measuring production dielines; always proof with your die maker before production. | 保留原換行。 |
 | modal.body.p2 | 目前為開發測試版，僅提供兩種盒型——反向插舌盒（RTE）與天地盒三件套（上蓋／下盒／平台式內襯），更多盒型陸續開發中。 | This is a development build with two box styles: Reverse Tuck End (RTE) and the three-piece Telescope Box—lid, base, and platform liner. More forms are in development. | |
 | modal.body.p3 | 本專案是 Konvolut 的一部分——關於書、紙、印刷與收藏的實踐。原始碼在 GitHub，文字刊於 Substack。 | This project is part of Konvolut—a practice concerned with books, paper, print, and collecting. The source is on GitHub; the writing appears on Substack. | Konvolut／GitHub／Substack 保留為連結錨點。 |
 | modal.note.1 | ・產出的刀模僅供打樣與學習參考；量產前請務必實際打樣驗證（紙材、絲向、機台都會影響成品） | ・Generated dielines are for prototyping and study only. Always make and verify a physical sample before production; board stock, grain, and machinery all affect the finished piece. | |
@@ -198,6 +198,7 @@ Vendor date: 2026-07-17
 | fold.art.upload | 上傳 | UPLOAD | 設計稿傳回鈕（toggle）。 |
 | fold.art.staleTemplate | 參數已變更，建議重新下載模板對位。 | Parameters changed. Download a new template to realign your artwork. | stale overlay·role=status。 |
 | fold.art.invalidFile | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | error overlay·role=alert。 |
+| fold.art.invalidSvg | 此 SVG 含不支援的外部引用或指令碼。 | This SVG contains an unsupported external reference or script. | SVG safety error overlay·role=alert。 |
 
 ## B12 套圖編輯器（24·P3 M4 T4 新增·2026-07-18 簽核終稿）
 

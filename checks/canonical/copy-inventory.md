@@ -257,6 +257,7 @@ Vendor date: 2026-07-17
 | fold.art.upload | UPLOAD | 上傳 | | label |
 | fold.art.staleTemplate | Parameters changed. Download a new template to realign your artwork. | 參數已變更，建議重新下載模板對位。 | | status |
 | fold.art.invalidFile | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | | alert |
+| fold.art.invalidSvg | This SVG contains an unsupported external reference or script. | 此 SVG 含不支援的外部引用或指令碼。 | | alert |
 
 ### A12 套圖編輯器（P3 M4 T4 新增·2026-07-18 簽核終稿）
 

@@ -36,13 +36,12 @@ const PAGE_FRAME_STROKE_WIDTH = LINE_STYLES.cut.strokeWidth / 2;
 const GUIDE_TEXT_FILL = '#9a968f';
 
 // C9 修正版字面（2026-07-18）：實測證明 Illustrator 開 SVG 時群組不可直接作畫
-//（新繪物件落作用中圖層頂端），且上傳管線不解析群組結構——指示只講兩件硬需求
+//（新繪物件落作用中圖層頂端），且上傳管線不解析群組結構——操作指示只講兩件硬需求
 //（匯出前關閉 GUIDES 顯示＋保留整頁）。.jsx 腳本句已隨 Q2 裁決（2026-07-18 拆鈕）
-// 一併移除。zh 避字沿 charset.json 實驗（拘／群組／執／隱／眼／睛皆不在 cjk cmap，
-// 字面已逐字驗過全覆蓋；同 invalidFile 避「符」前例，本段非 A15 dict 不需重生字型）。
+// 一併移除；同一行末尾追加模板出處。新增 zh 字「製作」已在現有 charset subset。
 const TEMPLATE_INSTRUCTIONS: Record<Lang, string> = {
-  en: 'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page.',
-  zh: '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。',
+  en: 'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page. Made with open-dieline · dieline.konvolut.art',
+  zh: '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。　以 open-dieline 製作 · dieline.konvolut.art',
 };
 
 const DUST_FLAP_PANEL_IDS = new Set(['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4']);

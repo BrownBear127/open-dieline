@@ -19,11 +19,14 @@ import { transform } from 'esbuild';
 // 隨 fold chunk 真出貨（2026-07-17 真 dist 實測 17 筆中唯一出貨殘留·其餘 16 筆為 JS 註解
 // 已由下方 minify 掃描消解）。與 react.dev 前例同類：依賴自嵌惰性字面、非追蹤非 CDN、
 // 全路徑精準錨定（非網域級放行）。
+// 頁尾新增 PolyForm 授權真連結；只放行官方 Noncommercial 1.0.0 精確路徑，
+// 不擴成整個 host，維持 gate 對同網域其他未知 URL 的判別力。
 const ALLOW = [
   /^https?:\/\/www\.w3\.org\//, // SVG/HTML xmlns 命名空間字串，非網路請求
   /^https?:\/\/react\.dev\//,
   /^https?:\/\/tailwindcss\.com(\/|$)/,
   /^https?:\/\/konvolut\.art(\/|$)/,
+  /^https:\/\/polyformproject\.org\/licenses\/noncommercial\/1\.0\.0(\/|$)/,
   /^https?:\/\/github\.com\/BrownBear127\/open-dieline(\/|$)/,
   /^https?:\/\/konvolut\.substack\.com(\/|$)/,
   /^https:\/\/jcgt\.org\/published\/0007\/04\/01\/$/,

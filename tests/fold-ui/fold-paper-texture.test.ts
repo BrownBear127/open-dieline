@@ -5,11 +5,6 @@ import {
   SRGBColorSpace,
 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
-import { resolveParams } from '@/core/registry';
-import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
-import { worldGeometry } from '@/fold/pose3d';
-import { foldPose } from '@/fold/schedule';
 import {
   PAPER_PRESETS,
   configurePaperMaterial,
@@ -17,7 +12,6 @@ import {
   createPaperBumpTexture,
   paperHeightAt,
   paperTextureCoordinatesAt,
-  sampleArtworkPlan,
   type PaperParams,
 } from '@/ui/fold-scene';
 
@@ -169,101 +163,5 @@ describe('paper texture writers', () => {
     expect(material.roughnessMap).toBeNull();
     expect(material.bumpScale).toBe(PAPER_PRESETS.standard.bumpScale);
     expect(material.roughness).toBe(0.82);
-  });
-});
-
-describe('sampleArtworkPlan', () => {
-  const flatGeometry = new Map([
-    ['P1', [
-      { x: 0, y: 0, z: 0 },
-      { x: 100, y: 0, z: 0 },
-      { x: 100, y: 160, z: 0 },
-      { x: 0, y: 160, z: 0 },
-    ]],
-    ['P2', [
-      { x: 100, y: 0, z: 0 },
-      { x: 140, y: 0, z: 0 },
-      { x: 140, y: 160, z: 0 },
-      { x: 100, y: 160, z: 0 },
-    ]],
-    ['P4', [
-      { x: 240, y: 0, z: 0 },
-      { x: 280, y: 0, z: 0 },
-      { x: 280, y: 160, z: 0 },
-      { x: 240, y: 160, z: 0 },
-    ]],
-    ['topLid', [
-      { x: 140, y: -100, z: 0 },
-      { x: 240, y: -100, z: 0 },
-      { x: 240, y: 0, z: 0 },
-      { x: 140, y: 0, z: 0 },
-    ]],
-    ['bottomLid', [
-      { x: 0, y: 160, z: 0 },
-      { x: 100, y: 160, z: 0 },
-      { x: 100, y: 260, z: 0 },
-      { x: 0, y: 260, z: 0 },
-    ]],
-  ]);
-
-  it('deterministically derives panel-clipped artwork commands from the complete flat dieline', () => {
-    const first = sampleArtworkPlan(flatGeometry);
-
-    expect(sampleArtworkPlan(flatGeometry)).toEqual(first);
-    expect(first.frame).toEqual({
-      minX: 0,
-      minY: -100,
-      span: 360,
-      offsetX: 40,
-      offsetY: 0,
-    });
-    expect(first.commands.map(({ kind, panelId }) => [kind, panelId])).toEqual([
-      ['rings', 'P1'],
-      ['label', 'P1'],
-      ['hatch', 'P2'],
-      ['hatch', 'P4'],
-      ['dot', 'topLid'],
-      ['dot', 'bottomLid'],
-    ]);
-    expect(first.commands.every((command) => command.clipPolygon.length === 4)).toBe(true);
-  });
-
-  it('keeps both lid dots centered on the fallback center panels in a sliced model', () => {
-    const model = buildRteFoldModel(resolveParams(reverseTuckEnd, {}));
-    const slicedGeometry = worldGeometry(model, foldPose(0, model));
-
-    expect(slicedGeometry.has('topLid')).toBe(false);
-    expect(slicedGeometry.has('bottomLid')).toBe(false);
-    expect(sampleArtworkPlan(slicedGeometry).commands.filter(({ kind }) => kind === 'dot')).toEqual([
-      expect.objectContaining({
-        panelId: 'topLidC',
-        center: { x: 137.5, y: -27.5 },
-      }),
-      expect.objectContaining({
-        panelId: 'bottomLidC',
-        center: { x: 27.5, y: 144.5 },
-      }),
-    ]);
-  });
-
-  it('recomputes the centered P1 artwork when flat model dimensions change', () => {
-    const widerGeometry = new Map(flatGeometry);
-    widerGeometry.set('P1', [
-      { x: 0, y: 0, z: 0 },
-      { x: 180, y: 0, z: 0 },
-      { x: 180, y: 220, z: 0 },
-      { x: 0, y: 220, z: 0 },
-    ]);
-
-    const originalRings = sampleArtworkPlan(flatGeometry).commands.find(
-      (command) => command.kind === 'rings',
-    );
-    const resizedRings = sampleArtworkPlan(widerGeometry).commands.find(
-      (command) => command.kind === 'rings',
-    );
-
-    expect(originalRings).toMatchObject({ center: { x: 50, y: 80 } });
-    expect(resizedRings).toMatchObject({ center: { x: 90, y: 110 } });
-    expect(resizedRings).not.toEqual(originalRings);
   });
 });

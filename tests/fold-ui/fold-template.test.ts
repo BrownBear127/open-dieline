@@ -186,10 +186,10 @@ describe('buildTemplateSvg — <g id="ARTWORK"> 空殼＋角落指示文字', ()
     // 作畫·實測），只講兩件硬需求。腳本提示句已隨 Q2 拆鈕裁決移除。
     // zh 避字見 fold-template.ts 註解。
     expect(textOf(svgFor({}, 'en'))).toBe(
-      'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page.',
+      'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page. Made with open-dieline · dieline.konvolut.art',
     );
     expect(textOf(svgFor({}, 'zh'))).toBe(
-      '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。',
+      '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。　以 open-dieline 製作 · dieline.konvolut.art',
     );
   });
 });

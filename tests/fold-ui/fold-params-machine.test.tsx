@@ -161,4 +161,29 @@ describe('FoldView B4-machine parameter linkage', () => {
     expect(fake.handles[0]!.updatePose).toHaveBeenLastCalledWith(0.42);
     expect(screen.getByRole('slider', { name: t('fold.progress.aria') })).toHaveValue('0.42');
   });
+
+  it('keeps SAMPLE active and shows no stale status after a dimension change', async () => {
+    const fake = createFakeScene();
+    const defaults = resolveParams(reverseTuckEnd, {});
+    const view = render(<FoldView boxId="rte" values={defaults} createScene={fake.createScene} />);
+    const sample = await screen.findByRole('button', { name: t('fold.art.sample') });
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+    fireEvent.click(sample);
+    expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('sample');
+    expect(view.container.querySelector('.fold-view')).toHaveAttribute('data-artwork-ready', 'sample');
+
+    view.rerender(
+      <FoldView
+        boxId="rte"
+        values={resolveParams(reverseTuckEnd, { L: 65 })}
+        createScene={fake.createScene}
+      />,
+    );
+    await waitFor(() => expect(fake.handles[0]!.replaceModel).toHaveBeenCalledTimes(2));
+
+    expect(view.container.querySelector('.fold-view')).toHaveAttribute('data-artwork-ready', 'sample');
+    expect(screen.queryByText(t('fold.art.staleTemplate'))).not.toBeInTheDocument();
+    expect(screen.queryByText(t('editor.stale'))).not.toBeInTheDocument();
+  });
 });

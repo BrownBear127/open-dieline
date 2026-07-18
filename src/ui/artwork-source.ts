@@ -4,6 +4,7 @@ import type { CustomArtworkSource } from './fold-scene';
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_RASTER_EDGE = 8192;
 const MAX_RASTER_PIXELS = 33_554_432;
+const MAX_EMBEDDED_RASTER_COUNT = 16;
 const SOURCE_SIZE = 2048;
 const SVG_SIDECAR_MAX_EDGE = 4096;
 
@@ -59,8 +60,10 @@ function reject(code: ArtworkRejectionCode): ArtworkValidationResult {
   return { code };
 }
 
+const EMBEDDED_RASTER_DATA_URI = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/;
+
 function hasExternalSvgResource(markup: string): boolean {
-  return /<script(?:\s|>)|\b(?:xlink:)?href\s*=\s*(['"])(?!\s*#)|url\((?!\s*["']?\s*#)/i
+  return /<script(?:\s|>)|\b(?:xlink:)?href\s*=\s*(['"])(?!\s*#|data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+\1)|url\((?!\s*["']?\s*#)/i
     .test(markup);
 }
 
@@ -106,17 +109,135 @@ function hasExternalStyleContent(css: string): boolean {
   return withoutFragmentUrls.includes('(');
 }
 
+function readUint32(bytes: Uint8Array, offset: number): number {
+  return bytes[offset]! * 0x100_0000
+    + bytes[offset + 1]! * 0x1_0000
+    + bytes[offset + 2]! * 0x100
+    + bytes[offset + 3]!;
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffff_ffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb8_8320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffff_ffff) >>> 0;
+}
+
+function readPngSize(bytes: Uint8Array): RasterSize | null {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 33 || !signature.every((byte, index) => bytes[index] === byte)) {
+    return null;
+  }
+  if (
+    readUint32(bytes, 8) !== 13
+    || bytes[12] !== 73
+    || bytes[13] !== 72
+    || bytes[14] !== 68
+    || bytes[15] !== 82
+    || crc32(bytes.subarray(12, 29)) !== readUint32(bytes, 29)
+  ) {
+    return null;
+  }
+  return { width: readUint32(bytes, 16), height: readUint32(bytes, 20) };
+}
+
+function isJpegStartOfFrameMarker(marker: number): boolean {
+  return marker >= 0xc0
+    && marker <= 0xcf
+    && marker !== 0xc4
+    && marker !== 0xc8
+    && marker !== 0xcc;
+}
+
+function readJpegSize(bytes: Uint8Array): RasterSize | null {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+
+  let offset = 2;
+  let frameSize: RasterSize | null = null;
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    if (offset >= bytes.length) return null;
+
+    const marker = bytes[offset++]!;
+    if (marker === 0xd9 || marker === 0xda) return frameSize;
+    if (marker === 0x01 || marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > bytes.length) return null;
+
+    const segmentLength = bytes[offset]! * 0x100 + bytes[offset + 1]!;
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) return null;
+    if (isJpegStartOfFrameMarker(marker)) {
+      if (segmentLength < 8 || frameSize !== null) return null;
+      frameSize = {
+        width: bytes[offset + 5]! * 0x100 + bytes[offset + 6]!,
+        height: bytes[offset + 3]! * 0x100 + bytes[offset + 4]!,
+      };
+    }
+    offset += segmentLength;
+  }
+  return frameSize;
+}
+
+function readEmbeddedRasterSize(value: string): RasterSize | null {
+  const match = EMBEDDED_RASTER_DATA_URI.exec(value);
+  if (match === null) return null;
+
+  let bytes: Uint8Array;
+  try {
+    const decoded = atob(match[2]!);
+    bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  return match[1] === 'png' ? readPngSize(bytes) : readJpegSize(bytes);
+}
+
+function hasInvalidRasterDimensions({ width, height }: RasterSize): boolean {
+  return (
+    !Number.isSafeInteger(width)
+    || !Number.isSafeInteger(height)
+    || Math.min(width, height) <= 0
+    || Math.max(width, height) > MAX_RASTER_EDGE
+    || !Number.isSafeInteger(width * height)
+    || width * height > MAX_RASTER_PIXELS
+  );
+}
+
+function readAllowedEmbeddedRasterSize(element: Element, attribute: Attr): RasterSize | null {
+  if (
+    element.localName !== 'image'
+    || (attribute.name !== 'href' && attribute.name !== 'xlink:href')
+  ) {
+    return null;
+  }
+  const size = readEmbeddedRasterSize(attribute.value);
+  return size !== null && !hasInvalidRasterDimensions(size) ? size : null;
+}
+
 function hasExternalDomResource(documentNode: Document): boolean {
   const elements = [documentNode.documentElement, ...documentNode.querySelectorAll('*')];
+  let embeddedRasterCount = 0;
+  let embeddedRasterPixels = 0;
   for (const element of elements) {
     const elementName = element.localName.toLowerCase();
     if (elementName === 'foreignobject' || elementName === 'script') return true;
     if (elementName === 'style' && hasExternalStyleContent(element.textContent ?? '')) return true;
 
+    let embeddedRasterSize: RasterSize | null = null;
     for (const attribute of element.attributes) {
       const attributeName = attribute.localName.toLowerCase();
       const value = attribute.value.trim();
-      if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) return true;
+      if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) {
+        const allowedSize = readAllowedEmbeddedRasterSize(element, attribute);
+        if (allowedSize === null) return true;
+        if (embeddedRasterSize === null || attribute.name === 'href') {
+          embeddedRasterSize = allowedSize;
+        }
+      }
       // 嚴格掃描位置=style＋mask＋cursor。V5 五審按 SVG2 §6.6 主表 70/70 逐項
       // 核值文法（開發紀錄 §②）：非 url-token 資源語法的 property
       // 僅 mask（<mask-reference>→<image>）與 cursor（CSS UI 3 明許 <image>
@@ -126,6 +247,16 @@ function hasExternalDomResource(documentNode: Document): boolean {
       // \ 拒即完備，transform 族 function notation 不誤拒。
       const strict = attributeName === 'style' || attributeName === 'mask' || attributeName === 'cursor';
       if (strict ? hasExternalStyleContent(value) : hasExternalCssResource(value)) {
+        return true;
+      }
+    }
+    if (embeddedRasterSize !== null) {
+      embeddedRasterCount += 1;
+      embeddedRasterPixels += embeddedRasterSize.width * embeddedRasterSize.height;
+      if (
+        embeddedRasterCount > MAX_EMBEDDED_RASTER_COUNT
+        || embeddedRasterPixels > MAX_RASTER_PIXELS
+      ) {
         return true;
       }
     }
@@ -164,17 +295,6 @@ async function validateSvg(file: File): Promise<ArtworkValidationResult> {
   return null;
 }
 
-function hasInvalidBitmapDimensions({ width, height }: ImageBitmap): boolean {
-  return (
-    !Number.isSafeInteger(width)
-    || !Number.isSafeInteger(height)
-    || Math.min(width, height) <= 0
-    || Math.max(width, height) > MAX_RASTER_EDGE
-    || !Number.isSafeInteger(width * height)
-    || width * height > MAX_RASTER_PIXELS
-  );
-}
-
 async function validateRaster(file: File): Promise<ArtworkValidationResult> {
   let decoded: ImageBitmap;
   try {
@@ -183,7 +303,7 @@ async function validateRaster(file: File): Promise<ArtworkValidationResult> {
     return reject('decode');
   }
 
-  const invalidDimensions = hasInvalidBitmapDimensions(decoded);
+  const invalidDimensions = hasInvalidRasterDimensions(decoded);
   decoded.close();
   return invalidDimensions ? reject('pixels') : null;
 }
@@ -257,7 +377,7 @@ async function createEditableArtworkAsset(
     return { code: 'decode' };
   }
 
-  if (hasInvalidBitmapDimensions(bitmap)) {
+  if (hasInvalidRasterDimensions(bitmap)) {
     bitmap.close();
     return { code: 'pixels' };
   }

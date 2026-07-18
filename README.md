@@ -2,9 +2,9 @@
 
 > A [Konvolut](https://konvolut.art) project · **Live: [open-dieline.vercel.app](https://open-dieline.vercel.app)**
 
-An open-source dieline generator for print & packaging — parametric, printable, calibrated against real production dielines.
+A source-available dieline prototyping tool for print & packaging — parametric, printable, calibrated against real production dielines. For rapid prototyping and visual proofs; verify with your die maker before production.
 
-一個開源的印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。目前支援反向插舌盒（RTE）與天地盒三件套，幾何規則以真實生產刀模逆向量測校準。
+一個原始碼公開的刀模（dieline）快速原型工具——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具，產出接近真實刀模；正式生產前請與刀模廠校對打樣。目前支援反向插舌盒（RTE）與天地盒三件套，幾何規則以真實生產刀模逆向量測校準。
 
 ## 目前盒型與特點
 
@@ -20,7 +20,7 @@ An open-source dieline generator for print & packaging — parametric, printable
 - 拼版試算：選件後在常用紙規（31"×43"／25"×35"／27"×39"／自訂）上試排，支援直放橫放、對切、咬口與刀線間距設定，0° 與 90° 兩方向並列比較模數
 - 輪廓收縮排列：非矩形件依實際刀線輪廓（含斜線與圓弧）收縮行距或列距，在維持刀線最小間距的前提下多排一行——RTE 於 31"×43" 直放實測 12 模 → 15 模（+25%）。拼版結果為單向收縮估算，未計交錯、共刀、絲向及加工限制，不可直接作生產拼版
 - SVG 匯出：按線型分 `<g>` 命名群組，Adobe Illustrator 開啟即可分層操作；可選「製造模式」僅輸出切割／摺線／半刀三層
-- DXF 匯出：R12 相容、CUT／CREASE／HALFCUT 三圖層，供刀模廠直接使用
+- DXF 匯出：R12 相容、CUT／CREASE／HALFCUT 三圖層，供刀模廠讀圖校對
 - 單片視圖：多片盒型可切換全版／單片顯示與匯出
 
 ## 使用

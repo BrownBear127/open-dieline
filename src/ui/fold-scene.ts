@@ -65,10 +65,9 @@ const ROUGHNESS_COORDINATE_SCALE = 1.5;
 const FIBER_SAMPLE_SIZE = 256;
 const FIBER_SAMPLE_STRIDE = PAPER_TEXTURE_SIZE / FIBER_SAMPLE_SIZE;
 const PAPER_LIGHT_VECTOR_LENGTH = Math.sqrt(6);
-const ARTWORK_ACCENT = '#b3402a';
-const ARTWORK_DARK = '#383530';
 const ARTWORK_ALPHA = 0.88;
 const CUSTOM_ARTWORK_SIZE = 2048;
+const SAMPLE_ARTWORK_URL = '/sample-artwork.webp';
 
 export function configureFoldRenderer(
   renderer: Pick<WebGLRenderer, 'toneMapping' | 'toneMappingExposure'>,
@@ -1101,245 +1100,50 @@ export function configurePaperMaterial(
   material.needsUpdate = true;
 }
 
-interface ArtworkPoint {
-  x: number;
-  y: number;
-}
-
-interface ArtworkCommandBase {
-  panelId: string;
-  clipPolygon: ArtworkPoint[];
-}
-
-interface ArtworkRingsCommand extends ArtworkCommandBase {
-  kind: 'rings';
-  center: ArtworkPoint;
-  radii: number[];
-}
-
-interface ArtworkLabelCommand extends ArtworkCommandBase {
-  kind: 'label';
-  center: ArtworkPoint;
-  fontSize: number;
-  text: 'SAMPLE';
-}
-
-interface ArtworkHatchCommand extends ArtworkCommandBase {
-  kind: 'hatch';
-  lines: Array<{ from: ArtworkPoint; to: ArtworkPoint }>;
-}
-
-interface ArtworkDotCommand extends ArtworkCommandBase {
-  kind: 'dot';
-  center: ArtworkPoint;
-  radius: number;
-}
-
-export type SampleArtworkCommand =
-  | ArtworkRingsCommand
-  | ArtworkLabelCommand
-  | ArtworkHatchCommand
-  | ArtworkDotCommand;
-
-export interface SampleArtworkPlan {
-  frame: FlatDielineUvFrame;
-  commands: SampleArtworkCommand[];
-}
-
-interface ArtworkBounds {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-}
-
-function artworkPolygon(vertices: Vec3[] | undefined): ArtworkPoint[] {
-  return vertices?.map(({ x, y }) => ({ x, y })) ?? [];
-}
-
-function artworkBounds(polygon: ArtworkPoint[]): ArtworkBounds | null {
-  if (polygon.length === 0) return null;
-  const xs = polygon.map(({ x }) => x);
-  const ys = polygon.map(({ y }) => y);
-  return {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minY: Math.min(...ys),
-    maxY: Math.max(...ys),
-  };
-}
-
-function artworkCenter(bounds: ArtworkBounds): ArtworkPoint {
-  return {
-    x: (bounds.minX + bounds.maxX) / 2,
-    y: (bounds.minY + bounds.maxY) / 2,
-  };
-}
-
-function hatchLines(
-  bounds: ArtworkBounds,
-  spacing: number,
-): ArtworkHatchCommand['lines'] {
-  const start = Math.floor((bounds.minY - bounds.maxX) / spacing) - 1;
-  const end = Math.ceil((bounds.maxY - bounds.minX) / spacing) + 1;
-  const padding = bounds.maxY - bounds.minY;
-  const lines: ArtworkHatchCommand['lines'] = [];
-
-  for (let index = start; index <= end; index += 1) {
-    const intercept = index * spacing;
-    const fromX = bounds.minX - padding;
-    const toX = bounds.maxX + padding;
-    lines.push({
-      from: { x: fromX, y: fromX + intercept },
-      to: { x: toX, y: toX + intercept },
-    });
-  }
-  return lines;
-}
-
-/** Derives deterministic sample-art commands in the same flat frame used by UVs. */
-export function sampleArtworkPlan(
-  flatGeometry: Map<string, Vec3[]>,
-): SampleArtworkPlan {
-  const frame = flatDielineUvFrame(flatGeometry);
-  const commands: SampleArtworkCommand[] = [];
-  const mainPolygon = artworkPolygon(flatGeometry.get('P1'));
-  const mainBounds = artworkBounds(mainPolygon);
-
-  if (mainBounds) {
-    const center = artworkCenter(mainBounds);
-    const size = Math.min(
-      mainBounds.maxX - mainBounds.minX,
-      mainBounds.maxY - mainBounds.minY,
-    );
-    commands.push({
-      kind: 'rings',
-      panelId: 'P1',
-      clipPolygon: mainPolygon,
-      center,
-      radii: [0.2, 0.32, 0.44].map((ratio) => size * ratio),
-    });
-    commands.push({
-      kind: 'label',
-      panelId: 'P1',
-      clipPolygon: mainPolygon,
-      center,
-      fontSize: size * 0.16,
-      text: 'SAMPLE',
-    });
-  }
-
-  for (const panelId of ['P2', 'P4']) {
-    const polygon = artworkPolygon(flatGeometry.get(panelId));
-    const bounds = artworkBounds(polygon);
-    if (!bounds) continue;
-    commands.push({
-      kind: 'hatch',
-      panelId,
-      clipPolygon: polygon,
-      lines: hatchLines(bounds, frame.span / 28),
-    });
-  }
-
-  for (const [legacyPanelId, centerPanelId] of [
-    ['topLid', 'topLidC'],
-    ['bottomLid', 'bottomLidC'],
-  ] as const) {
-    const panelId = flatGeometry.has(legacyPanelId) ? legacyPanelId : centerPanelId;
-    const polygon = artworkPolygon(flatGeometry.get(panelId));
-    const bounds = artworkBounds(polygon);
-    if (!bounds) continue;
-    commands.push({
-      kind: 'dot',
-      panelId,
-      clipPolygon: polygon,
-      center: artworkCenter(bounds),
-      radius: Math.min(
-        bounds.maxX - bounds.minX,
-        bounds.maxY - bounds.minY,
-      ) * 0.08,
-    });
-  }
-
-  return { frame, commands };
-}
-
 function drawSampleArtwork(
   context: CanvasRenderingContext2D,
   flatGeometry: Map<string, Vec3[]>,
+  image: HTMLImageElement,
 ): void {
-  const { frame, commands } = sampleArtworkPlan(flatGeometry);
+  const frame = flatDielineUvFrame(flatGeometry);
   const width = context.canvas.width;
   const height = context.canvas.height;
-  const toCanvas = ({ x, y }: ArtworkPoint): ArtworkPoint => ({
+  const toCanvas = ({ x, y }: { x: number; y: number }): { x: number; y: number } => ({
     x: (x - frame.minX + frame.offsetX) / frame.span * width,
     y: (y - frame.minY + frame.offsetY) / frame.span * height,
   });
-  const toPixels = (value: number): number => value / frame.span * width;
+  const pageStart = toCanvas({
+    x: frame.minX - frame.offsetX,
+    y: frame.minY - frame.offsetY,
+  });
+  const pageEnd = toCanvas({
+    x: frame.minX - frame.offsetX + frame.span,
+    y: frame.minY - frame.offsetY + frame.span,
+  });
 
   context.save();
   context.globalCompositeOperation = 'source-over';
   context.globalAlpha = ARTWORK_ALPHA;
-
-  for (const command of commands) {
-    context.save();
-    context.beginPath();
-    command.clipPolygon.forEach((point, index) => {
-      const mapped = toCanvas(point);
-      if (index === 0) context.moveTo(mapped.x, mapped.y);
-      else context.lineTo(mapped.x, mapped.y);
-    });
-    context.closePath();
-    context.clip();
-
-    if (command.kind === 'rings') {
-      const center = toCanvas(command.center);
-      context.strokeStyle = ARTWORK_ACCENT;
-      context.lineWidth = Math.max(2, width * 0.004);
-      for (const radius of command.radii) {
-        context.beginPath();
-        context.arc(center.x, center.y, toPixels(radius), 0, Math.PI * 2);
-        context.stroke();
-      }
-    } else if (command.kind === 'label') {
-      const center = toCanvas(command.center);
-      context.fillStyle = ARTWORK_DARK;
-      context.font = `600 ${Math.max(10, toPixels(command.fontSize))}px sans-serif`;
-      context.textAlign = 'center';
-      context.textBaseline = 'middle';
-      context.fillText(command.text, center.x, center.y);
-    } else if (command.kind === 'hatch') {
-      context.strokeStyle = ARTWORK_ACCENT;
-      context.lineWidth = Math.max(1, width * 0.0025);
-      context.beginPath();
-      for (const line of command.lines) {
-        const from = toCanvas(line.from);
-        const to = toCanvas(line.to);
-        context.moveTo(from.x, from.y);
-        context.lineTo(to.x, to.y);
-      }
-      context.stroke();
-    } else {
-      const center = toCanvas(command.center);
-      context.fillStyle = ARTWORK_ACCENT;
-      context.beginPath();
-      context.arc(center.x, center.y, toPixels(command.radius), 0, Math.PI * 2);
-      context.fill();
-    }
-    context.restore();
-  }
+  context.drawImage(
+    image,
+    pageStart.x,
+    pageStart.y,
+    pageEnd.x - pageStart.x,
+    pageEnd.y - pageStart.y,
+  );
   context.restore();
 }
 
 function createSampleArtworkTexture(
   paperCanvas: HTMLCanvasElement,
   flatGeometry: Map<string, Vec3[]>,
+  image: HTMLImageElement,
 ): CanvasTexture {
   const canvas = createPaperCanvas();
   const context = canvas.getContext('2d');
   if (context) {
     context.drawImage(paperCanvas, 0, 0);
-    drawSampleArtwork(context, flatGeometry);
+    drawSampleArtwork(context, flatGeometry, image);
   }
   return createTexture(canvas, true);
 }
@@ -1668,6 +1472,8 @@ export function createFoldScene(
   let needsRender = true;
   let contextLost = false;
   let disposed = false;
+  let sampleArtworkImage: HTMLImageElement | null = null;
+  let sampleArtworkLoad: Promise<void> | null = null;
 
   const disposePanelTree = (): void => {
     for (const mesh of panelMeshes.values()) {
@@ -1884,11 +1690,12 @@ export function createFoldScene(
         customArtworkSource,
       );
     }
-    if (currentModel === null) return paperBaseAlbedoTexture;
+    if (currentModel === null || sampleArtworkImage === null) return paperBaseAlbedoTexture;
     const flatGeometry = worldGeometry(currentModel, foldPose(0, currentModel));
     return createSampleArtworkTexture(
       paperBaseAlbedoTexture.image as HTMLCanvasElement,
       flatGeometry,
+      sampleArtworkImage,
     );
   };
 
@@ -1907,6 +1714,23 @@ export function createFoldScene(
       previousAlbedoTexture.dispose();
     }
     markNeedsRender();
+  };
+
+  const ensureSampleArtwork = (): void => {
+    if (sampleArtworkImage !== null || sampleArtworkLoad !== null) return;
+    const image = new Image();
+    image.src = SAMPLE_ARTWORK_URL;
+    try {
+      sampleArtworkLoad = image.decode()
+        .then(() => {
+          if (disposed) return;
+          sampleArtworkImage = image;
+          if (activeArtwork === 'sample') refreshArtworkAlbedo();
+        })
+        .catch(() => undefined);
+    } catch {
+      sampleArtworkLoad = Promise.resolve();
+    }
   };
 
   const applyPaper = (params: PaperParams): void => {
@@ -1955,6 +1779,7 @@ export function createFoldScene(
     if (mode === activeArtwork) return;
     activeArtwork = mode;
     refreshArtworkAlbedo();
+    if (mode === 'sample') ensureSampleArtwork();
   };
 
   const installCustomSource = (source: CustomArtworkSource): void => {

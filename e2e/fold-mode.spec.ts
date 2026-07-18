@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { manifest, tokenValues } from '../checks/e2e/derive-manifest.mjs';
@@ -299,6 +300,26 @@ test('fold controls use the vocabulary declarations and render the real range th
     'the production range must render a moving UA thumb; endpoint screenshots must differ',
   ).toBe(false);
 });
+
+for (const lang of ['en', 'zh'] as const) {
+  test(`${lang} template download keeps the source line inside TEMPLATE_GUIDES`, async ({ page }) => {
+    await enterFold(page, lang);
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: dict['fold.art.template'][lang], exact: true }).click();
+    const download = await downloadPromise;
+    const downloadPath = await download.path();
+    if (downloadPath === null) throw new Error('Playwright did not provide a template download path');
+    const svg = readFileSync(downloadPath, 'utf8');
+    const expected = lang === 'en'
+      ? 'Made with open-dieline · dieline.konvolut.art'
+      : '以 open-dieline 製作 · dieline.konvolut.art';
+
+    expect(svg).toContain('<g id="TEMPLATE_GUIDES">');
+    expect(svg.indexOf(expected)).toBeGreaterThan(svg.indexOf('<g id="TEMPLATE_GUIDES">'));
+    expect(svg.indexOf(expected)).toBeLessThan(svg.indexOf('</g>'));
+    await download.delete();
+  });
+}
 
 test('dragging fold progress to one renders a non-background canvas frame', async ({ page }) => {
   await gotoReady(page);
