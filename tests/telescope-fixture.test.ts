@@ -3,7 +3,7 @@
  *
  * 這是整個 Slice 2 的保真證明：把「新模組 vs 生產刀模量測」的對帳固化成
  * fixture＋分層比對，而非散落在各處的手算斷言。比對規則見 spec §4.2（附錄
- * `.superpowers/sdd/量測附錄` 逐槽抄錄）：
+ * `開發紀錄` 逐槽抄錄）：
  *   1. t 無關槽位（source=measured、tIndependent=true）：|生成−預期| ≤0.05（x/y 向皆適用）
  *   2. t 相關槽位：公式自洽（生成值代公式驗）＋ |生成−量測| ≤0.15（x/y 向皆適用）；
  *      corrected 槽（lid.x.outerWall/innerWall）只驗公式修正值 ≤0.05、不對量測——
