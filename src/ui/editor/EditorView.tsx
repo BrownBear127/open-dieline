@@ -15,6 +15,7 @@ import { composeArtwork, fromCanvas, textBlockMetrics } from './editor-compose';
 import { snapDelta, type AABB, type SnapTargets } from './editor-snap';
 import {
   effectiveObjects,
+  MAX_EDITOR_OBJECTS,
   reduce,
   type EditorAction,
   type EditorObject,
@@ -40,6 +41,7 @@ export interface EditorViewProps {
   labels?: EditorViewLabels;
   onAddImage?: () => void;
   onDownload?: () => void;
+  statusKey?: DictKey;
   onExit: () => void;
 }
 
@@ -385,6 +387,7 @@ export default function EditorView({
   labels,
   onAddImage,
   onDownload,
+  statusKey,
   onExit,
 }: EditorViewProps) {
   const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
@@ -401,6 +404,7 @@ export default function EditorView({
   const renderStateRef = useRef(renderState);
   const [snapLines, setSnapLines] = useState<SnapLines>({});
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [composeFailed, setComposeFailed] = useState(false);
   const targets = useMemo(() => snapTargets(layout), [layout]);
 
   const measure = useCallback<MeasureText>((value, font) => {
@@ -495,13 +499,20 @@ export default function EditorView({
   useEffect(() => {
     const canvas = displayCanvasRef.current;
     if (!canvas) return;
-    const composed = composeArtwork(
-      renderState,
-      layout,
-      backingSize,
-      { guides: true },
-      registry,
-    );
+    let composed: HTMLCanvasElement;
+    try {
+      composed = composeArtwork(
+        renderState,
+        layout,
+        backingSize,
+        { guides: true },
+        registry,
+      );
+    } catch {
+      setComposeFailed(true);
+      return;
+    }
+    setComposeFailed(false);
     const context = canvas.getContext('2d');
     if (!context) return;
     context.setTransform(1, 0, 0, 1, 0, 0);
@@ -767,6 +778,11 @@ export default function EditorView({
   const frameCenterY = layout.frame.minY - layout.frame.offsetY + layout.frame.span / 2;
   const selectedIndex = renderState.objects.findIndex(({ id }) => id === renderState.selectedId);
   const hasEffectiveObjects = effectiveObjects(renderState).length > 0;
+  const objectLimitReached = renderState.objects.length >= MAX_EDITOR_OBJECTS;
+  const visibleStatusKey = composeFailed ? 'editor.error.compose' : statusKey;
+  let statusCopy: string | null = null;
+  if (visibleStatusKey !== undefined) statusCopy = t(visibleStatusKey);
+  else if (!hasEffectiveObjects) statusCopy = t('editor.empty');
 
   return (
     <div
@@ -774,12 +790,18 @@ export default function EditorView({
       data-testid="editor-canvas-container"
     >
       <div className="editor-toolbar" role="toolbar" aria-label={t('fold.art.edit')}>
-        <button type="button" className="btn label" onClick={onAddImage}>
+        <button
+          type="button"
+          className="btn label"
+          disabled={objectLimitReached}
+          onClick={onAddImage}
+        >
           {t('editor.addImage')}
         </button>
         <button
           type="button"
           className="btn label"
+          disabled={objectLimitReached}
           onClick={() => commitAction({
             type: 'addText',
             frameSpan: layout.frame.span,
@@ -809,7 +831,7 @@ export default function EditorView({
         <button
           type="button"
           className="btn label"
-          disabled={selectedIndex < 0 || renderState.objects.length >= 32}
+          disabled={selectedIndex < 0 || objectLimitReached}
           onClick={() => commitSelectedAction('duplicate')}
         >
           {t('editor.duplicate')}
@@ -834,12 +856,12 @@ export default function EditorView({
           {t('editor.done')}
         </button>
       </div>
-      {!hasEffectiveObjects && (
+      {statusCopy !== null && (
         <p
           role="status"
           className="editor-empty mono"
         >
-          {t('editor.empty')}
+          {statusCopy}
         </p>
       )}
       <div

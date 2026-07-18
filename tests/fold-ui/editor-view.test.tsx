@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
@@ -6,13 +6,14 @@ import type { ArtworkLayout } from '@/ui/artwork-layout';
 import type { AssetRegistry } from '@/ui/editor/editor-assets';
 import EditorView, { type EditorViewProps } from '@/ui/editor/EditorView';
 import { setLang } from '@/i18n/lang';
-import type {
-  EditorObject,
-  EditorState,
-  History,
-  ImageObject,
-  InkPaletteColor,
-  TextObject,
+import {
+  reduce,
+  type EditorObject,
+  type EditorState,
+  type History,
+  type ImageObject,
+  type InkPaletteColor,
+  type TextObject,
 } from '@/ui/editor/editor-state';
 
 const composeModule = vi.hoisted(() => ({
@@ -254,6 +255,31 @@ describe('EditorView canvas wiring', () => {
     });
 
     expect(container.querySelectorAll('canvas')[0]).toHaveAttribute('width', '1');
+  });
+
+  it('keeps the previous frame, reports a compose failure, and clears it after recovery', async () => {
+    renderEditor(state([image('artwork')]));
+    const context = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results[0]!
+      .value as CanvasRenderingContext2D;
+    const drawImage = vi.mocked(context.drawImage);
+    expect(drawImage).toHaveBeenCalledOnce();
+
+    composeModule.composeArtwork.mockImplementationOnce(() => {
+      throw new Error('compose failed');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'TEXT' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Rendering failed. Try again or remove the last object.',
+    );
+    expect(drawImage).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: 'TEXT' }));
+
+    await waitFor(() => expect(screen.queryByText(
+      'Rendering failed. Try again or remove the last object.',
+    )).not.toBeInTheDocument());
+    expect(drawImage).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -706,6 +732,32 @@ describe('EditorView toolbar', () => {
       }],
     });
     expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables image and text entry at 32 objects and leaves the reducer state unchanged', () => {
+    const atLimit = state(Array.from({ length: 32 }, (_, index) => text(`text-${index + 1}`)));
+    const editorHistory = history();
+    const onAddImage = vi.fn();
+    const { dispatch } = renderEditor(atLimit, { history: editorHistory, onAddImage });
+
+    const imageButton = screen.getByRole('button', { name: 'IMAGE' });
+    const textButton = screen.getByRole('button', { name: 'TEXT' });
+    expect(imageButton).toBeDisabled();
+    expect(textButton).toBeDisabled();
+
+    fireEvent.click(imageButton);
+    fireEvent.click(textButton);
+
+    expect(onAddImage).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(editorHistory.commit).not.toHaveBeenCalled();
+    expect(reduce(atLimit, {
+      type: 'addText',
+      frameSpan: layout.frame.span,
+      frameCenterX: 50,
+      frameCenterY: 50,
+      defaultText: 'TEXT',
+    })).toBe(atLimit);
   });
 
   it('uses the approved Chinese add-text copy as the Chinese default object text', () => {

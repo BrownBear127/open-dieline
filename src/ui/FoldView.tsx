@@ -14,6 +14,7 @@ import {
 } from '@/ui/artwork-layout';
 import EditorView from '@/ui/editor/EditorView';
 import { composeArtwork } from '@/ui/editor/editor-compose';
+import { MAX_EDITOR_OBJECTS } from '@/ui/editor/editor-state';
 import {
   addEditableArtwork,
   alignEditorSession,
@@ -91,6 +92,7 @@ export type ArtworkFileLoader = (
 ) => Promise<ArtworkLoadResult>;
 
 type UploadStatus = 'idle' | 'loading' | 'error';
+type EditorStatusKey = 'editor.limit.objects' | 'editor.error.compose';
 export type FoldViewMode = 'preview' | 'editor';
 
 function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
@@ -103,15 +105,20 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
 
 function FoldArtworkStatus({
   uploadStatus,
+  editorStatusKey,
   staleTemplate,
   staleEditor,
 }: {
   uploadStatus: UploadStatus;
+  editorStatusKey: EditorStatusKey | null;
   staleTemplate: boolean;
   staleEditor: boolean;
 }) {
   if (uploadStatus === 'error') {
     return <p className="fold-status mono" role="alert">{t('fold.art.invalidFile')}</p>;
+  }
+  if (editorStatusKey !== null) {
+    return <p className="fold-status mono" role="status">{t(editorStatusKey)}</p>;
   }
   if (staleTemplate) {
     return <p className="fold-status mono" role="status">{t('fold.art.staleTemplate')}</p>;
@@ -175,6 +182,7 @@ export function FoldView({
   const [artwork, setArtwork] = useState<ArtworkMode>(initialArtwork);
   const [sceneArtwork, setSceneArtwork] = useState<ArtworkMode>('none');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [editorStatusKey, setEditorStatusKey] = useState<EditorStatusKey | null>(null);
   const [staleTemplate, setStaleTemplate] = useState(false);
   const [viewMode, setViewMode] = useState<FoldViewMode>('preview');
   const artworkEnabled = artwork === 'sample';
@@ -246,18 +254,25 @@ export function FoldView({
     setStaleTemplate(false);
   };
 
-  const composeEditorSession = (session: EditorSession): void => {
+  const composeEditorSession = (session: EditorSession): boolean => {
     const layout = artworkLayoutRef.current;
     const signature = artworkSignatureRef.current;
-    if (layout === null || signature === null) return;
-    const canvas = composeArtwork(
-      session.state,
-      layout,
-      EDITOR_COMPOSE_SIZE,
-      { guides: false },
-      session.assetRegistry,
-    );
-    activateCustomSource({ canvas, signature });
+    if (layout === null || signature === null) return false;
+    try {
+      const canvas = composeArtwork(
+        session.state,
+        layout,
+        EDITOR_COMPOSE_SIZE,
+        { guides: false },
+        session.assetRegistry,
+      );
+      activateCustomSource({ canvas, signature });
+      setEditorStatusKey((current) => current === 'editor.error.compose' ? null : current);
+      return true;
+    } catch {
+      setEditorStatusKey('editor.error.compose');
+      return false;
+    }
   };
 
   const cancelEditorSync = (): void => {
@@ -367,6 +382,13 @@ export function FoldView({
     event.target.value = '';
     if (file === undefined) return;
     cancelPendingUpload();
+    const currentSession = editorSessionRef.current;
+    if (currentSession !== null && currentSession.state.objects.length >= MAX_EDITOR_OBJECTS) {
+      setUploadStatus('idle');
+      setEditorStatusKey('editor.limit.objects');
+      return;
+    }
+    setEditorStatusKey((current) => current === 'editor.limit.objects' ? null : current);
     const controller = new AbortController();
     uploadAbortRef.current = controller;
     setUploadStatus('loading');
@@ -387,9 +409,15 @@ export function FoldView({
             try {
               const nextSession = addEditableArtwork(session, nextEditableArtwork, layout);
               consumeEditableArtwork(nextEditableArtwork);
-              publishEditorSession(nextSession);
               source.canvas.width = source.canvas.height = 0;
-              composeEditorSession(nextSession);
+              if (nextSession === session) {
+                setEditorStatusKey('editor.limit.objects');
+                return;
+              }
+              publishEditorSession(nextSession);
+              if (composeEditorSession(nextSession)) {
+                observedContentRevisionRef.current = nextSession.contentRevision;
+              }
             } catch (error) {
               source.canvas.width = source.canvas.height = 0;
               setUploadStatus('error');
@@ -441,7 +469,9 @@ export function FoldView({
     if (session !== null && signature !== null) {
       const aligned = alignEditorSession(session, signature);
       publishEditorSession(aligned);
-      composeEditorSession(aligned);
+      if (composeEditorSession(aligned)) {
+        observedContentRevisionRef.current = aligned.contentRevision;
+      }
     }
     setViewMode('preview');
   };
@@ -655,6 +685,7 @@ export function FoldView({
   const artworkStatus = (
     <FoldArtworkStatus
       uploadStatus={uploadStatus}
+      editorStatusKey={editorStatusKey}
       staleTemplate={staleTemplate}
       staleEditor={staleEditor}
     />
@@ -761,7 +792,7 @@ export function FoldView({
       </div>
       {viewMode === 'editor' && currentEditorSession !== null && artworkLayout !== null && (
         <>
-          {staleEditor && (
+          {staleEditor && editorStatusKey === null && (
             <p className="fold-status mono" role="status">{t('editor.stale')}</p>
           )}
           <EditorView
@@ -772,6 +803,7 @@ export function FoldView({
             registry={currentEditorSession.assetRegistry}
             viewCssPx={512}
             dpr={window.devicePixelRatio || 1}
+            statusKey={editorStatusKey ?? undefined}
             onAddImage={() => fileInputRef.current?.click()}
             onExit={exitEditor}
           />

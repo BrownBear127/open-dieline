@@ -71,7 +71,7 @@ export interface History {
   redo(): EditorState | null;
 }
 
-const MAX_OBJECTS = 32;
+export const MAX_EDITOR_OBJECTS = 32;
 const MAX_HISTORY_OPERATIONS = 50;
 const MIN_SIZE_MM = 2;
 const DUPLICATE_OFFSET_MM = 5;
@@ -118,7 +118,7 @@ function replaceObject(state: EditorState, index: number, object: EditorObject):
 
 function addImage(state: EditorState, action: Extract<EditorAction, { type: 'addImage' }>): EditorState {
   if (
-    state.objects.length >= MAX_OBJECTS
+    state.objects.length >= MAX_EDITOR_OBJECTS
     || !isFinitePositive(action.frameSpan)
     || !isFinitePositive(action.aspect)
     || !isFiniteFrameCenter(action.frameCenterX, action.frameCenterY)
@@ -140,7 +140,7 @@ function addImage(state: EditorState, action: Extract<EditorAction, { type: 'add
 
 function addText(state: EditorState, action: Extract<EditorAction, { type: 'addText' }>): EditorState {
   if (
-    state.objects.length >= MAX_OBJECTS
+    state.objects.length >= MAX_EDITOR_OBJECTS
     || !isFinitePositive(action.frameSpan)
     || !isFiniteFrameCenter(action.frameCenterX, action.frameCenterY)
   ) return state;
@@ -167,7 +167,7 @@ function seedFromUpload(
   action: Extract<EditorAction, { type: 'seedFromUpload' }>,
 ): EditorState {
   if (
-    state.objects.length >= MAX_OBJECTS
+    state.objects.length >= MAX_EDITOR_OBJECTS
     || !isFinitePositive(action.frameSpan)
     || !isFinitePositive(action.aspect)
     || !isFiniteFrameCenter(action.frameCenterX, action.frameCenterY)
@@ -251,7 +251,7 @@ function changeLayer(
 }
 
 function duplicate(state: EditorState, id: string): EditorState {
-  if (state.objects.length >= MAX_OBJECTS) return state;
+  if (state.objects.length >= MAX_EDITOR_OBJECTS) return state;
   const object = state.objects.find((candidate) => candidate.id === id);
   if (!object) return state;
 
