@@ -113,7 +113,7 @@ function edgeKey(a: LayoutPoint, b: LayoutPoint): string {
  * 已知殘留（非本輪回歸）：lid↔P3 等「單條長邊 vs 對側多段子邊」的邊界因分段
  * 不一致無法成對，仍以 cut 疊在 crease 下——與修法 A 裁定範圍一致，不擴大處理。
  */
-function dedupCutEdges(panels: ArtworkLayoutPanel[]): CutEdge[] {
+export function dedupCutEdges(panels: ArtworkLayoutPanel[]): CutEdge[] {
   const counts = new Map<string, number>();
   const edges: CutEdge[] = [];
   for (const panel of panels) {
