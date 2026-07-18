@@ -232,7 +232,7 @@ Vendor date: 2026-07-17
 （mode.fold 的 EN 顯示形＝label 聲部 uppercase 由 CSS 管，字典存 Title case——同 mode.design 慣例；
 兩條 aria 不渲染。）
 
-### A9 摺盒卡色（P3 M2 新增·2026-07-17 controller 提案·待 B5-final 追認）
+### A9 摺盒卡色（P3 M2 新增·2026-07-17 實作輪 提案·待 B5-final 追認）
 
 | key | EN | zh | lock | 聲部 |
 |-----|-----|-----|------|------|
@@ -241,7 +241,7 @@ Vendor date: 2026-07-17
 | fold.card.kraft | KRAFT | 牛皮 | | label |
 | fold.card.black | BLACK | 黑 | | label |
 
-### A10 摺盒圖稿（P3 M2 T2.6 新增·2026-07-17 controller 提案·待 B5-final 追認）
+### A10 摺盒圖稿（P3 M2 T2.6 新增·2026-07-17 實作輪 提案·待 B5-final 追認）
 
 | key | EN | zh | lock | 聲部 |
 |-----|-----|-----|------|------|

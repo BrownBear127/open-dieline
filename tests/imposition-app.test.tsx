@@ -201,7 +201,7 @@ describe('App：模式切換顯隱（spec「組裝」段：LayersPanel/ExportBar
 });
 
 describe('App：拼版預設值與即時性（spec 驗收條件 1 數值錨＋驗收條件 9）', () => {
-  it('RTE 預設參數進拼版模式：0°＝3列×5行＝15模（行縮，spacingAxis=rows）、90°＝3列×4行＝12模（列縮，spacingAxis=cols）——profile-spacing slice 生效後 31×43 預設紙規新錨，取代 gate round 1 T1 舊矩形錨 12/12（plan v1.2 N1：App 預設紙規是 31×43 非 27×39，舊值 12/12 屬 31×43 矩形排列；controller 手算參考 0° 3×5=15＋補排 0／90° 3×4=12＋補排 0，實作輪 以 探針腳本 獨立重導 bit-exact 吻合，見 開發紀錄）', () => {
+  it('RTE 預設參數進拼版模式：0°＝3列×5行＝15模（行縮，spacingAxis=rows）、90°＝3列×4行＝12模（列縮，spacingAxis=cols）——profile-spacing slice 生效後 31×43 預設紙規新錨，取代 gate round 1 T1 舊矩形錨 12/12（plan v1.2 N1：App 預設紙規是 31×43 非 27×39，舊值 12/12 屬 31×43 矩形排列；實作輪 手算參考 0° 3×5=15＋補排 0／90° 3×4=12＋補排 0，實作輪 以 探針腳本 獨立重導 bit-exact 吻合，見 開發紀錄）', () => {
     render(<App />);
     switchToImposition();
 
