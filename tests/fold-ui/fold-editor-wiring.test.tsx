@@ -40,11 +40,12 @@ vi.mock('@/ui/editor/EditorView', async () => {
   const { effectiveObjects } = await import('@/ui/editor/editor-state');
   const { t: translate } = await import('@/i18n/t');
   return {
-    default: ({ state, dispatch, history, onAddImage, onExit, statusKey }: {
+    default: ({ state, dispatch, history, onAddImage, onDownload, onExit, statusKey }: {
       state: EditorState;
       dispatch: (state: EditorState) => void;
       history: EditorSession['history'];
       onAddImage?: () => void;
+      onDownload?: () => void;
       onExit: () => void;
       statusKey?: DictKey;
     }) => createElement('div', { 'data-testid': 'editor-stub' },
@@ -81,6 +82,16 @@ vi.mock('@/ui/editor/EditorView', async () => {
         },
       }, 'STUB BLANK'),
       createElement('button', { type: 'button', onClick: onAddImage }, 'STUB IMAGE'),
+      createElement('button', { type: 'button', onClick: onDownload }, 'STUB DOWNLOAD'),
+      createElement('button', {
+        type: 'button',
+        onClick: () => {
+          if (state.selectedId === null) return;
+          const next = reduce(state, { type: 'delete', id: state.selectedId });
+          dispatch(next);
+          history.commit(next);
+        },
+      }, 'STUB DELETE'),
       createElement('button', {
         type: 'button',
         onClick: () => {
@@ -395,6 +406,24 @@ describe('FoldView editor transition matrix', () => {
     expect(session.state).toBe(originalState);
   });
 
+  it('clears a retained object-limit message when editing reduces the session below 32 objects', async () => {
+    const loadArtwork = vi.fn<ArtworkFileLoader>();
+    const view = render(<Harness initialSession={sessionWithTexts(32)} loadArtwork={loadArtwork} />);
+    await screen.findByRole('button', { name: t('fold.art.upload') });
+    fireEvent.change(view.container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(['png'], 'over-limit.png', { type: 'image/png' })] },
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent(t('editor.limit.objects'));
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'STUB DELETE' }));
+
+    expect(screen.getByTestId('session-probe')).toHaveTextContent('31:33:');
+    await waitFor(() => {
+      expect(screen.queryByText(t('editor.limit.objects'))).not.toBeInTheDocument();
+    });
+  });
+
   it('keeps a session when switching to SAMPLE and NONE, then resumes it with EDIT', async () => {
     const session = sessionWithText();
     render(<Harness initialSession={session} initialSource={source()} />);
@@ -407,6 +436,60 @@ describe('FoldView editor transition matrix', () => {
     fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
 
     expect(screen.getByTestId('editor-state')).toHaveTextContent('KEPT');
+  });
+});
+
+describe('FoldView artwork download', () => {
+  it('composes a 4096px guide-free PNG and downloads it with resolved dimensions', async () => {
+    const session = sessionWithText();
+    const composed = document.createElement('canvas');
+    const png = new Blob(['png'], { type: 'image/png' });
+    const toBlob = vi.fn((callback: BlobCallback, type?: string) => callback(png));
+    composed.toBlob = toBlob;
+    composeArtworkMock.mockReturnValueOnce(composed);
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:artwork');
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    let filename = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function captureDownload(
+      this: HTMLAnchorElement,
+    ) {
+      filename = this.download;
+    });
+    render(<Harness initialSession={session} />);
+    await screen.findByRole('button', { name: t('fold.art.edit') });
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'STUB DOWNLOAD' }));
+
+    expect(composeArtworkMock).toHaveBeenCalledExactlyOnceWith(
+      session.state,
+      expect.objectContaining({ frame: RTE_LAYOUT.frame }),
+      4096,
+      { guides: false },
+      session.assetRegistry,
+    );
+    expect(toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png');
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(png));
+    expect(filename).toBe(
+      `open-dieline-artwork-rte-${RTE_VALUES.L}x${RTE_VALUES.W}x${RTE_VALUES.D}.png`,
+    );
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:artwork');
+  });
+
+  it('reports a PNG blob failure without replacing the editor with an error screen', async () => {
+    const composed = document.createElement('canvas');
+    composed.toBlob = vi.fn((callback: BlobCallback) => callback(null));
+    composeArtworkMock.mockReturnValueOnce(composed);
+    render(<Harness initialSession={sessionWithText()} />);
+    await screen.findByRole('button', { name: t('fold.art.edit') });
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'STUB DOWNLOAD' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(t('editor.error.compose'));
+    expect(screen.getByTestId('editor-stub')).toBeInTheDocument();
+    expect(screen.queryByText(t('fold.loadFailed'))).not.toBeInTheDocument();
+    expect(document.querySelector('[data-fold-error="true"]')).toBeNull();
   });
 });
 

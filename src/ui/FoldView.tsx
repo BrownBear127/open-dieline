@@ -34,11 +34,31 @@ const defaultLoadScene = () => import('./fold-scene');
 const FOLD_PLAY_DURATION_MS = 2400;
 const DEFAULT_FOLD_PROGRESS = 1;
 const EDITOR_COMPOSE_SIZE = 2048;
+const EDITOR_DOWNLOAD_SIZE = 4096;
 const EDITOR_SYNC_DELAY_MS = 300;
 // __p3SetInitialFoldProgress 註冊已遷 fold-hooks.ts（main 側·lazy 化後須先於本 chunk 存在）。
 
 function clampFoldProgress(progress: number): number {
   return Math.min(1, Math.max(0, progress));
+}
+
+function buildArtworkFilename(boxId: string, values: ResolvedParams): string {
+  const dim = (key: string): string => {
+    const value = values[key];
+    return value === undefined ? '?' : String(value);
+  };
+  return `open-dieline-artwork-${boxId}-${dim('L')}x${dim('W')}x${dim('D')}.png`;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  URL.revokeObjectURL(url);
+  document.body.removeChild(link);
 }
 
 const FOLD_CARD_RECIPES = [
@@ -460,6 +480,38 @@ export function FoldView({
     const session = editorSessionRef.current;
     if (session === null) return;
     publishEditorSession(updateEditorSessionState(session, nextState));
+    if (nextState.objects.length < MAX_EDITOR_OBJECTS) {
+      setEditorStatusKey((current) => current === 'editor.limit.objects' ? null : current);
+    }
+  };
+
+  const downloadEditorArtwork = (): void => {
+    const session = editorSessionRef.current;
+    const layout = artworkLayoutRef.current;
+    if (session === null || layout === null) return;
+    try {
+      const canvas = composeArtwork(
+        session.state,
+        layout,
+        EDITOR_DOWNLOAD_SIZE,
+        { guides: false },
+        session.assetRegistry,
+      );
+      canvas.toBlob((blob) => {
+        if (blob === null) {
+          setEditorStatusKey('editor.error.compose');
+          return;
+        }
+        try {
+          downloadBlob(blob, buildArtworkFilename(boxId, values));
+          setEditorStatusKey((current) => current === 'editor.error.compose' ? null : current);
+        } catch {
+          setEditorStatusKey('editor.error.compose');
+        }
+      }, 'image/png');
+    } catch {
+      setEditorStatusKey('editor.error.compose');
+    }
   };
 
   const exitEditor = (): void => {
@@ -805,6 +857,7 @@ export function FoldView({
             dpr={window.devicePixelRatio || 1}
             statusKey={editorStatusKey ?? undefined}
             onAddImage={() => fileInputRef.current?.click()}
+            onDownload={downloadEditorArtwork}
             onExit={exitEditor}
           />
         </>

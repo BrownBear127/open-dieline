@@ -837,14 +837,14 @@ describe('EditorView toolbar', () => {
     expect(lastState(dispatch)).toEqual({ objects: [artwork], selectedId: artwork.id });
   });
 
-  it('disables artwork download exactly when effective objects are empty', () => {
-    const blank = renderEditor(state([text('blank', { text: ' \n\t ' })]));
+  it.each([
+    ['an empty editor', state(), true],
+    ['whitespace-only text', state([text('blank', { text: ' \n\t ' })]), true],
+    ['an effective object', state([image('artwork')]), false],
+  ] as const)('sets artwork download disabled correctly for %s', (_name, initialState, disabled) => {
+    renderEditor(initialState);
 
-    expect(screen.getByRole('button', { name: 'ARTWORK PNG' })).toBeDisabled();
-
-    blank.unmount();
-    renderEditor(state([image('artwork')]));
-
-    expect(screen.getByRole('button', { name: 'ARTWORK PNG' })).toBeEnabled();
+    if (disabled) expect(screen.getByRole('button', { name: 'ARTWORK PNG' })).toBeDisabled();
+    else expect(screen.getByRole('button', { name: 'ARTWORK PNG' })).toBeEnabled();
   });
 });
