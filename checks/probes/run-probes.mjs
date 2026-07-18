@@ -122,15 +122,15 @@ const PROBES = [
   // ——JSX attribute AST 修後常駐
   { id: 'p3c-object-decoy', gate: 'p3-style',
     run: () => {
-      mutate('src/ui/FoldView.tsx', '<canvas className="fold-canvas" ref={canvasRef} />', '<canvas className="canvas" ref={canvasRef} />');
+      mutate('src/ui/FoldView.tsx', '<canvas className="fold-canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />', '<canvas className="canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />');
       mutate('src/ui/FoldView.tsx', 'export function FoldView(', "const probeDecoy = { className: 'fold-canvas' };\nvoid probeDecoy;\nexport function FoldView(");
     },
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   // final review F4：JSX 註解 className 誘餌曾可騙過使用面掃描——AST 只收 JsxAttribute 修後常駐
   { id: 'p3c-comment-decoy', gate: 'p3-style',
     run: () => mutate('src/ui/FoldView.tsx',
-      '<canvas className="fold-canvas" ref={canvasRef} />',
-      '<canvas className="canvas" ref={canvasRef} />{/* className="fold-canvas" */}'),
+      '<canvas className="fold-canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />',
+      '<canvas className="canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />{/* className="fold-canvas" */}'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   { id: 'p3c-context-leak', gate: 'p3-style',
     run: () => mutate('src/ui/Canvas.tsx', 'className="bench flex-1 h-full"', 'className="bench foldbar flex-1 h-full"'),
