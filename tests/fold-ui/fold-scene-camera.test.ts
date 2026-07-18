@@ -61,7 +61,7 @@ describe('computeCameraFrame', () => {
     const tolerance = Math.max(2 * thickness, 1);
     expect(Math.abs(frame!.target.x - L / 2)).toBeLessThanOrEqual(tolerance);
     expect(Math.abs(frame!.target.y - -D / 2)).toBeLessThanOrEqual(tolerance);
-    expect(Math.abs(frame!.target.z - W / 2)).toBeLessThanOrEqual(tolerance);
+    expect(Math.abs(frame!.target.z + W / 2)).toBeLessThanOrEqual(tolerance);
   });
 
   it('取景對角線涵蓋攤平全紙、聚焦對角線貼近盒體（近縮放不被大紙鎖死）', () => {

@@ -788,7 +788,7 @@ export interface PanelOverlapPlan {
   renderOrder: number;
 }
 
-const ZERO_THICKNESS_LAYER_OFFSET = 0.01;
+const SURFACE_GAP_MM = 0.01;
 
 function verticesCenter(vertices: Vec3[]): Vec3 {
   return vertices.reduce((center, vertex) => ({
@@ -880,7 +880,16 @@ export function panelSurfacePlan(
 
 /** Keeps physical closure layers separate without changing their flat polygons. */
 export function panelOverlapPlan(panelId: string, thickness: number): PanelOverlapPlan {
-  const layerOffset = thickness > 0 ? thickness : ZERO_THICKNESS_LAYER_OFFSET;
+  // A full board thickness changes the physical layer; the extra gap prevents the two
+  // touching solid faces from remaining coplanar. Zero-thickness card keeps the same gap.
+  const layerOffset = Math.max(0, thickness) + SURFACE_GAP_MM;
+
+  const isTuck = panelId === 'topTuck' || panelId === 'bottomTuck';
+  if (isTuck) {
+    // A right-side glue flap overlaps topTuck after closure, so tucks occupy a
+    // second inner layer instead of sharing the glue layer.
+    return { normalOffset: -2 * layerOffset, polygonOffsetUnits: 0, renderOrder: -2 };
+  }
 
   if (panelId === 'glue') {
     return { normalOffset: -layerOffset, polygonOffsetUnits: 0, renderOrder: -1 };
