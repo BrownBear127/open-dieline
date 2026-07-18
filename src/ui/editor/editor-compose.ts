@@ -47,6 +47,7 @@ export const INK_COLORS: Readonly<Record<InkPaletteColor, string>> = {
   brass: '#96742F',
 };
 
+/** Converts flattened millimetres to canvas backing-store pixels. */
 export function toCanvas(
   point: CanvasPoint,
   frame: FlatDielineUvFrame,
@@ -59,7 +60,7 @@ export function toCanvas(
   };
 }
 
-/** Converts a pointer in CSS pixels back to millimetres using the canvas backing size. */
+/** Converts CSS pixels (not multiplied by DPR) to millimetres using the canvas backing size. */
 export function fromCanvas(
   point: CanvasPoint,
   frame: FlatDielineUvFrame,

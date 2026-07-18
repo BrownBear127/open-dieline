@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { AssetRegistry } from '@/ui/editor/editor-assets';
 import {
   createHistory,
   effectiveObjects,
@@ -44,6 +45,22 @@ function text(id: string, overrides: Partial<TextObject> = {}): TextObject {
 
 function state(objects: EditorObject[] = [], selectedId: string | null = null): EditorState {
   return { objects, selectedId };
+}
+
+function bitmap(): ImageBitmap {
+  return { width: 1, height: 1, close: vi.fn() } as unknown as ImageBitmap;
+}
+
+function retainSnapshotAssets(registry: AssetRegistry, objects: EditorObject[]): void {
+  for (const object of objects) {
+    if (object.kind === 'image') registry.retain(object.assetId);
+  }
+}
+
+function releaseSnapshotAssets(registry: AssetRegistry, objects: EditorObject[]): void {
+  for (const object of objects) {
+    if (object.kind === 'image') registry.release(object.assetId);
+  }
 }
 
 describe('editor state defaults', () => {
@@ -115,6 +132,22 @@ describe('editor state defaults', () => {
       widthMm: expectedWidth,
     });
   });
+
+  it('keeps addText as a silent no-op when span below 40mm makes its default size under 2mm', () => {
+    const original = state();
+
+    expect(reduce(original, {
+      type: 'addText', frameSpan: 39, defaultText: 'TEXT', ...FRAME_CENTER,
+    })).toBe(original);
+  });
+
+  it('keeps addImage as a silent no-op when span below 5mm makes its default size under 2mm', () => {
+    const original = state();
+
+    expect(reduce(original, {
+      type: 'addImage', assetId: 'asset-small', aspect: 1, frameSpan: 4, ...FRAME_CENTER,
+    })).toBe(original);
+  });
 });
 
 describe('reduce action matrix', () => {
@@ -167,6 +200,13 @@ describe('reduce action matrix', () => {
       align: 'right',
       color: 'brass',
     }));
+  });
+
+  it('excludes identity fields from setText patches', () => {
+    type SetTextPatch = Extract<EditorAction, { type: 'setText' }>['patch'];
+
+    expectTypeOf<SetTextPatch>().not.toHaveProperty('id');
+    expectTypeOf<SetTextPatch>().not.toHaveProperty('kind');
   });
 
   it('raises an object by one layer', () => {
@@ -439,6 +479,109 @@ describe('history', () => {
 
     expect(history.redo()).toBeNull();
     expect(history.undo()?.objects[0]!.x).toBe(1);
+  });
+
+  it('releases every discarded redo snapshot and closes only its final asset reference', () => {
+    const registry = new AssetRegistry();
+    const sharedBitmap = bitmap();
+    const tailBitmap = bitmap();
+    const sharedAssetId = registry.add(sharedBitmap);
+    const baseline = state([image('shared', { assetId: sharedAssetId })]);
+    const retain = vi.spyOn(registry, 'retain');
+    const release = vi.spyOn(registry, 'release');
+    retainSnapshotAssets(registry, baseline.objects);
+    const onEvict = vi.fn((snapshot: EditorObject[]) => {
+      releaseSnapshotAssets(registry, snapshot);
+    });
+    const history = createHistory(baseline, onEvict);
+
+    const first = state([image('shared', { assetId: sharedAssetId, x: 1 })]);
+    retainSnapshotAssets(registry, first.objects);
+    history.commit(first);
+
+    const tailAssetId = registry.add(tailBitmap);
+    const second = state([
+      image('shared', { assetId: sharedAssetId, x: 2 }),
+      image('tail', { assetId: tailAssetId }),
+    ]);
+    retainSnapshotAssets(registry, second.objects);
+    history.commit(second);
+
+    expect(history.undo()?.objects).toEqual(first.objects);
+    expect(history.undo()?.objects).toEqual(baseline.objects);
+    registry.release(tailAssetId);
+    expect(onEvict).not.toHaveBeenCalled();
+    release.mockClear();
+
+    const branch = state([image('shared', { assetId: sharedAssetId, x: 10 })]);
+    retainSnapshotAssets(registry, branch.objects);
+    history.commit(branch);
+
+    expect(onEvict).toHaveBeenCalledTimes(2);
+    expect(onEvict.mock.calls.map(([snapshot]) => snapshot)).toEqual([
+      first.objects,
+      second.objects,
+    ]);
+    expect(retain.mock.calls).toEqual([
+      [sharedAssetId],
+      [sharedAssetId],
+      [sharedAssetId],
+      [tailAssetId],
+      [sharedAssetId],
+    ]);
+    expect(release.mock.calls).toEqual([
+      [sharedAssetId],
+      [sharedAssetId],
+      [tailAssetId],
+    ]);
+    expect(tailBitmap.close).toHaveBeenCalledOnce();
+    expect(sharedBitmap.close).not.toHaveBeenCalled();
+    expect(history.redo()).toBeNull();
+    expect(onEvict).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the oldest snapshot at the history limit without closing a shared asset', () => {
+    const registry = new AssetRegistry();
+    const oldestBitmap = bitmap();
+    const sharedBitmap = bitmap();
+    const oldestAssetId = registry.add(oldestBitmap);
+    const sharedAssetId = registry.add(sharedBitmap);
+    const baseline = state([
+      image('oldest', { assetId: oldestAssetId }),
+      image('shared', { assetId: sharedAssetId }),
+    ]);
+    const retain = vi.spyOn(registry, 'retain');
+    const release = vi.spyOn(registry, 'release');
+    retainSnapshotAssets(registry, baseline.objects);
+    const onEvict = vi.fn((snapshot: EditorObject[]) => {
+      releaseSnapshotAssets(registry, snapshot);
+    });
+    const history = createHistory(baseline, onEvict);
+
+    registry.release(oldestAssetId);
+    release.mockClear();
+    for (let x = 1; x <= 51; x += 1) {
+      const next = state([image('shared', { assetId: sharedAssetId, x })]);
+      retainSnapshotAssets(registry, next.objects);
+      history.commit(next);
+    }
+
+    expect(onEvict).toHaveBeenCalledOnce();
+    expect(onEvict).toHaveBeenCalledWith(baseline.objects);
+    expect(retain).toHaveBeenCalledTimes(53);
+    expect(retain).toHaveBeenNthCalledWith(1, oldestAssetId);
+    expect(retain).toHaveBeenNthCalledWith(2, sharedAssetId);
+    expect(retain).toHaveBeenNthCalledWith(53, sharedAssetId);
+    expect(release.mock.calls).toEqual([
+      [oldestAssetId],
+      [sharedAssetId],
+    ]);
+    expect(oldestBitmap.close).toHaveBeenCalledOnce();
+    expect(sharedBitmap.close).not.toHaveBeenCalled();
+
+    history.undo();
+    history.redo();
+    expect(onEvict).toHaveBeenCalledOnce();
   });
 
   it('stores immutable object snapshots without restoring selectedId', () => {

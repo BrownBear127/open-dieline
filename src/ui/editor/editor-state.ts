@@ -56,7 +56,12 @@ export type EditorAction =
   | { type: 'move'; id: string; x: number; y: number }
   | { type: 'resize'; id: string; widthMm: number; frameSpan: number }
   | { type: 'rotate'; id: string; rotation: number }
-  | { type: 'setText'; id: string; patch: Partial<TextObject>; frameSpan: number }
+  | {
+    type: 'setText';
+    id: string;
+    patch: Partial<Omit<TextObject, 'id' | 'kind'>>;
+    frameSpan: number;
+  }
   | { type: 'layerUp' | 'layerDown' | 'duplicate' | 'delete'; id: string }
   | { type: 'select'; id: string | null };
 
@@ -298,15 +303,23 @@ function stateFromSnapshot(objects: EditorObject[]): EditorState {
   return { objects: cloneObjects(objects), selectedId: null };
 }
 
-export function createHistory(baseline: EditorState): History {
+export function createHistory(
+  baseline: EditorState,
+  onEvict?: (snapshot: EditorObject[]) => void,
+): History {
   let snapshots: EditorObject[][] = [cloneObjects(baseline.objects)];
   let cursor = 0;
 
   return {
     commit(nextState) {
+      const discardedRedoSnapshots = snapshots.slice(cursor + 1);
       snapshots = snapshots.slice(0, cursor + 1);
+      for (const snapshot of discardedRedoSnapshots) onEvict?.(snapshot);
       snapshots.push(cloneObjects(nextState.objects));
-      if (snapshots.length > MAX_HISTORY_OPERATIONS + 1) snapshots.shift();
+      if (snapshots.length > MAX_HISTORY_OPERATIONS + 1) {
+        const oldestSnapshot = snapshots.shift();
+        if (oldestSnapshot) onEvict?.(oldestSnapshot);
+      }
       cursor = snapshots.length - 1;
     },
     undo() {
