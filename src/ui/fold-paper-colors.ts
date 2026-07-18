@@ -5,8 +5,3 @@ export const PAPER_RECIPE_BASE_COLORS = {
 } as const;
 
 export type FoldRecipeName = keyof typeof PAPER_RECIPE_BASE_COLORS;
-export type PaperRecipeBaseColor = (typeof PAPER_RECIPE_BASE_COLORS)[FoldRecipeName];
-
-export function paperColorCss(color: PaperRecipeBaseColor): string {
-  return `#${color.toString(16).padStart(6, '0')}`;
-}

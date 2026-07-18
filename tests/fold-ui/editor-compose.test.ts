@@ -4,10 +4,6 @@ import { readFileSync } from 'node:fs';
 import type { ArtworkLayout, FlatDielineUvFrame } from '@/ui/artwork-layout';
 import type { AssetRegistry } from '@/ui/editor/editor-assets';
 import {
-  paperColorCss,
-  PAPER_RECIPE_BASE_COLORS,
-} from '@/ui/fold-paper-colors';
-import {
   composeArtwork,
   fromCanvas,
   INK_COLORS,
@@ -335,7 +331,7 @@ describe('composeArtwork', () => {
     expect(lastGuideStroke).toBeLessThan(firstObjectSave);
   });
 
-  it('downloads paper, panel-clipped artwork, then cut and crease guides in that order', () => {
+  it('downloads fixed white paper, panel-clipped artwork, then cut and crease guides in that order', () => {
     const context = new RecordingContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
       .mockReturnValueOnce(context as unknown as CanvasRenderingContext2D);
@@ -344,7 +340,7 @@ describe('composeArtwork', () => {
       state,
       layout,
       100,
-      { mode: 'download', paperColor: PAPER_RECIPE_BASE_COLORS.kraft },
+      { mode: 'download' },
       registry,
     );
 
@@ -355,8 +351,7 @@ describe('composeArtwork', () => {
       'fillText',
       'stroke',
     ].includes(name));
-    expect(context.fillStyles[0]?.toLowerCase())
-      .toBe(paperColorCss(PAPER_RECIPE_BASE_COLORS.kraft));
+    expect(context.fillStyles[0]?.toLowerCase()).toBe('#ffffff');
     expect(layerCalls.map(({ name }) => name)).toEqual([
       'fill',
       'clip',

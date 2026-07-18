@@ -19,7 +19,6 @@ import {
   deriveArtworkLayout,
 } from '@/ui/artwork-layout';
 import type { EditableArtworkAsset } from '@/ui/artwork-source';
-import { PAPER_RECIPE_BASE_COLORS } from '@/ui/fold-paper-colors';
 import {
   createEditorSession,
   destroyEditorSession,
@@ -503,7 +502,7 @@ describe('FoldView editor transition matrix', () => {
 });
 
 describe('FoldView artwork download', () => {
-  it('composes a 4096px boxed download and downloads it with resolved dimensions', async () => {
+  it('composes a 4096px fixed-white download without passing the selected paper recipe', async () => {
     const session = sessionWithText();
     const composed = document.createElement('canvas');
     const png = new Blob(['png'], { type: 'image/png' });
@@ -529,7 +528,7 @@ describe('FoldView artwork download', () => {
       session.state,
       expect.objectContaining({ frame: RTE_LAYOUT.frame }),
       4096,
-      { mode: 'download', paperColor: PAPER_RECIPE_BASE_COLORS.black },
+      { mode: 'download' },
       session.assetRegistry,
     );
     expect(toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png');
