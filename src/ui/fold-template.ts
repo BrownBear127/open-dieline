@@ -35,14 +35,14 @@ const PAGE_FRAME_STROKE_WIDTH = LINE_STYLES.cut.strokeWidth / 2;
 // 灰階，避免與畫布既有 annotation 語意混淆。
 const GUIDE_TEXT_FILL = '#9a968f';
 
-// C9 修正版字面（2026-07-18 維護者裁「問題 2＝SVG＋.jsx 路線」）：實測證明 Illustrator
-// 開 SVG 時群組不可直接作畫（新繪物件落作用中圖層頂端），且上傳管線不解析群組結構
-// ——指示只講兩件硬需求（匯出前關閉 GUIDES 顯示＋保留整頁），並提示附帶腳本可轉真
-// 圖層。zh 避字沿 charset.json 實驗（拘／群組／執／隱／眼／睛皆不在 cjk cmap，字面
-// 已逐字驗過全覆蓋；同 invalidFile 避「符」前例，本段非 A15 dict 不需重生字型）。
+// C9 修正版字面（2026-07-18）：實測證明 Illustrator 開 SVG 時群組不可直接作畫
+//（新繪物件落作用中圖層頂端），且上傳管線不解析群組結構——指示只講兩件硬需求
+//（匯出前關閉 GUIDES 顯示＋保留整頁）。.jsx 腳本句已隨 Q2 裁決（2026-07-18 拆鈕）
+// 一併移除。zh 避字沿 charset.json 實驗（拘／群組／執／隱／眼／睛皆不在 cjk cmap，
+// 字面已逐字驗過全覆蓋；同 invalidFile 避「符」前例，本段非 A15 dict 不需重生字型）。
 const TEMPLATE_INSTRUCTIONS: Record<Lang, string> = {
-  en: 'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page. Run the companion script for real layers.',
-  zh: '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。可使用附帶腳本建立真圖層結構。',
+  en: 'Paint anywhere on the page. Hide TEMPLATE_GUIDES before exporting and keep the full square page.',
+  zh: '作畫位置不限，匯出前請關閉 TEMPLATE_GUIDES 顯示，並保留完整正方形頁面。',
 };
 
 const DUST_FLAP_PANEL_IDS = new Set(['topDustP2', 'topDustP4', 'bottomDustP2', 'bottomDustP4']);
@@ -262,63 +262,4 @@ export async function downloadTemplate(opts: DownloadTemplateOptions): Promise<v
     lang: getLang(),
   });
   downloadBlob(svg, 'image/svg+xml;charset=utf-8', buildTemplateFilename(opts.boxId, opts.values));
-}
-
-/**
- * C9 問題 2（維護者裁 2026-07-18）：Illustrator 圖層腳本。SVG 格式先天無圖層元素，
- * Illustrator 開模板必得單一圖層＋群組（Adobe 私有編輯資料無法由網頁端生成）；
- * 本腳本在使用者端跑一次，把兩個頂層群組就地轉成真正的頂層圖層（ARTWORK 設為
- * 作用中——之後直接作畫即落入其中）。已於 Illustrator 2026 實測（c9-模板問題調查.md）。
- * 內嵌字串而非 public/ 靜態檔：同模組 lazy chunk、零額外資產管線、vitest 可直測內容。
- */
-export const LAYER_SCRIPT_FILENAME = 'open-dieline-illustrator-layers.jsx';
-
-export const LAYER_SCRIPT_JSX = `// open-dieline template helper: convert the template's top-level groups
-// (ARTWORK / TEMPLATE_GUIDES) into real Illustrator layers.
-// Usage: open the template SVG in Illustrator, then run this file via
-// File > Scripts > Other Script... (Fn+F12). ARTWORK becomes the active layer.
-(function () {
-  if (app.documents.length === 0) {
-    alert('Open the open-dieline template SVG first.');
-    return;
-  }
-  var doc = app.activeDocument;
-  var src = doc.layers[0];
-  function norm(name) {
-    return String(name || '').replace(/[_ ]/g, '').toUpperCase();
-  }
-  function findGroup(name) {
-    for (var i = 0; i < src.groupItems.length; i++) {
-      if (norm(src.groupItems[i].name) === norm(name)) return src.groupItems[i];
-    }
-    return null;
-  }
-  var guides = findGroup('TEMPLATE_GUIDES');
-  if (guides === null) {
-    alert('TEMPLATE_GUIDES group not found - is this an open-dieline template?');
-    return;
-  }
-  var artwork = findGroup('ARTWORK');
-  var guidesLayer = doc.layers.add();
-  guidesLayer.name = 'TEMPLATE_GUIDES';
-  for (var g = guides.pageItems.length - 1; g >= 0; g--) {
-    guides.pageItems[g].move(guidesLayer, ElementPlacement.PLACEATBEGINNING);
-  }
-  guides.remove();
-  var artworkLayer = doc.layers.add();
-  artworkLayer.name = 'ARTWORK';
-  if (artwork !== null) {
-    for (var a = artwork.pageItems.length - 1; a >= 0; a--) {
-      artwork.pageItems[a].move(artworkLayer, ElementPlacement.PLACEATBEGINNING);
-    }
-    artwork.remove();
-  }
-  if (src.pageItems.length === 0 && src.layers.length === 0) src.remove();
-  doc.activeLayer = artworkLayer;
-})();
-`;
-
-/** 觸發圖層腳本下載（.jsx 純文字·瀏覽器不解譯）。 */
-export function downloadLayerScript(): void {
-  downloadBlob(LAYER_SCRIPT_JSX, 'text/plain;charset=utf-8', LAYER_SCRIPT_FILENAME);
 }
