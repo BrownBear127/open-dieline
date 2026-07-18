@@ -5,6 +5,7 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_RASTER_EDGE = 8192;
 const MAX_RASTER_PIXELS = 33_554_432;
 const SOURCE_SIZE = 2048;
+const SVG_SIDECAR_MAX_EDGE = 4096;
 
 const MIME_EXTENSIONS: Record<string, readonly string[]> = {
   'image/png': ['png'],
@@ -34,13 +35,25 @@ export type ArtworkLoadResult =
   | 'cancelled'
   | ArtworkRejection;
 
+export interface EditableArtworkAsset {
+  bitmap: ImageBitmap;
+  width: number;
+  height: number;
+  revision: number;
+}
+
 export interface ArtworkLoadOptions {
   signature: string;
   signal?: AbortSignal;
-  onCommit: (source: CustomArtworkSource) => void;
+  onCommit: (source: CustomArtworkSource, editableAsset?: EditableArtworkAsset) => void;
 }
 
 let latestRequestId = 0;
+
+interface RasterSize {
+  width: number;
+  height: number;
+}
 
 function reject(code: ArtworkRejectionCode): ArtworkValidationResult {
   return { code };
@@ -120,6 +133,18 @@ function hasExternalDomResource(documentNode: Document): boolean {
   return false;
 }
 
+function parseSvgViewBox(root: Element): RasterSize | null {
+  const viewBox = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+  if (
+    viewBox.length !== 4
+    || !viewBox.every(Number.isFinite)
+    || Math.min(viewBox[2]!, viewBox[3]!) <= 0
+  ) {
+    return null;
+  }
+  return { width: viewBox[2]!, height: viewBox[3]! };
+}
+
 async function validateSvg(file: File): Promise<ArtworkValidationResult> {
   const markup = await file.text();
   if (hasExternalSvgResource(markup)) return reject('external');
@@ -130,20 +155,24 @@ async function validateSvg(file: File): Promise<ArtworkValidationResult> {
   }
   if (hasExternalDomResource(documentNode)) return reject('external');
 
-  const viewBox = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
-  if (
-    viewBox.length !== 4
-    || !viewBox.every(Number.isFinite)
-    || Math.min(viewBox[2]!, viewBox[3]!) <= 0
-  ) {
-    return reject('viewbox');
-  }
+  if (parseSvgViewBox(root) === null) return reject('viewbox');
 
   for (const name of ['width', 'height']) {
     const dimension = Number.parseFloat(root.getAttribute(name) ?? '1');
     if (!Number.isFinite(dimension) || dimension <= 0) return reject('size');
   }
   return null;
+}
+
+function hasInvalidBitmapDimensions({ width, height }: ImageBitmap): boolean {
+  return (
+    !Number.isSafeInteger(width)
+    || !Number.isSafeInteger(height)
+    || Math.min(width, height) <= 0
+    || Math.max(width, height) > MAX_RASTER_EDGE
+    || !Number.isSafeInteger(width * height)
+    || width * height > MAX_RASTER_PIXELS
+  );
 }
 
 async function validateRaster(file: File): Promise<ArtworkValidationResult> {
@@ -154,16 +183,85 @@ async function validateRaster(file: File): Promise<ArtworkValidationResult> {
     return reject('decode');
   }
 
-  const { width, height } = decoded;
+  const invalidDimensions = hasInvalidBitmapDimensions(decoded);
   decoded.close();
-  if (
-    Math.min(width, height) <= 0
-    || Math.max(width, height) > MAX_RASTER_EDGE
-    || width * height > MAX_RASTER_PIXELS
-  ) {
-    return reject('pixels');
+  return invalidDimensions ? reject('pixels') : null;
+}
+
+function svgSidecarSize({ width, height }: RasterSize): RasterSize {
+  const scale = SVG_SIDECAR_MAX_EDGE / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+async function readSvgSidecarSize(file: File): Promise<RasterSize> {
+  const markup = await file.text();
+  const documentNode = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  const size = parseSvgViewBox(documentNode.documentElement);
+  if (size === null) throw new Error();
+  return svgSidecarSize(size);
+}
+
+async function rasterizeFile(
+  file: File,
+  size: RasterSize,
+  signal?: AbortSignal,
+): Promise<HTMLCanvasElement> {
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+  const cancel = (): void => {
+    image.src = '';
+  };
+  try {
+    if (signal?.aborted) throw new Error();
+    signal?.addEventListener('abort', cancel);
+    image.src = url;
+    await image.decode();
+    if (signal?.aborted) throw new Error();
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext('2d');
+    if (context === null) throw new Error();
+    context.drawImage(image, 0, 0, size.width, size.height);
+    return canvas;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+    URL.revokeObjectURL(url);
   }
-  return null;
+}
+
+async function createSvgSidecarBitmap(file: File, signal?: AbortSignal): Promise<ImageBitmap> {
+  const canvas = await rasterizeFile(file, await readSvgSidecarSize(file), signal);
+  try {
+    return await createImageBitmap(canvas);
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
+}
+
+async function createEditableArtworkAsset(
+  file: File,
+  revision: number,
+  signal?: AbortSignal,
+): Promise<EditableArtworkAsset | ArtworkRejection> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = file.type === 'image/svg+xml'
+      ? await createSvgSidecarBitmap(file, signal)
+      : await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    return { code: 'decode' };
+  }
+
+  if (hasInvalidBitmapDimensions(bitmap)) {
+    bitmap.close();
+    return { code: 'pixels' };
+  }
+  return { bitmap, width: bitmap.width, height: bitmap.height, revision };
 }
 
 export async function validateArtworkFile(file: File): Promise<ArtworkValidationResult> {
@@ -180,28 +278,12 @@ export async function rasterizeToSource(
   signature = '',
   signal?: AbortSignal,
 ): Promise<CustomArtworkSource> {
-  const url = URL.createObjectURL(file);
-  const image = new Image();
-  const cancel = (): void => {
-    image.src = '';
-  };
-  try {
-    if (signal?.aborted) throw new Error();
-    signal?.addEventListener('abort', cancel);
-    image.src = url;
-    await image.decode();
-    if (signal?.aborted) throw new Error();
-
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = SOURCE_SIZE;
-    const context = canvas.getContext('2d');
-    if (context === null) throw new Error();
-    context.drawImage(image, 0, 0, SOURCE_SIZE, SOURCE_SIZE);
-    return { canvas, signature };
-  } finally {
-    signal?.removeEventListener('abort', cancel);
-    URL.revokeObjectURL(url);
-  }
+  const canvas = await rasterizeFile(
+    file,
+    { width: SOURCE_SIZE, height: SOURCE_SIZE },
+    signal,
+  );
+  return { canvas, signature };
 }
 
 export async function loadArtworkFile(
@@ -215,18 +297,27 @@ export async function loadArtworkFile(
   if (!isCurrent()) return 'cancelled';
   if (validation !== null) return validation;
 
+  const editableAsset = await createEditableArtworkAsset(file, requestId, options.signal);
+  if ('code' in editableAsset) return isCurrent() ? editableAsset : 'cancelled';
+  if (!isCurrent()) {
+    editableAsset.bitmap.close();
+    return 'cancelled';
+  }
+
   let source: CustomArtworkSource;
   try {
     source = await rasterizeToSource(file, options.signature, options.signal);
   } catch {
+    editableAsset.bitmap.close();
     return isCurrent() ? { code: 'decode' } : 'cancelled';
   }
 
   if (!isCurrent()) {
     source.canvas.width = source.canvas.height = 0;
+    editableAsset.bitmap.close();
     return 'cancelled';
   }
 
-  options.onCommit(source);
+  options.onCommit(source, editableAsset);
   return 'committed';
 }

@@ -263,10 +263,20 @@ test('fold controls use the vocabulary declarations and render the real range th
   const range = page.locator('.foldbar input[type="range"]');
   const autoRotate = page.getByRole('button', { name: dict['fold.autorotate'].en, exact: true });
   await expect(button).toHaveCount(1);
-  // M3（Q2 拆鈕後）：CARD 3＋ART 3（SAMPLE/TEMPLATE/UPLOAD）＋AUTO-ROTATE 1。
-  await expect(toolButtons).toHaveCount(7);
+  // M4 T5：CARD 3＋ART 4（SAMPLE/TEMPLATE/UPLOAD/EDIT）＋AUTO-ROTATE 1。
+  await expect(toolButtons).toHaveCount(8);
   await expect(range).toHaveCount(1);
   await expect(autoRotate).toHaveCount(1);
+
+  const artworkGroup = page.getByRole('group', { name: dict['fold.art.label'].en, exact: true });
+  await expect(artworkGroup.getByRole('button')).toHaveText([
+    dict['fold.art.sample'].en,
+    dict['fold.art.template'].en,
+    dict['fold.art.upload'].en,
+    dict['fold.art.edit'].en,
+  ]);
+  await expect(artworkGroup.getByRole('button', { name: dict['fold.art.edit'].en, exact: true }))
+    .toHaveClass(/(^|\s)label(\s|$)/);
 
   expect(await computedDeclarationMismatches(button, '.btn', ['border', 'padding']), '.btn border/padding').toEqual([]);
   expect(await computedDeclarationMismatches(autoRotate, '.btn', ['border', 'padding']), '.btn border/padding').toEqual([]);
@@ -406,7 +416,12 @@ test('zh fold controls use exact dictionary copy and the zh voice classes', asyn
   await expect(tools.getByRole('group', { name: dict['fold.card.label'].zh, exact: true }).getByRole('button'))
     .toHaveText([dict['fold.card.white'].zh, dict['fold.card.kraft'].zh, dict['fold.card.black'].zh]);
   await expect(tools.getByRole('group', { name: dict['fold.art.label'].zh, exact: true }).getByRole('button'))
-    .toHaveText([dict['fold.art.sample'].zh, dict['fold.art.template'].zh, dict['fold.art.upload'].zh]);
+    .toHaveText([
+      dict['fold.art.sample'].zh,
+      dict['fold.art.template'].zh,
+      dict['fold.art.upload'].zh,
+      dict['fold.art.edit'].zh,
+    ]);
   const autoRotate = tools.getByRole('button', { name: dict['fold.autorotate'].zh, exact: true });
   await expect(autoRotate).toHaveClass(/(^|\s)label(\s|$)/);
   await expect(autoRotate).toHaveText(dict['fold.autorotate'].zh);

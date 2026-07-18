@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 33 probes：既有 31 項＋C1 對位 frame 漂移＋artwork upload transaction 變異——見各 probe 註解。
+// 共 36 probes：既有 33 項＋M4 compose 疊序／reducer 域值／session 轉換表——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -36,7 +36,19 @@ const revert = () => {
   originals = new Map();
 };
 
-const EXPECTED_E2E_TOTAL = 50;
+const EXPECTED_E2E_TOTAL = 60;
+const REQUIRED_EDITOR_E2E = [
+  'loads the editor chunk only after EDIT and keeps it cached after DONE',
+  'EDIT adds an image and text, drags the text, then DONE updates the 3D preview',
+  'C1 keeps fixed overlap colors aligned across editor, 2048 source, and 4096 download',
+  'C2 square A-1 seed is pixel-identical and remains the non-undoable baseline',
+  'C2 A-1 seed centers landscape 2:1 and portrait 1:2 without distortion',
+  'C5 downloads a paper-backed, clipped, guided 4096 PNG and disables download for whitespace-only text',
+  'C7 keeps stale visible through two parameter changes, preserves coordinates, and clears on DONE',
+  'uses a 2x backing store while CSS-center clicks still hit the rendered object',
+  'keyboard chain handles duplicate, delete, undo, redo, and the two-stage Escape',
+  'zh editor interface matches every visible F7 literal word-for-word',
+];
 
 const assertE2eManifest = () => {
   const listing = sh('npx playwright test --list');
@@ -45,6 +57,7 @@ const assertE2eManifest = () => {
     throw new Error(`e2e 總數漂移：expected ${EXPECTED_E2E_TOTAL}, got ${total}`);
   }
   assertNamedTests(listing, REQUIRED_ARTWORK_E2E, 'e2e');
+  assertNamedTests(listing, REQUIRED_EDITOR_E2E, 'editor e2e');
 };
 
 const assertUnitManifest = () => {
@@ -122,15 +135,15 @@ const PROBES = [
   // ——JSX attribute AST 修後常駐
   { id: 'p3c-object-decoy', gate: 'p3-style',
     run: () => {
-      mutate('src/ui/FoldView.tsx', '<canvas className="fold-canvas" ref={canvasRef} />', '<canvas className="canvas" ref={canvasRef} />');
+      mutate('src/ui/FoldView.tsx', '<canvas className="fold-canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />', '<canvas className="canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />');
       mutate('src/ui/FoldView.tsx', 'export function FoldView(', "const probeDecoy = { className: 'fold-canvas' };\nvoid probeDecoy;\nexport function FoldView(");
     },
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   // final review F4：JSX 註解 className 誘餌曾可騙過使用面掃描——AST 只收 JsxAttribute 修後常駐
   { id: 'p3c-comment-decoy', gate: 'p3-style',
     run: () => mutate('src/ui/FoldView.tsx',
-      '<canvas className="fold-canvas" ref={canvasRef} />',
-      '<canvas className="canvas" ref={canvasRef} />{/* className="fold-canvas" */}'),
+      '<canvas className="fold-canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />',
+      '<canvas className="canvas" ref={canvasRef} hidden={viewMode === \'editor\'} />{/* className="fold-canvas" */}'),
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'p3-style', GATE_SKIP_BUILD: '1' }) },
   { id: 'p3c-context-leak', gate: 'p3-style',
     run: () => mutate('src/ui/Canvas.tsx', 'className="bench flex-1 h-full"', 'className="bench foldbar flex-1 h-full"'),
@@ -198,7 +211,7 @@ const PROBES = [
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
   // — Fold look frozen family：任一 FOLD_RECIPES 宣告值漂移都必須被逐欄凍結測試抓到 —
   { id: 'look-frozen-drift', gate: 'fold-look-frozen',
-    run: () => mutate('src/ui/fold-scene.ts', 'cardColor: 0x332615', 'cardColor: 0x332616'),
+    run: () => mutate('src/ui/fold-paper-colors.ts', 'kraft: 0x332615', 'kraft: 0x332616'),
     check: () => shFails('npx vitest run tests/fold-ui/fold-look-frozen.test.ts'),
     greenCheck: () => !shFails('npx vitest run tests/fold-ui/fold-look-frozen.test.ts') },
   // — Fold model / 2D reconciliation —
@@ -238,6 +251,59 @@ const PROBES = [
       'const isCurrent = (): boolean => true;'),
     check: () => shFails('npx vitest run tests/fold-ui/artwork-source.test.ts -t "commits only B when A and B finish in reverse order"'),
     greenCheck: () => !shFails('npx vitest run tests/fold-ui/artwork-source.test.ts') },
+  // M4 C1：兩張完全重疊的實色 bitmap 以 array 尾端藍色為固定 oracle；反轉疊序必須翻紅。
+  { id: 'm4-compose-layer-order', gate: 'editor-compose-layer-order',
+    run: () => append('tests/fold-ui/editor-compose.test.ts', `
+
+it('keeps blue at a fully overlapping fixed-color point', () => {
+  type ProbeBitmap = ImageBitmap & { probeColor: 'red' | 'blue' };
+  const red = { width: 64, height: 64, probeColor: 'red' } as ProbeBitmap;
+  const blue = { width: 64, height: 64, probeColor: 'blue' } as ProbeBitmap;
+  let overlapColor = 'transparent';
+  const context = {
+    save() {},
+    translate() {},
+    rotate() {},
+    drawImage(bitmap: ProbeBitmap) { overlapColor = bitmap.probeColor; },
+    restore() {},
+  } as unknown as CanvasRenderingContext2D;
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context);
+  const overlapRegistry = {
+    get: (id: string) => ({ bitmap: id === 'red' ? red : blue, width: 64, height: 64 }),
+  } as unknown as AssetRegistry;
+  composeArtwork({
+    selectedId: null,
+    objects: [
+      { id: 'red', kind: 'image', assetId: 'red', x: 60, y: 45, rotation: 0, widthMm: 40 },
+      { id: 'blue', kind: 'image', assetId: 'blue', x: 60, y: 45, rotation: 0, widthMm: 40 },
+    ],
+  }, layout, 64, { guides: false }, overlapRegistry);
+  expect(overlapColor).toBe('blue');
+});
+`),
+    check: () => {
+      const command = 'npx vitest run tests/fold-ui/editor-compose.test.ts -t "keeps blue at a fully overlapping fixed-color point"';
+      if (shFails(command)) return false;
+      mutate('src/ui/editor/editor-compose.ts',
+        'for (const object of effectiveObjects(state)) {',
+        'for (const object of effectiveObjects(state).reverse()) {');
+      return shFails(command);
+    },
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/editor-compose.test.ts') },
+  // M4 F2：最小尺寸域值由 2mm 漂移至 0 時，既有 reducer 邊界矩陣必須翻紅。
+  { id: 'm4-reducer-domain', gate: 'editor-reducer-domain',
+    run: () => mutate('src/ui/editor/editor-state.ts',
+      'const MIN_SIZE_MM = 2;',
+      'const MIN_SIZE_MM = 0;'),
+    check: () => shFails('npx vitest run tests/fold-ui/editor-state.test.ts -t "rejects out-of-domain image width"'),
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/editor-state.test.ts') },
+  // M4 F1.2：既有 session 的 UPLOAD 分支若改走無 session 條件，轉換表指定案例必須翻紅。
+  { id: 'm4-session-upload-transition', gate: 'editor-session-transition',
+    run: () => mutate('src/ui/FoldView.tsx',
+      'if (session !== null && layout !== null && nextEditableArtwork !== undefined) {',
+      'if (session === null && layout !== null && nextEditableArtwork !== undefined) {'),
+    check: () => shFails('npx vitest run tests/fold-ui/fold-editor-wiring.test.tsx -t "adds UPLOAD to the top of an existing session"'),
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/fold-editor-wiring.test.tsx') },
 ];
 
 assertE2eManifest();

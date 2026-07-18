@@ -157,16 +157,15 @@ describe('RTE FoldModel unit geometry', () => {
     expect(xBounds(panel(model, 'glue'))).toEqual([x4, x4 + (params.glueSize as number)]);
   });
 
-  it('以離散弧點形成插舌圓角，並為插舌保留紙厚讓位', () => {
-    const params = resolveParams(reverseTuckEnd, {});
-    const model = buildRteFoldModel(params);
+  it('以離散弧點形成插舌圓角，紙層讓位留在 renderer-only 排序', () => {
+    const model = defaultModel();
     const topTuck = panel(model, 'topTuck');
     const bottomTuck = panel(model, 'bottomTuck');
 
     expect(topTuck.polygon.length).toBeGreaterThan(6);
     expect(bottomTuck.polygon.length).toBeGreaterThan(6);
-    expect(topTuck.liftOffset).toBe(params.thickness);
-    expect(bottomTuck.liftOffset).toBe(params.thickness);
+    expect(topTuck.liftOffset).toBeUndefined();
+    expect(bottomTuck.liftOffset).toBeUndefined();
     expect(topTuck.parent).toBe('topLidC');
     expect(bottomTuck.parent).toBe('bottomLidC');
   });
@@ -247,13 +246,13 @@ describe('RTE FoldModel integration contracts', () => {
 });
 
 describe('RTE FoldModel end-to-end fold', () => {
-  it('t=1 時 root 保持 0，所有非 root 面板到達正負 π/2', () => {
+  it('t=1 時 root 保持 0，所有非 root 面板以正 π/2 向外摺', () => {
     const model = defaultModel();
     const pose = foldPose(1, model);
 
     expect(pose.get('P1')).toBe(0);
     for (const target of model.panels.filter(({ parent }) => parent !== null)) {
-      expect(Math.abs(pose.get(target.id)!)).toBeCloseTo(Math.PI / 2, 12);
+      expect(pose.get(target.id)!).toBeCloseTo(Math.PI / 2, 12);
     }
   });
 
@@ -268,11 +267,11 @@ describe('RTE FoldModel end-to-end fold', () => {
     const topLids = ['topLidL', 'topLidC', 'topLidR'].flatMap((id) => geometry.get(id)!);
     const bottomLids = ['bottomLidL', 'bottomLidC', 'bottomLidR'].flatMap((id) => geometry.get(id)!);
 
-    expect(p3.every(({ z }) => Math.abs(z - W) < 1e-9)).toBe(true);
+    expect(p3.every(({ z }) => Math.abs(z + W) < 1e-9)).toBe(true);
     expectBoundsClose(coordinateBounds(p3.map(({ x }) => x)), [0, L]);
     expect(topLids.every(({ y }) => Math.abs(y) < 1e-9)).toBe(true);
     expect(bottomLids.every(({ y }) => Math.abs(y - D) < 1e-9)).toBe(true);
-    expectBoundsClose(coordinateBounds(topLids.map(({ z }) => z)), [-1.5, W]);
-    expectBoundsClose(coordinateBounds(bottomLids.map(({ z }) => z)), [0, W + 1.5]);
+    expectBoundsClose(coordinateBounds(topLids.map(({ z }) => z)), [-W, 1.5]);
+    expectBoundsClose(coordinateBounds(bottomLids.map(({ z }) => z)), [-W - 1.5, 0]);
   });
 });

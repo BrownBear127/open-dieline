@@ -2,6 +2,7 @@
 import {
   ACESFilmicToneMapping,
   AmbientLight,
+  BackSide,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -25,6 +26,11 @@ import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
+import {
+  PAPER_RECIPE_BASE_COLORS,
+  type FoldRecipeName,
+} from './fold-paper-colors';
+
 // P3 M3 T1（F1.0）：ArtworkLayout 抽取層搬走了 flatDielineUvFrame（TEMPLATE 與 3D UV
 // 共用同一份 square frame 真相源）。這裡改 import 再 re-export 回同名稱——
 // 既有 fold-scene-geometry/fold-paper-texture 兩份測試 `import { flatDielineUvFrame }
@@ -35,9 +41,10 @@ import type { ArtworkLayout, FlatDielineUvFrame } from './artwork-layout';
 
 export { flatDielineUvFrame };
 export type { FlatDielineUvFrame };
+export type { FoldRecipeName } from './fold-paper-colors';
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
-const CARD_COLOR = 0xffffff;
+const UNTINTED_MATERIAL_COLOR = 0xffffff;
 const CARD_ROUGHNESS = 0.9;
 const CARD_METALNESS = 0;
 const CAMERA_FOV_DEGREES = 35;
@@ -594,7 +601,7 @@ export function createPaperAlbedoTexture(
 }
 
 export function createPaperBumpTexture(params: PaperParams): CanvasTexture {
-  return renderPaperTextures(params, CARD_COLOR, false, true).bump!;
+  return renderPaperTextures(params, UNTINTED_MATERIAL_COLOR, false, true).bump!;
 }
 
 export interface FoldRecipe {
@@ -612,10 +619,10 @@ export interface FoldRecipe {
 
 export type FoldLook = FoldRecipe['look'];
 
-export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
+export const FOLD_RECIPES: Record<FoldRecipeName, FoldRecipe> = {
   white: {
     look: {
-      cardColor: 0xd1d0cc,
+      cardColor: PAPER_RECIPE_BASE_COLORS.white,
       keyIntensity: 2,
       keyColor: 0xffffff,
       fillIntensity: 2,
@@ -640,7 +647,7 @@ export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
   },
   kraft: {
     look: {
-      cardColor: 0x332615,
+      cardColor: PAPER_RECIPE_BASE_COLORS.kraft,
       keyIntensity: 6,
       keyColor: 0xfff1dd,
       fillIntensity: 3,
@@ -665,7 +672,7 @@ export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
   },
   black: {
     look: {
-      cardColor: 0x1c1a17,
+      cardColor: PAPER_RECIPE_BASE_COLORS.black,
       keyIntensity: 5,
       keyColor: 0xffffff,
       fillIntensity: 2,
@@ -690,7 +697,6 @@ export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
   },
 };
 
-export type FoldRecipeName = keyof typeof FOLD_RECIPES;
 export const FOLD_DEFAULT_RECIPE: 'kraft' = 'kraft';
 
 function mapDielineY(y: number): number {
@@ -759,6 +765,175 @@ function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
   }
 
   return null;
+}
+
+export type PhysicalPanelFace = 'front' | 'back';
+
+export interface FoldedPanelFaceDiagnosis {
+  panelId: string;
+  exteriorFace: PhysicalPanelFace;
+}
+
+export interface PanelSurfaceGroup {
+  start: number;
+  count: number;
+  materialIndex: 0 | 1;
+}
+
+export interface PanelSurfacePlan {
+  artworkSide: typeof FrontSide | typeof BackSide;
+  paperSide: typeof FrontSide | typeof BackSide;
+  groups: PanelSurfaceGroup[];
+}
+
+export interface PanelOverlapPlan {
+  /** Signed distance along the completed-fold exterior normal. */
+  normalOffset: number;
+  polygonOffsetUnits: number;
+  renderOrder: number;
+}
+
+const SURFACE_GAP_MM = 0.05;
+
+function verticesCenter(vertices: Vec3[]): Vec3 {
+  return vertices.reduce((center, vertex) => ({
+    x: center.x + vertex.x / vertices.length,
+    y: center.y + vertex.y / vertices.length,
+    z: center.z + vertex.z / vertices.length,
+  }), { x: 0, y: 0, z: 0 });
+}
+
+/** Classifies the completed FoldModel face whose normal points away from the box center. */
+export function diagnoseFoldedPanelFaces(model: FoldModel): FoldedPanelFaceDiagnosis[] {
+  const geometry = worldGeometry(model, foldPose(1, model));
+  const allVertices = [...geometry.values()].flat();
+  const xs = allVertices.map(({ x }) => x);
+  const ys = allVertices.map(({ y }) => y);
+  const zs = allVertices.map(({ z }) => z);
+  const boxCenter = {
+    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+    z: (Math.min(...zs) + Math.max(...zs)) / 2,
+  };
+
+  return model.panels.map(({ id }) => {
+    const vertices = geometry.get(id) ?? [];
+    const normal = firstFaceNormal(vertices);
+    if (normal === null) throw new Error(`Cannot diagnose folded face for panel "${id}"`);
+    const center = verticesCenter(vertices);
+    const outward = {
+      x: center.x - boxCenter.x,
+      y: center.y - boxCenter.y,
+      z: center.z - boxCenter.z,
+    };
+    const score = normal.x * outward.x + normal.y * outward.y + normal.z * outward.z;
+    return { panelId: id, exteriorFace: score > 0 ? 'front' : 'back' };
+  });
+}
+
+function selectArtworkFace(
+  model: FoldModel,
+  diagnoses: FoldedPanelFaceDiagnosis[],
+): PhysicalPanelFace {
+  const frontCount = diagnoses.filter(({ exteriorFace }) => exteriorFace === 'front').length;
+  const backCount = diagnoses.length - frontCount;
+  if (frontCount !== backCount) return frontCount > backCount ? 'front' : 'back';
+
+  const rootId = model.panels.find(({ parent }) => parent === null)?.id;
+  return diagnoses.find(({ panelId }) => panelId === rootId)?.exteriorFace ?? 'back';
+}
+
+/** Selects one physical sheet side; a tied mixed model follows its root panel. */
+export function foldedArtworkFace(model: FoldModel): PhysicalPanelFace {
+  return selectArtworkFace(model, diagnoseFoldedPanelFaces(model));
+}
+
+/** Maps FoldModel physical faces onto the y-reflected, non-indexed renderer geometry. */
+export function panelSurfacePlan(
+  vertexCount: number,
+  thickness: number,
+  artworkFace: PhysicalPanelFace,
+): PanelSurfacePlan {
+  const faceVertexCount = Math.max(0, vertexCount - 2) * 3;
+  const artworkUsesFirstGroup = artworkFace === 'back';
+
+  if (!(thickness > 0)) {
+    return {
+      artworkSide: artworkUsesFirstGroup ? FrontSide : BackSide,
+      paperSide: artworkUsesFirstGroup ? BackSide : FrontSide,
+      groups: [
+        { start: 0, count: faceVertexCount, materialIndex: 0 },
+        { start: 0, count: faceVertexCount, materialIndex: 1 },
+      ],
+    };
+  }
+
+  return {
+    artworkSide: FrontSide,
+    paperSide: FrontSide,
+    groups: [
+      { start: 0, count: faceVertexCount, materialIndex: artworkUsesFirstGroup ? 0 : 1 },
+      {
+        start: faceVertexCount,
+        count: faceVertexCount,
+        materialIndex: artworkUsesFirstGroup ? 1 : 0,
+      },
+      { start: faceVertexCount * 2, count: vertexCount * 6, materialIndex: 1 },
+    ],
+  };
+}
+
+/** Keeps physical closure layers separate without changing their flat polygons. */
+export function panelOverlapPlan(panelId: string, thickness: number): PanelOverlapPlan {
+  // A full board thickness changes the physical layer; the extra gap prevents the two
+  // touching solid faces from remaining coplanar. Zero-thickness card keeps the same gap.
+  const layerOffset = Math.max(0, thickness) + SURFACE_GAP_MM;
+
+  const isTuck = panelId === 'topTuck' || panelId === 'bottomTuck';
+  if (isTuck) {
+    // A right-side glue flap overlaps topTuck after closure, so tucks occupy a
+    // second inner layer instead of sharing the glue layer.
+    return { normalOffset: -2 * layerOffset, polygonOffsetUnits: 0, renderOrder: -2 };
+  }
+
+  if (panelId === 'glue') {
+    return { normalOffset: -layerOffset, polygonOffsetUnits: 1, renderOrder: -1 };
+  }
+
+  const isLid = panelId.startsWith('topLid') || panelId.startsWith('bottomLid');
+  if (!isLid) {
+    return { normalOffset: 0, polygonOffsetUnits: 0, renderOrder: 0 };
+  }
+
+  const isWing = panelId.endsWith('L') || panelId.endsWith('R');
+  if (isWing) {
+    return { normalOffset: layerOffset, polygonOffsetUnits: -1, renderOrder: 2 };
+  }
+
+  return { normalOffset: layerOffset, polygonOffsetUnits: 0, renderOrder: 1 };
+}
+
+/** Applies the render-only stacking distance as the panel approaches its folded pose. */
+export function panelRenderVertices(
+  panel: FoldModel['panels'][number],
+  vertices: Vec3[],
+  angle: number,
+  exteriorFace: PhysicalPanelFace,
+  thickness: number,
+): Vec3[] {
+  const { normalOffset } = panelOverlapPlan(panel.id, thickness);
+  if (normalOffset === 0 || panel.foldAngle === 0 || angle === 0) return vertices;
+
+  const normal = firstFaceNormal(vertices);
+  if (normal === null) return vertices;
+  const foldCompletion = Math.min(1, Math.abs(angle) / Math.abs(panel.foldAngle));
+  const exteriorDirection = exteriorFace === 'front' ? 1 : -1;
+  const distance = normalOffset * foldCompletion * exteriorDirection;
+  return vertices.map((vertex) => ({
+    x: vertex.x + normal.x * distance,
+    y: vertex.y + normal.y * distance,
+    z: vertex.z + normal.z * distance,
+  }));
 }
 
 const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
@@ -897,12 +1072,18 @@ function paperColor(): Color {
   return new Color(token || PAPER_FALLBACK);
 }
 
-function createCardMaterial(thickness: number): MeshStandardMaterial {
+function createCardMaterial(
+  side: typeof FrontSide | typeof BackSide,
+  polygonOffsetUnits = 0,
+): MeshStandardMaterial {
   return new MeshStandardMaterial({
-    color: CARD_COLOR,
+    color: UNTINTED_MATERIAL_COLOR,
     metalness: CARD_METALNESS,
+    polygonOffset: polygonOffsetUnits !== 0,
+    polygonOffsetFactor: 0,
+    polygonOffsetUnits,
     roughness: CARD_ROUGHNESS,
-    side: thickness > 0 ? FrontSide : DoubleSide,
+    side,
   });
 }
 
@@ -1353,8 +1534,10 @@ export function shadowPlacement(bounds: GeometryBounds): ShadowPlacement {
 }
 
 export interface CameraFrame {
-  /** 自轉／注視軸心＝摺合完成（t=1）的盒體中心（2026-07-17 E2E 驗收裁決）。 */
+  /** OrbitControls uses the scene origin after the completed box is centered there. */
   target: Vec3;
+  /** Fixed translation that places the completed-fold bounds center at the scene origin. */
+  modelOffset: Vec3;
   /** 取景對角線＝攤平（t=0）極端外廓——相機距離／far／maxDistance 以此定，全程不出框。 */
   fitDiagonal: number;
   /** 聚焦對角線＝盒體外廓——near／minDistance 以此定，近縮放不被大紙鎖死。 */
@@ -1388,11 +1571,17 @@ export function computeCameraFrame(model: FoldModel): CameraFrame | null {
   if (!foldedBounds || !flatBounds) return null;
 
   const focusDiagonal = boundsDiagonal(foldedBounds);
+  const foldedCenter = {
+    x: (foldedBounds.minX + foldedBounds.maxX) / 2,
+    y: (foldedBounds.minY + foldedBounds.maxY) / 2,
+    z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+  };
   return {
-    target: {
-      x: (foldedBounds.minX + foldedBounds.maxX) / 2,
-      y: (foldedBounds.minY + foldedBounds.maxY) / 2,
-      z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+    target: { x: 0, y: 0, z: 0 },
+    modelOffset: {
+      x: -foldedCenter.x,
+      y: -foldedCenter.y,
+      z: -foldedCenter.z,
     },
     fitDiagonal: Math.max(boundsDiagonal(flatBounds), focusDiagonal),
     focusDiagonal,
@@ -1452,18 +1641,26 @@ export function createFoldScene(
   const fillLightOffset = new Vector3(0.52, 0.08, -0.36);
   scene.add(ambient, keyLight, fillLight);
 
+  const modelRoot = new Group();
+  modelRoot.name = 'fold-model-root';
+  scene.add(modelRoot);
+
   const panelRoot = new Group();
   panelRoot.name = 'fold-panel-root';
-  scene.add(panelRoot);
+  modelRoot.add(panelRoot);
 
   let contactShadow = createContactShadow();
-  scene.add(contactShadow.mesh);
+  modelRoot.add(contactShadow.mesh);
 
   const panelMeshes = new Map<
     string,
-    Mesh<BufferGeometry, MeshStandardMaterial>
+    Mesh<BufferGeometry, MeshStandardMaterial[]>
   >();
-  let panelMaterial: MeshStandardMaterial | null = null;
+  const panelMaterials = new Map<
+    string,
+    { artwork: MeshStandardMaterial; paper: MeshStandardMaterial }
+  >();
+  let exteriorFaceByPanel = new Map<string, PhysicalPanelFace>();
   let currentModel: FoldModel | null = null;
   let currentThickness = 0;
   let currentT = 0;
@@ -1478,24 +1675,34 @@ export function createFoldScene(
     }
     panelMeshes.clear();
     panelRoot.clear();
-    panelMaterial?.dispose();
-    panelMaterial = null;
+    for (const { artwork, paper } of panelMaterials.values()) {
+      artwork.dispose();
+      paper.dispose();
+    }
+    panelMaterials.clear();
+    exteriorFaceByPanel.clear();
   };
 
   const buildPanelTree = (model: FoldModel): void => {
-    panelMaterial = createCardMaterial(currentThickness);
-    configurePaperMaterial(
-      panelMaterial,
-      activePaper,
-      paperAlbedoTexture,
-      paperBumpTexture,
+    const diagnoses = diagnoseFoldedPanelFaces(model);
+    const artworkFace = selectArtworkFace(model, diagnoses);
+    exteriorFaceByPanel = new Map(
+      diagnoses.map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
     );
-    const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
+    const pose = foldPose(currentT, model);
+    const geometryByPanel = worldGeometry(model, pose);
     const panelArtworkUvs = buildPanelArtworkUvs(model, currentThickness);
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
-      const vertices = geometryByPanel.get(panel.id) ?? [];
+      const worldVertices = geometryByPanel.get(panel.id) ?? [];
+      const vertices = panelRenderVertices(
+        panel,
+        worldVertices,
+        pose.get(panel.id) ?? 0,
+        exteriorFaceByPanel.get(panel.id) ?? artworkFace,
+        currentThickness,
+      );
       const positions = panelSolidPositions(vertices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
       geometry.setAttribute(
@@ -1505,9 +1712,40 @@ export function createFoldScene(
           2,
         ),
       );
+      const surfacePlan = panelSurfacePlan(
+        panel.polygon.length,
+        currentThickness,
+        artworkFace,
+      );
+      for (const group of surfacePlan.groups) {
+        geometry.addGroup(group.start, group.count, group.materialIndex);
+      }
+      const overlapPlan = panelOverlapPlan(panel.id, currentThickness);
+      const artworkMaterial = createCardMaterial(
+        surfacePlan.artworkSide,
+        overlapPlan.polygonOffsetUnits,
+      );
+      const paperMaterial = createCardMaterial(
+        surfacePlan.paperSide,
+        overlapPlan.polygonOffsetUnits,
+      );
+      configurePaperMaterial(
+        artworkMaterial,
+        activePaper,
+        paperAlbedoTexture,
+        paperBumpTexture,
+      );
+      configurePaperMaterial(
+        paperMaterial,
+        activePaper,
+        paperBaseAlbedoTexture,
+        paperBumpTexture,
+      );
+      panelMaterials.set(panel.id, { artwork: artworkMaterial, paper: paperMaterial });
 
-      const mesh = new Mesh(geometry, panelMaterial);
+      const mesh = new Mesh(geometry, [artworkMaterial, paperMaterial]);
       mesh.name = `fold-panel:${panel.id}`;
+      mesh.renderOrder = overlapPlan.renderOrder;
       mesh.userData.panelId = panel.id;
       panelMeshes.set(panel.id, mesh);
       panelRoot.add(mesh);
@@ -1533,8 +1771,15 @@ export function createFoldScene(
 
     for (const panel of currentModel.panels) {
       const mesh = panelMeshes.get(panel.id);
-      const vertices = geometryByPanel.get(panel.id);
-      if (!mesh || !vertices) continue;
+      const worldVertices = geometryByPanel.get(panel.id);
+      if (!mesh || !worldVertices) continue;
+      const vertices = panelRenderVertices(
+        panel,
+        worldVertices,
+        pose.get(panel.id) ?? 0,
+        exteriorFaceByPanel.get(panel.id) ?? 'back',
+        currentThickness,
+      );
 
       const attribute = mesh.geometry.getAttribute('position') as BufferAttribute;
       attribute.copyArray(panelSolidPositions(vertices, currentThickness));
@@ -1554,6 +1799,11 @@ export function createFoldScene(
     const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
     const cameraDistance = fitDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
 
+    modelRoot.position.set(
+      frame.modelOffset.x,
+      frame.modelOffset.y,
+      frame.modelOffset.z,
+    );
     controls.target.set(frame.target.x, frame.target.y, frame.target.z);
     camera.position.set(
       frame.target.x,
@@ -1645,9 +1895,9 @@ export function createFoldScene(
   const refreshArtworkAlbedo = (): void => {
     const previousAlbedoTexture = paperAlbedoTexture;
     paperAlbedoTexture = createActiveAlbedoTexture();
-    if (panelMaterial) {
+    for (const { artwork } of panelMaterials.values()) {
       configurePaperMaterial(
-        panelMaterial,
+        artwork,
         activePaper,
         paperAlbedoTexture,
         paperBumpTexture,
@@ -1670,11 +1920,17 @@ export function createFoldScene(
     paperBaseAlbedoTexture = nextTextures.albedo;
     paperAlbedoTexture = createActiveAlbedoTexture();
     paperBumpTexture = nextTextures.bump;
-    if (panelMaterial) {
+    for (const { artwork, paper } of panelMaterials.values()) {
       configurePaperMaterial(
-        panelMaterial,
+        artwork,
         activePaper,
         paperAlbedoTexture,
+        paperBumpTexture,
+      );
+      configurePaperMaterial(
+        paper,
+        activePaper,
+        paperBaseAlbedoTexture,
         paperBumpTexture,
       );
     }
@@ -1778,19 +2034,19 @@ export function createFoldScene(
     renderer.dispose();
     renderer = createRenderer();
 
-    scene.remove(contactShadow.mesh);
+    modelRoot.remove(contactShadow.mesh);
     disposeContactShadow(contactShadow);
     contactShadow = createContactShadow();
-    scene.add(contactShadow.mesh);
+    modelRoot.add(contactShadow.mesh);
 
-    scene.remove(panelRoot);
+    modelRoot.remove(panelRoot);
     disposePanelTree();
     if (activeArtwork !== 'none') refreshArtworkAlbedo();
     if (currentModel) {
       buildPanelTree(currentModel);
       updateModelPose();
     }
-    scene.add(panelRoot);
+    modelRoot.add(panelRoot);
 
     contextLost = false;
     markNeedsRender();

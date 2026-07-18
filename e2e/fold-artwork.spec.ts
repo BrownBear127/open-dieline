@@ -33,9 +33,10 @@ const CUSTOM_DIFF_THRESHOLD = 0.0015;
 const DEFAULT_VALUES = resolveParams(reverseTuckEnd, {});
 const DEFAULT_MODEL = buildRteFoldModel(DEFAULT_VALUES);
 const DEFAULT_LAYOUT = deriveArtworkLayout(DEFAULT_MODEL);
+// The fixed +x/+z camera sees the front and right exterior panels after the outward fold.
 const PANEL_COLORS = {
-  P2: { css: '#cc2244', rgba: [204, 34, 68, 255] as const, channel: 0 },
-  P3: { css: '#22aa66', rgba: [34, 170, 102, 255] as const, channel: 1 },
+  P1: { css: '#cc2244', rgba: [204, 34, 68, 255] as const, channel: 0 },
+  P2: { css: '#22aa66', rgba: [34, 170, 102, 255] as const, channel: 1 },
 } as const;
 
 function computeCameraFrame() {
@@ -467,7 +468,7 @@ test('uploaded artwork lands on the correct panel after folding', async ({ page 
       `${panelId} projected center must retain its expected dominant channel: ${color.join(',')}`,
     ).toBeGreaterThanOrEqual(40);
   }
-  expect(sampled.P2).not.toEqual(sampled.P3);
+  expect(sampled.P1).not.toEqual(sampled.P2);
 });
 
 test('upload rejects an invalid file and keeps the previous artwork', async ({ page }) => {

@@ -199,6 +199,35 @@ Vendor date: 2026-07-17
 | fold.art.staleTemplate | 參數已變更，建議重新下載模板對位。 | Parameters changed. Download a new template to realign your artwork. | stale overlay·role=status。 |
 | fold.art.invalidFile | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | error overlay·role=alert。 |
 
+## B12 套圖編輯器（24·P3 M4 T4 新增·2026-07-18 簽核終稿）
+
+| key | zh（照抄·對照用） | EN（英文稿） | 譯註（僅必要時） |
+|---|---|---|---|
+| fold.art.edit | 編輯 | EDIT | 圖稿編輯入口。 |
+| editor.done | 完成 | DONE | 編輯器返回預覽。 |
+| editor.addImage | 加圖 | IMAGE | 圖片物件。 |
+| editor.addText | 加字 | TEXT | 文字物件。 |
+| editor.duplicate | 複製 | COPY | 複製選取物件。 |
+| editor.delete | 刪除 | DELETE | 刪除選取物件。 |
+| editor.layerUp | 上移 | RAISE | 圖層上移一層。 |
+| editor.layerDown | 下移 | LOWER | 圖層下移一層。 |
+| editor.download | 下載成品 | ARTWORK PNG | 成品 PNG 下載。 |
+| editor.empty | 加入圖片或文字開始編輯。 | Add an image or text to begin. | 空畫布狀態。 |
+| editor.stale | 參數已變更，請重新對位物件。 | Parameters changed. Reposition your artwork to realign. | 對位過期狀態。 |
+| editor.limit.objects | 已達物件上限（32）。 | Object limit reached (32). | 物件上限狀態。 |
+| editor.error.compose | 合成失敗，請重試或移除最後加入的物件。 | Rendering failed. Try again or remove the last object. | 合成錯誤狀態。 |
+| editor.font.sans | 無襯線 | SANS | 系統 sans 字族。 |
+| editor.font.serif | 襯線 | SERIF | 系統 serif 字族。 |
+| editor.font.mono | 等寬 | MONO | 系統 mono 字族。 |
+| editor.align.left | 左 | LEFT | 文字左對齊。 |
+| editor.align.center | 中 | CENTER | 文字置中。 |
+| editor.align.right | 右 | RIGHT | 文字右對齊。 |
+| editor.color.ink | 墨 | INK | InkPaletteColor `ink`。 |
+| editor.color.inkSoft | 淡墨 | SOFT | InkPaletteColor `inkSoft`。 |
+| editor.color.cut | 刀紅 | CUT | InkPaletteColor `cut`。 |
+| editor.color.crease | 摺藍 | CREASE | InkPaletteColor `crease`。 |
+| editor.color.brass | 黃銅 | BRASS | InkPaletteColor `brass`。 |
+
 ---
 
 ## 複核記錄（2026-07-16）

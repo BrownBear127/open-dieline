@@ -315,6 +315,94 @@ describe('rasterizeToSource', () => {
 });
 
 describe('loadArtworkFile transaction', () => {
+  it('commits the unchanged 2048 source with a retained original-size editable sidecar', async () => {
+    const validationBitmap = bitmap(640, 320);
+    const editableBitmap = bitmap(640, 320);
+    vi.mocked(createImageBitmap)
+      .mockResolvedValueOnce(validationBitmap)
+      .mockResolvedValueOnce(editableBitmap);
+    const commits = vi.fn();
+    const promise = loadArtworkFile(
+      new File(['art'], 'art.png', { type: 'image/png' }),
+      { signature: 'layout-a', onCommit: commits },
+    );
+    await waitForImages(1);
+
+    DeferredImage.instances[0]!.resolve();
+    await expect(promise).resolves.toBe('committed');
+
+    expect(commits).toHaveBeenCalledOnce();
+    expect(commits.mock.calls[0]![0]).toMatchObject({ signature: 'layout-a' });
+    expect(commits.mock.calls[0]![0].canvas).toMatchObject({ width: 2048, height: 2048 });
+    expect(commits.mock.calls[0]![1]).toEqual({
+      bitmap: editableBitmap,
+      width: 640,
+      height: 320,
+      revision: expect.any(Number),
+    });
+    expect(validationBitmap.close).toHaveBeenCalledOnce();
+    expect(editableBitmap.close).not.toHaveBeenCalled();
+    expect(createImageBitmap).toHaveBeenNthCalledWith(1, expect.any(File), {
+      imageOrientation: 'from-image',
+    });
+    expect(createImageBitmap).toHaveBeenNthCalledWith(2, expect.any(File), {
+      imageOrientation: 'from-image',
+    });
+    expect(vi.mocked(createImageBitmap).mock.calls.every(([source]) => source instanceof File))
+      .toBe(true);
+  });
+
+  it('rasterizes an SVG sidecar at its viewBox ratio without decoding the File as a bitmap', async () => {
+    const editableBitmap = bitmap(4096, 2048);
+    vi.mocked(createImageBitmap).mockResolvedValueOnce(editableBitmap);
+    const commits = vi.fn();
+    const promise = loadArtworkFile(
+      new File([
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"></svg>',
+      ], 'art.svg', { type: 'image/svg+xml' }),
+      { signature: 'layout-a', onCommit: commits },
+    );
+    await waitForImages(1);
+
+    DeferredImage.instances[0]!.resolve();
+    await waitForImages(2);
+    DeferredImage.instances[1]!.resolve();
+    await expect(promise).resolves.toBe('committed');
+
+    expect(drawImage).toHaveBeenNthCalledWith(
+      1, DeferredImage.instances[0], 0, 0, 4096, 2048,
+    );
+    expect(createImageBitmap).toHaveBeenCalledExactlyOnceWith(expect.any(HTMLCanvasElement));
+    expect(createImageBitmap).not.toHaveBeenCalledWith(expect.any(File), expect.anything());
+    expect(commits.mock.calls[0]![1]).toEqual({
+      bitmap: editableBitmap,
+      width: 4096,
+      height: 2048,
+      revision: expect.any(Number),
+    });
+  });
+
+  it('rejects and closes an oversized decoded SVG sidecar before creating the preview', async () => {
+    const oversized = bitmap(8193, 100);
+    vi.mocked(createImageBitmap).mockResolvedValueOnce(oversized);
+    const commits = vi.fn();
+
+    const promise = loadArtworkFile(
+      new File([
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8193 100"></svg>',
+      ], 'oversized.svg', { type: 'image/svg+xml' }),
+      { signature: 'layout-a', onCommit: commits },
+    );
+    await waitForImages(1);
+
+    DeferredImage.instances[0]!.resolve();
+    await expect(promise).resolves.toEqual({ code: 'pixels' });
+
+    expect(oversized.close).toHaveBeenCalledOnce();
+    expect(DeferredImage.instances).toHaveLength(1);
+    expect(commits).not.toHaveBeenCalled();
+  });
+
   it('commits only B when A and B finish in reverse order', async () => {
     const commits = vi.fn();
     const first = loadArtworkFile(

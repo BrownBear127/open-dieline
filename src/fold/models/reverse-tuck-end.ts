@@ -2,7 +2,9 @@ import type { ResolvedParams } from '../../core/types';
 import type { FoldModel, FoldPanel, FoldStep, Pt } from '../types';
 import { ARC_TOLERANCE_MM } from '../types';
 
-const INWARD_FOLD_ANGLE = -Math.PI / 2;
+// Physical fold direction belongs to the RTE model: positive quarter-turns wrap the
+// flat front (print) face around the exterior; the schedule only owns timing and easing.
+const OUTWARD_FOLD_ANGLE = Math.PI / 2;
 // Mirrors core/primitives.frictionLock; rte-reconcile guards these nominal 3D vertices
 // against the compensated 2D output without coupling the fold chunk to 2D path builders.
 const FRICTION_LOCK_HEIGHT = 1.5;
@@ -150,7 +152,7 @@ function slicedLidPanels(
       a: { x: hingeSegments[index]![0]!, y: hingeY },
       b: { x: hingeSegments[index]![1]!, y: hingeY },
     },
-    foldAngle: INWARD_FOLD_ANGLE,
+    foldAngle: OUTWARD_FOLD_ANGLE,
   }));
 }
 
@@ -187,7 +189,6 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
   const L = params.L as number;
   const W = params.W as number;
   const D = params.D as number;
-  const thickness = params.thickness as number;
   const tuckDepth = params.tuckDepth as number;
   const tuckRadius = params.tuckRadius as number;
   const tuckClearance = params.tuckClearance as number;
@@ -231,7 +232,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x1, 0, x2, D),
       parent: 'P1',
       hingeLine: { a: { x: x1, y: 0 }, b: { x: x1, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     },
     // P3 寬=L（2D: wP3=L+comp[2]×t）；FoldModel 不含 girth 補償。
     {
@@ -239,7 +240,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x2, 0, x3, D),
       parent: 'P2',
       hingeLine: { a: { x: x2, y: 0 }, b: { x: x2, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     },
     // P4 寬=W（2D: wP4=W+comp[3]×t）；FoldModel 不含 girth 補償。
     {
@@ -247,7 +248,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x3, 0, x4, D),
       parent: 'P3',
       hingeLine: { a: { x: x3, y: 0 }, b: { x: x3, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     },
   ];
 
@@ -258,7 +259,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x4, 0, x4 + glueSize, D),
       parent: 'P4',
       hingeLine: { a: { x: x4, y: 0 }, b: { x: x4, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   } else {
     // glue 寬=glueSize、位於 x0 左側（2D: wGlue=glueSize，掛左側補償前 x0）。
@@ -267,7 +268,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x0 - glueSize, 0, x0, D),
       parent: 'P1',
       hingeLine: { a: { x: x0, y: D }, b: { x: x0, y: 0 } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 
@@ -281,7 +282,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x2, -W, x3, 0),
       parent: 'P3',
       hingeLine: { a: { x: x2, y: 0 }, b: { x: x3, y: 0 } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 
@@ -296,8 +297,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
         a: { x: Math.max(x2 + tuckInset, x2 + effectiveLidWingWidth), y: -W },
         b: { x: Math.min(x3 - tuckInset, x3 - effectiveLidWingWidth), y: -W },
       },
-      foldAngle: INWARD_FOLD_ANGLE,
-      liftOffset: thickness,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 
@@ -314,7 +314,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       ],
       parent: 'P2',
       hingeLine: { a: { x: x1, y: 0 }, b: { x: x2, y: 0 } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
     // topDustP4 尖端在蓋板側（x3）內縮 dustRelief（2D drawRelief(x3,…,'right','top')）。
     panels.push({
@@ -327,7 +327,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       ],
       parent: 'P4',
       hingeLine: { a: { x: x3, y: 0 }, b: { x: x4, y: 0 } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 
@@ -339,7 +339,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x0, D, x1, D + W),
       parent: 'P1',
       hingeLine: { a: { x: x1, y: D }, b: { x: x0, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 
@@ -354,8 +354,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
         a: { x: Math.min(x1 - tuckInset, x1 - effectiveLidWingWidth), y: D + W },
         b: { x: Math.max(x0 + tuckInset, x0 + effectiveLidWingWidth), y: D + W },
       },
-      foldAngle: INWARD_FOLD_ANGLE,
-      liftOffset: thickness,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 
@@ -372,7 +371,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       ],
       parent: 'P2',
       hingeLine: { a: { x: x2, y: D }, b: { x: x1, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
     // bottomDustP4 維持名義矩形——2D 真相如此：bottom 蓋板在 P1，P4 不緊鄰蓋板、
     // 本來就沒有 relief（src/boxes/reverse-tuck-end.ts:378-386 手刻不對稱紀錄）。
@@ -381,7 +380,7 @@ export function buildRteFoldModel(params: ResolvedParams): FoldModel {
       polygon: rectangle(x3, D, x4, D + dustFlapDepth),
       parent: 'P4',
       hingeLine: { a: { x: x4, y: D }, b: { x: x3, y: D } },
-      foldAngle: INWARD_FOLD_ANGLE,
+      foldAngle: OUTWARD_FOLD_ANGLE,
     });
   }
 

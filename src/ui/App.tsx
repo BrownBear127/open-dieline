@@ -100,6 +100,8 @@ import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
 import { setLang, useLang } from '@/i18n/lang';
+import type { EditableArtworkAsset } from '@/ui/artwork-source';
+import type { EditorSession } from '@/ui/editor/editor-session';
 import type { CustomArtworkSource } from '@/ui/fold-scene';
 import type { FoldViewProps } from '@/ui/FoldView';
 
@@ -186,6 +188,10 @@ export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: Fol
   // 見下方按鈕定義）。
   const [appMode, setAppMode] = useState<AppMode>('design');
   const customArtworkSourceRef = useRef<CustomArtworkSource | null>(null);
+  const editableArtworkRef = useRef<EditableArtworkAsset | null>(null);
+  const editorSessionRef = useRef<EditorSession | null>(null);
+  const [editableArtwork, setEditableArtwork] = useState<EditableArtworkAsset | null>(null);
+  const [editorSession, setEditorSession] = useState<EditorSession | null>(null);
 
   const replaceCustomArtworkSource = (nextSource: CustomArtworkSource | null): void => {
     const previousSource = customArtworkSourceRef.current;
@@ -195,11 +201,40 @@ export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: Fol
     customArtworkSourceRef.current = nextSource;
   };
 
+  const replaceEditableArtwork = (nextAsset: EditableArtworkAsset | null): void => {
+    const previousAsset = editableArtworkRef.current;
+    if (previousAsset !== null && previousAsset !== nextAsset) previousAsset.bitmap.close();
+    editableArtworkRef.current = nextAsset;
+    setEditableArtwork(nextAsset);
+  };
+
+  const consumeEditableArtwork = (asset: EditableArtworkAsset): void => {
+    if (editableArtworkRef.current !== asset) return;
+    editableArtworkRef.current = null;
+    setEditableArtwork(null);
+  };
+
+  const replaceEditorSession = (nextSession: EditorSession): void => {
+    const previousSession = editorSessionRef.current;
+    if (
+      previousSession !== null
+      && previousSession.assetRegistry !== nextSession.assetRegistry
+    ) {
+      previousSession.destroy();
+    }
+    editorSessionRef.current = nextSession;
+    setEditorSession(nextSession);
+  };
+
   useEffect(() => () => {
     const source = customArtworkSourceRef.current;
     if (source !== null) {
       source.canvas.width = source.canvas.height = 0;
     }
+    const editableAsset = editableArtworkRef.current;
+    if (editableAsset !== null) editableAsset.bitmap.close();
+    const session = editorSessionRef.current;
+    if (session !== null) session.destroy();
   }, []);
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
@@ -479,6 +514,11 @@ export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: Fol
                 values={values}
                 customSource={customArtworkSourceRef.current}
                 onCustomSourceChange={replaceCustomArtworkSource}
+                editableArtwork={editableArtwork}
+                onEditableArtworkChange={replaceEditableArtwork}
+                onEditableArtworkConsumed={consumeEditableArtwork}
+                editorSession={editorSession}
+                onEditorSessionChange={replaceEditorSession}
               />
             </FoldChunkBoundary>
           )}

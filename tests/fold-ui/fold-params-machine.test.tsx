@@ -55,7 +55,8 @@ function panelHeight(model: FoldModel, id: string): number {
   return Math.max(...ys) - Math.min(...ys);
 }
 
-type ModelProjection = (model: FoldModel) => unknown;
+type ReplaceModelOptions = Parameters<FoldSceneHandle['replaceModel']>[1];
+type ModelProjection = (model: FoldModel, options: ReplaceModelOptions) => unknown;
 
 interface ParamCase {
   key: string;
@@ -68,7 +69,7 @@ const PARAM_CASES: ParamCase[] = [
   { key: 'L', value: 65, dimension: 'P1 width', project: (model) => panelWidth(model, 'P1') },
   { key: 'W', value: 65, dimension: 'P2 width and lid height', project: (model) => [panelWidth(model, 'P2'), panelHeight(model, 'topLidC')] },
   { key: 'D', value: 127, dimension: 'P1 height', project: (model) => panelHeight(model, 'P1') },
-  { key: 'thickness', value: 0.6, dimension: 'tuck liftOffset', project: (model) => [panel(model, 'topTuck').liftOffset, panel(model, 'bottomTuck').liftOffset] },
+  { key: 'thickness', value: 0.6, dimension: 'renderer thickness', project: (_model, options) => options?.thickness },
   { key: 'tuckDepth', value: 0, dimension: 'tuck panel count and active steps', project: (model) => [model.panels.map(({ id }) => id), model.steps] },
   { key: 'tuckRadius', value: 0, dimension: 'tuck polygon coordinates', project: (model) => panel(model, 'topTuck').polygon },
   { key: 'tuckClearance', value: 5, dimension: 'tuck polygon width', project: (model) => [panelWidth(model, 'topTuck'), panelWidth(model, 'bottomTuck')] },
@@ -110,14 +111,14 @@ describe('FoldView B4-machine parameter linkage', () => {
     const defaults = resolveParams(reverseTuckEnd, {});
     const view = render(<FoldView boxId="rte" values={defaults} createScene={fake.createScene} />);
     await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
-    const defaultModel = vi.mocked(fake.handles[0]!.replaceModel).mock.calls[0]![0];
+    const [defaultModel, defaultOptions] = vi.mocked(fake.handles[0]!.replaceModel).mock.calls[0]!;
 
     const changed = resolveParams(reverseTuckEnd, { [key]: value });
     view.rerender(<FoldView boxId="rte" values={changed} createScene={fake.createScene} />);
     await waitFor(() => expect(fake.handles[0]!.replaceModel).toHaveBeenCalledTimes(2));
-    const changedModel = vi.mocked(fake.handles[0]!.replaceModel).mock.calls[1]![0];
+    const [changedModel, changedOptions] = vi.mocked(fake.handles[0]!.replaceModel).mock.calls[1]!;
 
-    expect(project(changedModel)).not.toEqual(project(defaultModel));
+    expect(project(changedModel, changedOptions)).not.toEqual(project(defaultModel, defaultOptions));
     expect(fake.createScene).toHaveBeenCalledOnce();
     expect(fake.handles[0]!.dispose).not.toHaveBeenCalled();
   });

@@ -258,6 +258,35 @@ Vendor date: 2026-07-17
 | fold.art.staleTemplate | Parameters changed. Download a new template to realign your artwork. | 參數已變更，建議重新下載模板對位。 | | status |
 | fold.art.invalidFile | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | | alert |
 
+### A12 套圖編輯器（P3 M4 T4 新增·2026-07-18 簽核終稿）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.art.edit | EDIT | 編輯 | | label |
+| editor.done | DONE | 完成 | | label |
+| editor.addImage | IMAGE | 加圖 | | label |
+| editor.addText | TEXT | 加字 | | label |
+| editor.duplicate | COPY | 複製 | | label |
+| editor.delete | DELETE | 刪除 | | label |
+| editor.layerUp | RAISE | 上移 | | label |
+| editor.layerDown | LOWER | 下移 | | label |
+| editor.download | ARTWORK PNG | 下載成品 | | label |
+| editor.empty | Add an image or text to begin. | 加入圖片或文字開始編輯。 | | status |
+| editor.stale | Parameters changed. Reposition your artwork to realign. | 參數已變更，請重新對位物件。 | | status |
+| editor.limit.objects | Object limit reached (32). | 已達物件上限（32）。 | | status |
+| editor.error.compose | Rendering failed. Try again or remove the last object. | 合成失敗，請重試或移除最後加入的物件。 | | status |
+| editor.font.sans | SANS | 無襯線 | | label |
+| editor.font.serif | SERIF | 襯線 | | label |
+| editor.font.mono | MONO | 等寬 | | label |
+| editor.align.left | LEFT | 左 | | label |
+| editor.align.center | CENTER | 中 | | label |
+| editor.align.right | RIGHT | 右 | | label |
+| editor.color.ink | INK | 墨 | | label |
+| editor.color.inkSoft | SOFT | 淡墨 | | label |
+| editor.color.cut | CUT | 刀紅 | | label |
+| editor.color.crease | CREASE | 摺藍 | | label |
+| editor.color.brass | BRASS | 黃銅 | | label |
+
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 
 §A 補漏 4 key（`param.reset.glyph` ↺·lock／`overlay.unit.pt/mm/px` lock 規格值／

@@ -263,9 +263,9 @@ function expectDustPanelsInsideOpening(
       expect(vertex.x, `${label}: ${panelId} vertex ${index} opening x upper bound`)
         .toBeLessThanOrEqual(L + CLOSURE_TOLERANCE_MM);
       expect(vertex.z, `${label}: ${panelId} vertex ${index} opening z lower bound`)
-        .toBeGreaterThanOrEqual(-CLOSURE_TOLERANCE_MM);
+        .toBeGreaterThanOrEqual(-W - CLOSURE_TOLERANCE_MM);
       expect(vertex.z, `${label}: ${panelId} vertex ${index} opening z upper bound`)
-        .toBeLessThanOrEqual(W + CLOSURE_TOLERANCE_MM);
+        .toBeLessThanOrEqual(CLOSURE_TOLERANCE_MM);
 
       const flatVertex = target.polygon[index]!;
       const isHingeVertex = [hinge.a, hinge.b]

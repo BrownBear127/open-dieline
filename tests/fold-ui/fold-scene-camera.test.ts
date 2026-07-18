@@ -52,16 +52,26 @@ function boundsDiagonal(bounds: GeometryBounds): number {
 }
 
 describe('computeCameraFrame', () => {
-  it('自轉軸心＝摺合完成的盒體中心（非攤平大紙中心·2026-07-17 E2E 驗收裁決）', () => {
-    // 舊行為的 bug：fitCamera 只在 replaceModel 時以「當下 pose」的外廓定 target，
-    // scene 初始 t=0（攤平）→ 軸心落在大紙中心，盒子摺好後自轉變成繞行。
-    const frame = computeCameraFrame(model);
-    expect(frame).not.toBeNull();
+  it('normalizes the completed box center to the stable scene origin', () => {
+    const frame = computeCameraFrame(model)!;
+    const foldedBounds = boundsAt(1);
+    const foldedCenter = {
+      x: (foldedBounds.minX + foldedBounds.maxX) / 2,
+      y: (foldedBounds.minY + foldedBounds.maxY) / 2,
+      z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+    };
+
+    expect(frame.target).toEqual({ x: 0, y: 0, z: 0 });
+    expect(frame.modelOffset).toEqual({
+      x: -foldedCenter.x,
+      y: -foldedCenter.y,
+      z: -foldedCenter.z,
+    });
 
     const tolerance = Math.max(2 * thickness, 1);
-    expect(Math.abs(frame!.target.x - L / 2)).toBeLessThanOrEqual(tolerance);
-    expect(Math.abs(frame!.target.y - -D / 2)).toBeLessThanOrEqual(tolerance);
-    expect(Math.abs(frame!.target.z - W / 2)).toBeLessThanOrEqual(tolerance);
+    expect(Math.abs(foldedCenter.x - L / 2)).toBeLessThanOrEqual(tolerance);
+    expect(Math.abs(foldedCenter.y - -D / 2)).toBeLessThanOrEqual(tolerance);
+    expect(Math.abs(foldedCenter.z + W / 2)).toBeLessThanOrEqual(tolerance);
   });
 
   it('取景對角線涵蓋攤平全紙、聚焦對角線貼近盒體（近縮放不被大紙鎖死）', () => {
