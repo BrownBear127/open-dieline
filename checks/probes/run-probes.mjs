@@ -36,7 +36,7 @@ const revert = () => {
   originals = new Map();
 };
 
-const EXPECTED_E2E_TOTAL = 50;
+const EXPECTED_E2E_TOTAL = 51;
 
 const assertE2eManifest = () => {
   const listing = sh('npx playwright test --list');
