@@ -2,6 +2,7 @@
 import {
   ACESFilmicToneMapping,
   AmbientLight,
+  BackSide,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -761,6 +762,166 @@ function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
   return null;
 }
 
+export type PhysicalPanelFace = 'front' | 'back';
+
+export interface FoldedPanelFaceDiagnosis {
+  panelId: string;
+  exteriorFace: PhysicalPanelFace;
+}
+
+export interface PanelSurfaceGroup {
+  start: number;
+  count: number;
+  materialIndex: 0 | 1;
+}
+
+export interface PanelSurfacePlan {
+  artworkSide: typeof FrontSide | typeof BackSide;
+  paperSide: typeof FrontSide | typeof BackSide;
+  groups: PanelSurfaceGroup[];
+}
+
+export interface PanelOverlapPlan {
+  /** Signed distance along the completed-fold exterior normal. */
+  normalOffset: number;
+  polygonOffsetUnits: number;
+  renderOrder: number;
+}
+
+const ZERO_THICKNESS_LAYER_OFFSET = 0.01;
+
+function verticesCenter(vertices: Vec3[]): Vec3 {
+  return vertices.reduce((center, vertex) => ({
+    x: center.x + vertex.x / vertices.length,
+    y: center.y + vertex.y / vertices.length,
+    z: center.z + vertex.z / vertices.length,
+  }), { x: 0, y: 0, z: 0 });
+}
+
+/** Classifies the completed FoldModel face whose normal points away from the box center. */
+export function diagnoseFoldedPanelFaces(model: FoldModel): FoldedPanelFaceDiagnosis[] {
+  const geometry = worldGeometry(model, foldPose(1, model));
+  const allVertices = [...geometry.values()].flat();
+  const xs = allVertices.map(({ x }) => x);
+  const ys = allVertices.map(({ y }) => y);
+  const zs = allVertices.map(({ z }) => z);
+  const boxCenter = {
+    x: (Math.min(...xs) + Math.max(...xs)) / 2,
+    y: (Math.min(...ys) + Math.max(...ys)) / 2,
+    z: (Math.min(...zs) + Math.max(...zs)) / 2,
+  };
+
+  return model.panels.map(({ id }) => {
+    const vertices = geometry.get(id) ?? [];
+    const normal = firstFaceNormal(vertices);
+    if (normal === null) throw new Error(`Cannot diagnose folded face for panel "${id}"`);
+    const center = verticesCenter(vertices);
+    const outward = {
+      x: center.x - boxCenter.x,
+      y: center.y - boxCenter.y,
+      z: center.z - boxCenter.z,
+    };
+    const score = normal.x * outward.x + normal.y * outward.y + normal.z * outward.z;
+    return { panelId: id, exteriorFace: score > 0 ? 'front' : 'back' };
+  });
+}
+
+function selectArtworkFace(
+  model: FoldModel,
+  diagnoses: FoldedPanelFaceDiagnosis[],
+): PhysicalPanelFace {
+  const frontCount = diagnoses.filter(({ exteriorFace }) => exteriorFace === 'front').length;
+  const backCount = diagnoses.length - frontCount;
+  if (frontCount !== backCount) return frontCount > backCount ? 'front' : 'back';
+
+  const rootId = model.panels.find(({ parent }) => parent === null)?.id;
+  return diagnoses.find(({ panelId }) => panelId === rootId)?.exteriorFace ?? 'back';
+}
+
+/** Selects one physical sheet side; a tied mixed model follows its root panel. */
+export function foldedArtworkFace(model: FoldModel): PhysicalPanelFace {
+  return selectArtworkFace(model, diagnoseFoldedPanelFaces(model));
+}
+
+/** Maps FoldModel physical faces onto the y-reflected, non-indexed renderer geometry. */
+export function panelSurfacePlan(
+  vertexCount: number,
+  thickness: number,
+  artworkFace: PhysicalPanelFace,
+): PanelSurfacePlan {
+  const faceVertexCount = Math.max(0, vertexCount - 2) * 3;
+  const artworkUsesFirstGroup = artworkFace === 'back';
+
+  if (!(thickness > 0)) {
+    return {
+      artworkSide: artworkUsesFirstGroup ? FrontSide : BackSide,
+      paperSide: artworkUsesFirstGroup ? BackSide : FrontSide,
+      groups: [
+        { start: 0, count: faceVertexCount, materialIndex: 0 },
+        { start: 0, count: faceVertexCount, materialIndex: 1 },
+      ],
+    };
+  }
+
+  return {
+    artworkSide: FrontSide,
+    paperSide: FrontSide,
+    groups: [
+      { start: 0, count: faceVertexCount, materialIndex: artworkUsesFirstGroup ? 0 : 1 },
+      {
+        start: faceVertexCount,
+        count: faceVertexCount,
+        materialIndex: artworkUsesFirstGroup ? 1 : 0,
+      },
+      { start: faceVertexCount * 2, count: vertexCount * 6, materialIndex: 1 },
+    ],
+  };
+}
+
+/** Keeps physical closure layers separate without changing their flat polygons. */
+export function panelOverlapPlan(panelId: string, thickness: number): PanelOverlapPlan {
+  const layerOffset = thickness > 0 ? thickness : ZERO_THICKNESS_LAYER_OFFSET;
+
+  if (panelId === 'glue') {
+    return { normalOffset: -layerOffset, polygonOffsetUnits: 0, renderOrder: -1 };
+  }
+
+  const isLid = panelId.startsWith('topLid') || panelId.startsWith('bottomLid');
+  if (!isLid) {
+    return { normalOffset: 0, polygonOffsetUnits: 0, renderOrder: 0 };
+  }
+
+  const isWing = panelId.endsWith('L') || panelId.endsWith('R');
+  if (isWing) {
+    return { normalOffset: layerOffset, polygonOffsetUnits: -1, renderOrder: 2 };
+  }
+
+  return { normalOffset: layerOffset, polygonOffsetUnits: 0, renderOrder: 1 };
+}
+
+/** Applies the render-only stacking distance as the panel approaches its folded pose. */
+export function panelRenderVertices(
+  panel: FoldModel['panels'][number],
+  vertices: Vec3[],
+  angle: number,
+  exteriorFace: PhysicalPanelFace,
+  thickness: number,
+): Vec3[] {
+  const { normalOffset } = panelOverlapPlan(panel.id, thickness);
+  if (normalOffset === 0 || panel.foldAngle === 0 || angle === 0) return vertices;
+
+  const normal = firstFaceNormal(vertices);
+  if (normal === null) return vertices;
+  const foldCompletion = Math.min(1, Math.abs(angle) / Math.abs(panel.foldAngle));
+  const exteriorDirection = exteriorFace === 'front' ? 1 : -1;
+  const distance = normalOffset * foldCompletion * exteriorDirection;
+  return vertices.map((vertex) => ({
+    x: vertex.x + normal.x * distance,
+    y: vertex.y + normal.y * distance,
+    z: vertex.z + normal.z * distance,
+  }));
+}
+
 const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
 
 export interface FoldSceneOptions {
@@ -897,12 +1058,18 @@ function paperColor(): Color {
   return new Color(token || PAPER_FALLBACK);
 }
 
-function createCardMaterial(thickness: number): MeshStandardMaterial {
+function createCardMaterial(
+  side: typeof FrontSide | typeof BackSide,
+  polygonOffsetUnits = 0,
+): MeshStandardMaterial {
   return new MeshStandardMaterial({
     color: CARD_COLOR,
     metalness: CARD_METALNESS,
+    polygonOffset: polygonOffsetUnits !== 0,
+    polygonOffsetFactor: 0,
+    polygonOffsetUnits,
     roughness: CARD_ROUGHNESS,
-    side: thickness > 0 ? FrontSide : DoubleSide,
+    side,
   });
 }
 
@@ -1461,9 +1628,13 @@ export function createFoldScene(
 
   const panelMeshes = new Map<
     string,
-    Mesh<BufferGeometry, MeshStandardMaterial>
+    Mesh<BufferGeometry, MeshStandardMaterial[]>
   >();
-  let panelMaterial: MeshStandardMaterial | null = null;
+  const panelMaterials = new Map<
+    string,
+    { artwork: MeshStandardMaterial; paper: MeshStandardMaterial }
+  >();
+  let exteriorFaceByPanel = new Map<string, PhysicalPanelFace>();
   let currentModel: FoldModel | null = null;
   let currentThickness = 0;
   let currentT = 0;
@@ -1478,24 +1649,34 @@ export function createFoldScene(
     }
     panelMeshes.clear();
     panelRoot.clear();
-    panelMaterial?.dispose();
-    panelMaterial = null;
+    for (const { artwork, paper } of panelMaterials.values()) {
+      artwork.dispose();
+      paper.dispose();
+    }
+    panelMaterials.clear();
+    exteriorFaceByPanel.clear();
   };
 
   const buildPanelTree = (model: FoldModel): void => {
-    panelMaterial = createCardMaterial(currentThickness);
-    configurePaperMaterial(
-      panelMaterial,
-      activePaper,
-      paperAlbedoTexture,
-      paperBumpTexture,
+    const diagnoses = diagnoseFoldedPanelFaces(model);
+    const artworkFace = selectArtworkFace(model, diagnoses);
+    exteriorFaceByPanel = new Map(
+      diagnoses.map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
     );
-    const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
+    const pose = foldPose(currentT, model);
+    const geometryByPanel = worldGeometry(model, pose);
     const panelArtworkUvs = buildPanelArtworkUvs(model, currentThickness);
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
-      const vertices = geometryByPanel.get(panel.id) ?? [];
+      const worldVertices = geometryByPanel.get(panel.id) ?? [];
+      const vertices = panelRenderVertices(
+        panel,
+        worldVertices,
+        pose.get(panel.id) ?? 0,
+        exteriorFaceByPanel.get(panel.id) ?? artworkFace,
+        currentThickness,
+      );
       const positions = panelSolidPositions(vertices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
       geometry.setAttribute(
@@ -1505,9 +1686,40 @@ export function createFoldScene(
           2,
         ),
       );
+      const surfacePlan = panelSurfacePlan(
+        panel.polygon.length,
+        currentThickness,
+        artworkFace,
+      );
+      for (const group of surfacePlan.groups) {
+        geometry.addGroup(group.start, group.count, group.materialIndex);
+      }
+      const overlapPlan = panelOverlapPlan(panel.id, currentThickness);
+      const artworkMaterial = createCardMaterial(
+        surfacePlan.artworkSide,
+        overlapPlan.polygonOffsetUnits,
+      );
+      const paperMaterial = createCardMaterial(
+        surfacePlan.paperSide,
+        overlapPlan.polygonOffsetUnits,
+      );
+      configurePaperMaterial(
+        artworkMaterial,
+        activePaper,
+        paperAlbedoTexture,
+        paperBumpTexture,
+      );
+      configurePaperMaterial(
+        paperMaterial,
+        activePaper,
+        paperBaseAlbedoTexture,
+        paperBumpTexture,
+      );
+      panelMaterials.set(panel.id, { artwork: artworkMaterial, paper: paperMaterial });
 
-      const mesh = new Mesh(geometry, panelMaterial);
+      const mesh = new Mesh(geometry, [artworkMaterial, paperMaterial]);
       mesh.name = `fold-panel:${panel.id}`;
+      mesh.renderOrder = overlapPlan.renderOrder;
       mesh.userData.panelId = panel.id;
       panelMeshes.set(panel.id, mesh);
       panelRoot.add(mesh);
@@ -1533,8 +1745,15 @@ export function createFoldScene(
 
     for (const panel of currentModel.panels) {
       const mesh = panelMeshes.get(panel.id);
-      const vertices = geometryByPanel.get(panel.id);
-      if (!mesh || !vertices) continue;
+      const worldVertices = geometryByPanel.get(panel.id);
+      if (!mesh || !worldVertices) continue;
+      const vertices = panelRenderVertices(
+        panel,
+        worldVertices,
+        pose.get(panel.id) ?? 0,
+        exteriorFaceByPanel.get(panel.id) ?? 'back',
+        currentThickness,
+      );
 
       const attribute = mesh.geometry.getAttribute('position') as BufferAttribute;
       attribute.copyArray(panelSolidPositions(vertices, currentThickness));
@@ -1645,9 +1864,9 @@ export function createFoldScene(
   const refreshArtworkAlbedo = (): void => {
     const previousAlbedoTexture = paperAlbedoTexture;
     paperAlbedoTexture = createActiveAlbedoTexture();
-    if (panelMaterial) {
+    for (const { artwork } of panelMaterials.values()) {
       configurePaperMaterial(
-        panelMaterial,
+        artwork,
         activePaper,
         paperAlbedoTexture,
         paperBumpTexture,
@@ -1670,11 +1889,17 @@ export function createFoldScene(
     paperBaseAlbedoTexture = nextTextures.albedo;
     paperAlbedoTexture = createActiveAlbedoTexture();
     paperBumpTexture = nextTextures.bump;
-    if (panelMaterial) {
+    for (const { artwork, paper } of panelMaterials.values()) {
       configurePaperMaterial(
-        panelMaterial,
+        artwork,
         activePaper,
         paperAlbedoTexture,
+        paperBumpTexture,
+      );
+      configurePaperMaterial(
+        paper,
+        activePaper,
+        paperBaseAlbedoTexture,
         paperBumpTexture,
       );
     }
