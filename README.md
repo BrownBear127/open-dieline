@@ -2,9 +2,9 @@
 
 > A [Konvolut](https://konvolut.art) project · **Live: [open-dieline.vercel.app](https://open-dieline.vercel.app)**
 
-An open-source dieline generator for print & packaging — parametric, printable, calibrated against real production dielines.
+An open-source dieline prototyping tool for print & packaging — parametric, printable, calibrated against real production dielines. For rapid prototyping and visual proofs; verify with your die maker before production.
 
-一個開源的印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。目前支援反向插舌盒（RTE）與天地盒三件套，幾何規則以真實生產刀模逆向量測校準。
+一個開源的刀模（dieline）快速原型工具——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具，產出接近真實刀模；正式生產前請與刀模廠校對打樣。目前支援反向插舌盒（RTE）與天地盒三件套，幾何規則以真實生產刀模逆向量測校準。
 
 ## 目前盒型與特點
 
