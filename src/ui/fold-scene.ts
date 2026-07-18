@@ -25,6 +25,16 @@ import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
+// P3 M3 T1（F1.0）：ArtworkLayout 抽取層搬走了 flatDielineUvFrame（TEMPLATE 與 3D UV
+// 共用同一份 square frame 真相源）。這裡改 import 再 re-export 回同名稱——
+// 既有 fold-scene-geometry/fold-paper-texture 兩份測試 `import { flatDielineUvFrame }
+// from '@/ui/fold-scene'` 零改動，且拿到的仍是同一顆 function reference（不是各自
+// 維護一份公式）。
+import { deriveArtworkLayout, flatDielineUvFrame } from './artwork-layout';
+import type { ArtworkLayout, FlatDielineUvFrame } from './artwork-layout';
+
+export { flatDielineUvFrame };
+export type { FlatDielineUvFrame };
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
 const CARD_COLOR = 0xffffff;
@@ -51,6 +61,7 @@ const PAPER_LIGHT_VECTOR_LENGTH = Math.sqrt(6);
 const ARTWORK_ACCENT = '#b3402a';
 const ARTWORK_DARK = '#383530';
 const ARTWORK_ALPHA = 0.88;
+const CUSTOM_ARTWORK_SIZE = 2048;
 
 export function configureFoldRenderer(
   renderer: Pick<WebGLRenderer, 'toneMapping' | 'toneMappingExposure'>,
@@ -758,7 +769,12 @@ export interface FoldSceneOptions {
   onUserInteract?: () => void;
 }
 
-export type ArtworkMode = 'none' | 'sample';
+export type ArtworkMode = 'none' | 'sample' | 'custom';
+
+export interface CustomArtworkSource {
+  canvas: HTMLCanvasElement;
+  signature: string;
+}
 
 export interface FoldSceneHandle {
   updatePose(t: number): void;
@@ -766,6 +782,8 @@ export interface FoldSceneHandle {
   setAutoRotate(on: boolean): void;
   applyRecipe(name: FoldRecipeName): void;
   applyArtwork(mode: ArtworkMode): void;
+  installCustomSource(source: CustomArtworkSource): void;
+  removeCustomSource(): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }
@@ -900,14 +918,6 @@ export function configurePaperMaterial(
   material.roughnessMap = null;
   material.bumpScale = params.bumpScale;
   material.needsUpdate = true;
-}
-
-export interface FlatDielineUvFrame {
-  minX: number;
-  minY: number;
-  span: number;
-  offsetX: number;
-  offsetY: number;
 }
 
 interface ArtworkPoint {
@@ -1073,33 +1083,6 @@ export function sampleArtworkPlan(
   return { frame, commands };
 }
 
-export function flatDielineUvFrame(
-  flatGeometry: Map<string, Vec3[]>,
-): FlatDielineUvFrame {
-  const vertices = [...flatGeometry.values()].flat();
-  if (vertices.length === 0) {
-    return { minX: 0, minY: 0, span: 1, offsetX: 0, offsetY: 0 };
-  }
-
-  const xs = vertices.map(({ x }) => x);
-  const ys = vertices.map(({ y }) => y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const width = maxX - minX;
-  const height = maxY - minY;
-  const span = Math.max(width, height, Number.EPSILON);
-
-  return {
-    minX,
-    minY,
-    span,
-    offsetX: (span - width) / 2,
-    offsetY: (span - height) / 2,
-  };
-}
-
 function drawSampleArtwork(
   context: CanvasRenderingContext2D,
   flatGeometry: Map<string, Vec3[]>,
@@ -1180,7 +1163,25 @@ function createSampleArtworkTexture(
   return createTexture(canvas, true);
 }
 
-function flatUv(
+export function createCustomArtworkTexture(
+  paperCanvas: HTMLCanvasElement,
+  source: CustomArtworkSource | null,
+): CanvasTexture {
+  if (source === null) throw new Error('Custom artwork source is not installed');
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = CUSTOM_ARTWORK_SIZE;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.drawImage(paperCanvas, 0, 0, CUSTOM_ARTWORK_SIZE, CUSTOM_ARTWORK_SIZE);
+    context.globalCompositeOperation = 'source-over';
+    context.globalAlpha = ARTWORK_ALPHA;
+    context.drawImage(source.canvas, 0, 0, CUSTOM_ARTWORK_SIZE, CUSTOM_ARTWORK_SIZE);
+  }
+  return createTexture(canvas, true);
+}
+
+export function artworkPointUv(
   vertex: Pick<Vec3, 'x' | 'y'>,
   frame: FlatDielineUvFrame,
 ): { u: number; v: number } {
@@ -1191,11 +1192,11 @@ function flatUv(
 }
 
 export function panelSolidUvs(
-  flatVertices: Vec3[],
+  flatVertices: ReadonlyArray<Pick<Vec3, 'x' | 'y'>>,
   frame: FlatDielineUvFrame,
   thickness: number,
 ): Float32Array {
-  const coordinates = flatVertices.map((vertex) => flatUv(vertex, frame));
+  const coordinates = flatVertices.map((vertex) => artworkPointUv(vertex, frame));
   const values: number[] = [];
   const write = (index: number): void => {
     const coordinate = coordinates[index];
@@ -1225,6 +1226,21 @@ export function panelSolidUvs(
   }
 
   return new Float32Array(values);
+}
+
+export interface PanelArtworkUvs {
+  layout: ArtworkLayout;
+  uvs: Map<string, Float32Array>;
+}
+
+/** Production UV input: panel polygons and the square frame come from one ArtworkLayout. */
+export function buildPanelArtworkUvs(model: FoldModel, thickness: number): PanelArtworkUvs {
+  const layout = deriveArtworkLayout(model);
+  const uvs = new Map(layout.panels.map((panel) => [
+    panel.id,
+    panelSolidUvs(panel.polygon, layout.frame, thickness),
+  ]));
+  return { layout, uvs };
 }
 
 function createContactShadow(): ContactShadow {
@@ -1422,6 +1438,7 @@ export function createFoldScene(
   let activeLook = FOLD_RECIPES[FOLD_DEFAULT_RECIPE].look;
   let activePaper: PaperParams = { ...FOLD_RECIPES[FOLD_DEFAULT_RECIPE].paper };
   let activeArtwork: ArtworkMode = 'none';
+  let customArtworkSource: CustomArtworkSource | null = null;
   const initialPaperTextures = createPaperTextureSet(activePaper, activeLook.cardColor);
   let paperBaseAlbedoTexture = initialPaperTextures.albedo;
   let paperAlbedoTexture = paperBaseAlbedoTexture;
@@ -1474,19 +1491,17 @@ export function createFoldScene(
       paperBumpTexture,
     );
     const geometryByPanel = worldGeometry(model, foldPose(currentT, model));
-    const flatGeometryByPanel = worldGeometry(model, foldPose(0, model));
-    const uvFrame = flatDielineUvFrame(flatGeometryByPanel);
+    const panelArtworkUvs = buildPanelArtworkUvs(model, currentThickness);
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
       const vertices = geometryByPanel.get(panel.id) ?? [];
-      const flatVertices = flatGeometryByPanel.get(panel.id) ?? [];
       const positions = panelSolidPositions(vertices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
       geometry.setAttribute(
         'uv',
         new BufferAttribute(
-          panelSolidUvs(flatVertices, uvFrame, currentThickness),
+          panelArtworkUvs.uvs.get(panel.id) ?? new Float32Array(),
           2,
         ),
       );
@@ -1610,9 +1625,16 @@ export function createFoldScene(
   };
 
   const createActiveAlbedoTexture = (): CanvasTexture => {
-    if (activeArtwork === 'none' || currentModel === null) {
+    if (activeArtwork === 'none') {
       return paperBaseAlbedoTexture;
     }
+    if (activeArtwork === 'custom') {
+      return createCustomArtworkTexture(
+        paperBaseAlbedoTexture.image as HTMLCanvasElement,
+        customArtworkSource,
+      );
+    }
+    if (currentModel === null) return paperBaseAlbedoTexture;
     const flatGeometry = worldGeometry(currentModel, foldPose(0, currentModel));
     return createSampleArtworkTexture(
       paperBaseAlbedoTexture.image as HTMLCanvasElement,
@@ -1671,9 +1693,27 @@ export function createFoldScene(
   };
 
   const applyArtwork = (mode: ArtworkMode): void => {
+    if (mode === 'custom' && customArtworkSource === null) {
+      throw new Error('Custom artwork source is not installed');
+    }
     if (mode === activeArtwork) return;
     activeArtwork = mode;
     refreshArtworkAlbedo();
+  };
+
+  const installCustomSource = (source: CustomArtworkSource): void => {
+    customArtworkSource = source;
+    if (activeArtwork === 'custom') refreshArtworkAlbedo();
+  };
+
+  const removeCustomSource = (): void => {
+    if (activeArtwork === 'custom') {
+      activeArtwork = 'none';
+      customArtworkSource = null;
+      refreshArtworkAlbedo();
+      return;
+    }
+    customArtworkSource = null;
   };
 
   let devSetLook: ((name: FoldRecipeName) => void) | null = null;
@@ -1745,6 +1785,7 @@ export function createFoldScene(
 
     scene.remove(panelRoot);
     disposePanelTree();
+    if (activeArtwork !== 'none') refreshArtworkAlbedo();
     if (currentModel) {
       buildPanelTree(currentModel);
       updateModelPose();
@@ -1770,7 +1811,7 @@ export function createFoldScene(
       currentModel = model;
       currentThickness = replaceOpts.thickness ?? 0;
       disposePanelTree();
-      if (activeArtwork === 'sample') refreshArtworkAlbedo();
+      if (activeArtwork !== 'none') refreshArtworkAlbedo();
       buildPanelTree(model);
       updateModelPose();
       const frame = computeCameraFrame(model);
@@ -1783,6 +1824,8 @@ export function createFoldScene(
     },
     applyRecipe,
     applyArtwork,
+    installCustomSource,
+    removeCustomSource,
     resize,
     dispose() {
       if (disposed) return;

@@ -596,7 +596,7 @@ describe('computeImposition — 計算矩陣（portrait/landscape × full/cutV/c
       deg0: { cols: 10, rows: 2, count: 20, utilization: 0.6516 },
       deg90: { cols: 7, rows: 3, count: 21, utilization: 0.6842 },
     },
-    // final review review Minor：spec delta 要 8 組（原本 6 組只覆蓋 full/cutV/cutH 三種裁切，
+    // final review Minor：spec delta 要 8 組（原本 6 組只覆蓋 full/cutV/cutH 三種裁切，
     // 缺四開 cutV+cutH）。四開子紙尺寸與上方「裁切等式」describe 的 cutV／cutH 手算結果可疊
     // 加驗證（portrait：cutV 子紙 393.5×1092、cutH 子紙 787×546 → 四開＝393.5×546；landscape
     // 同理＝546×393.5，長短邊對調）。expected 由 resolveWorkingSheet 轉換鏈＋fitCount 公式

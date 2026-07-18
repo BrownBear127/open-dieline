@@ -138,7 +138,7 @@ const FILL_FORMAT_RESULT: GenerateResult = {
   bounds: { minX: 0, maxX: 4, minY: 0, maxY: 2 },
 };
 
-// 40×20mm 件（RTE）：final review review Medium「production-chain 一致性」測試專用 fixture——
+// 40×20mm 件（RTE）：final review Medium「production-chain 一致性」測試專用 fixture——
 // 搭配 214×134 landscape／cutV+cutH／allowRotate:true／gripper0／gap3，用來把 core
 // `pickFillSplit` 與 preview `directionInstances` 兩處各自重算的 usedW/usedH 接在同一條真實
 // 渲染鏈上鎖死：0° 卡 7 模/子紙(28模)、90° 卡 6 模/子紙(24模)。數字已用獨立 computeImposition
@@ -895,14 +895,14 @@ describe('ImpositionControls／ImpositionResults — 獨立掛載（review Mediu
   });
 });
 
-// ── gate round 1 final review review Medium：usedW/usedH 兩處實作（core `pickFillSplit`／preview
+// ── gate round 1 final review Medium：usedW/usedH 兩處實作（core `pickFillSplit`／preview
 // `directionInstances`）各自重算，公式現在代數一致（final review 已驗證），但沒有測試把兩者
 // 接在同一條真實鏈上——上面的預覽測試多半用手寫 DirectionResult，四開 UI 測試（全紙預覽 SVG
 // 結構區塊）走 allowRotate:false（無補排分支）。將來兩處只改一處，本檔其餘測試仍可能全綠，
 // 實際 SVG 補排件卻偏移/重疊/消失。本區塊改用真 `computeImposition` 輸出餵真
 // `directionInstances`／真 `SectionGroup` 渲染鏈，不手寫 DirectionResult。──────────────────
 
-describe('ImpositionView — production-chain usedW/usedH 一致性（gate round 1 final review review Medium）', () => {
+describe('ImpositionView — production-chain usedW/usedH 一致性（gate round 1 final review Medium）', () => {
   it('40×20 件／214×134 landscape 四開／allowRotate:true：真 computeImposition→真 directionInstances→真 SectionGroup 全鏈，鎖死 0° 卡 7 模/子紙(28模)＋90° 卡 6 模/子紙(24模)、補排件旋轉方向（0° 卡補件轉 90°／90° 卡補件不轉）、全部 instance 落在子紙 107×67 界內、SVG 序列化無 NaN/Infinity', () => {
     const state: ImpositionState = {
       ...BASE_STATE,
@@ -920,7 +920,7 @@ describe('ImpositionView — production-chain usedW/usedH 一致性（gate round
     const card0 = screen.getByTestId('direction-card-0');
     const card90 = screen.getByTestId('direction-card-90');
 
-    // 卡片文字鎖總數（controller 手算＋獨立 computeImposition 呼叫驗算，見 fixture 註解）。
+    // 卡片文字鎖總數（實作輪 手算＋獨立 computeImposition 呼叫驗算，見 fixture 註解）。
     expect(card0.textContent).toContain(
       t('imp.cut.formula', { per: t('imp.per.quarter'), count: 7, sections: 4, totalCount: 28 }),
     );

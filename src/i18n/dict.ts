@@ -172,6 +172,16 @@ export const dict = {
   'fold.art.label': { en: 'ART', zh: '圖稿' },
   'fold.art.none': { en: 'NONE', zh: '無' },
   'fold.art.sample': { en: 'SAMPLE', zh: '範例' },
+  'fold.art.template': { en: 'TEMPLATE', zh: '模板' },
+  'fold.art.upload': { en: 'UPLOAD', zh: '上傳' },
+  'fold.art.staleTemplate': {
+    en: 'Parameters changed. Download a new template to realign your artwork.',
+    zh: '參數已變更，建議重新下載模板對位。',
+  },
+  'fold.art.invalidFile': {
+    en: 'This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit.',
+    zh: '無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。',
+  },
   'fold.unsupported': {
     en: '3D fold preview is not yet available for this box style.',
     zh: '此盒型尚未支援 3D 摺盒預覽。',

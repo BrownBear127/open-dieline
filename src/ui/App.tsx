@@ -67,7 +67,17 @@
  * 處理」寫法慣例，不需要 `useEffect`），不碰 `impositionState`／`boxId`／`values` 任何一項，
  * 三者合起來就是 F6 表逐欄列舉的「全部保留」。
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import { listBoxes } from '@/core/registry';
 // side-effect import：觸發 RTE 於模組載入時自我註冊（registry.ts 的 registerBox）。
 // 沒有這行 listBoxes() 恆為空、整個 App 沒有盒型可渲染——registry.ts 的設計是
@@ -85,12 +95,53 @@ import { ParamPanel } from '@/ui/ParamPanel';
 import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { LayersPanel } from '@/ui/LayersPanel';
-import { FoldView } from '@/ui/FoldView';
 import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
 import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
 import { setLang, useLang } from '@/i18n/lang';
+import type { CustomArtworkSource } from '@/ui/fold-scene';
+import type { FoldViewProps } from '@/ui/FoldView';
+
+// P3 M3 C7b lazy boundary：FOLD 模式整包（FoldView＋其後的 fold-scene）切換才載入——
+// main gzip −1.9KB（117,856→115,919B·T0 探針實測），M3 的 overlay/接線增量落 FoldView
+// chunk 不吃 main 預算。chunk 載入失敗由 FoldChunkBoundary 沿 fold.loadFailed 慣例顯示
+//（與 FoldView 內部 fold-scene 動態載入失敗同一文案語義·同險同待遇）。
+// side-effect import：e2e 測試接線（__p3SetInitialFoldProgress）須先於 FOLD chunk 存在。
+import '@/ui/fold-hooks';
+export type FoldViewLoader = () => Promise<{ default: ComponentType<FoldViewProps> }>;
+
+const defaultLoadFoldView: FoldViewLoader = () => import('@/ui/FoldView')
+  .then((module) => ({ default: module.FoldView }));
+
+function RetryableFoldView({
+  loadFoldView,
+  ...props
+}: FoldViewProps & { loadFoldView: FoldViewLoader }) {
+  const FoldView = useMemo(() => lazy(loadFoldView), [loadFoldView]);
+  return (
+    <Suspense fallback={null}>
+      <FoldView {...props} />
+    </Suspense>
+  );
+}
+
+class FoldChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  render(): ReactNode {
+    if (this.state.failed) {
+      return (
+        <div className="fold-empty" data-fold-error="true">
+          <p className="mono">{t('fold.loadFailed')}</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { getLang, t } from '@/i18n/t';
 
 /** 頂部模式切換鈕的兩個狀態（Slice 4 Task 4，spec F6／「組裝」）：`'design'`＝現行的
@@ -107,7 +158,7 @@ function emphasisParts(copy: string): [before: string, emphasis: string, after: 
   return [match[1]!, match[2]!, match[3]!];
 }
 
-export function App() {
+export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: FoldViewLoader } = {}) {
   // root 訂閱讓語言變更重繪全樹；後代既有 t()/getLang() 呼叫不需逐點訂閱。
   const lang = useLang();
   const boxes = useMemo(() => listBoxes(), []);
@@ -134,6 +185,22 @@ export function App() {
   // 會寫這顆 state；進拼版模式那顆鈕額外呼叫 `setCalibrating(false)`（F6「校準互斥」，
   // 見下方按鈕定義）。
   const [appMode, setAppMode] = useState<AppMode>('design');
+  const customArtworkSourceRef = useRef<CustomArtworkSource | null>(null);
+
+  const replaceCustomArtworkSource = (nextSource: CustomArtworkSource | null): void => {
+    const previousSource = customArtworkSourceRef.current;
+    if (previousSource !== null && previousSource !== nextSource) {
+      previousSource.canvas.width = previousSource.canvas.height = 0;
+    }
+    customArtworkSourceRef.current = nextSource;
+  };
+
+  useEffect(() => () => {
+    const source = customArtworkSourceRef.current;
+    if (source !== null) {
+      source.canvas.width = source.canvas.height = 0;
+    }
+  }, []);
 
   const result = useMemo(() => mod.generate(values), [mod, values]);
 
@@ -405,7 +472,15 @@ export function App() {
               <ImpositionResults result={result} state={impositionState} />
             </section>
           ) : (
-            <FoldView boxId={boxId} values={values} />
+            <FoldChunkBoundary>
+              <RetryableFoldView
+                loadFoldView={loadFoldView}
+                boxId={boxId}
+                values={values}
+                customSource={customArtworkSourceRef.current}
+                onCustomSourceChange={replaceCustomArtworkSource}
+              />
+            </FoldChunkBoundary>
           )}
         </main>
       </div>

@@ -1,11 +1,16 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 31 probes：既有 28 項＋FOLD_RECIPES 凍結漂移＋tuckLock 分片 hinge 退化＋fold reset 卡死——見各 probe 註解。
+// 共 33 probes：既有 31 項＋C1 對位 frame 漂移＋artwork upload transaction 變異——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  assertNamedTests,
+  REQUIRED_ARTWORK_E2E,
+  REQUIRED_ARTWORK_UNIT,
+} from './test-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sh = (cmd, env = {}) => execSync(cmd, { cwd: root, stdio: 'pipe', env: { ...process.env, ...env } }).toString();
@@ -29,6 +34,22 @@ const append = (rel, text) => {
 const revert = () => {
   for (const [p, contents] of originals) writeFileSync(p, contents);
   originals = new Map();
+};
+
+const EXPECTED_E2E_TOTAL = 50;
+
+const assertE2eManifest = () => {
+  const listing = sh('npx playwright test --list');
+  const total = Number(/Total: (\d+) tests? in/.exec(listing)?.[1]);
+  if (total !== EXPECTED_E2E_TOTAL) {
+    throw new Error(`e2e 總數漂移：expected ${EXPECTED_E2E_TOTAL}, got ${total}`);
+  }
+  assertNamedTests(listing, REQUIRED_ARTWORK_E2E, 'e2e');
+};
+
+const assertUnitManifest = () => {
+  const listing = sh('npx vitest list tests/fold-ui/artwork-source.test.ts');
+  assertNamedTests(listing, REQUIRED_ARTWORK_UNIT, 'unit');
 };
 
 const PROBES = [
@@ -203,8 +224,24 @@ const PROBES = [
       'currentT = t === 0 && currentT !== 0 ? 0.5 : (Number.isFinite(t) ? t : 0);'),
     check: () => shFails('npm run build:e2e && npx playwright test e2e/fold-mode.spec.ts -g "dragging fold progress to one"'),
     greenCheck: () => !shFails('npm run build:e2e && npx playwright test e2e/fold-mode.spec.ts -g "dragging fold progress to one"') },
+  // M3 C1：square frame 的 span 若從長軸 max 漂成短軸 min，C1 同源 fixture 必須翻紅。
+  { id: 'c1-alignment-drift', gate: 'c1-artwork-alignment',
+    run: () => mutate('src/ui/artwork-layout.ts',
+      'const span = Math.max(width, height, Number.EPSILON);',
+      'const span = Math.min(width, height);'),
+    check: () => shFails('npx vitest run tests/fold-ui/artwork-layout.test.ts'),
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/artwork-layout.test.ts') },
+  // M3 F2.1：latest-request-wins 若失效，A/B 反序完成測試必須抓到舊 request commit。
+  { id: 'artwork-upload-mutation', gate: 'artwork-upload-transaction',
+    run: () => mutate('src/ui/artwork-source.ts',
+      'const isCurrent = (): boolean => requestId === latestRequestId && !options.signal?.aborted;',
+      'const isCurrent = (): boolean => true;'),
+    check: () => shFails('npx vitest run tests/fold-ui/artwork-source.test.ts -t "commits only B when A and B finish in reverse order"'),
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/artwork-source.test.ts') },
 ];
 
+assertE2eManifest();
+assertUnitManifest();
 const probeOnly = process.env.PROBE_ONLY;
 const selectedProbes = probeOnly === undefined
   ? PROBES

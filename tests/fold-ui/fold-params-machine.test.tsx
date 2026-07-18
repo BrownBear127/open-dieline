@@ -26,6 +26,8 @@ function createFakeScene(): FakeScene {
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),
+      installCustomSource: vi.fn(),
+      removeCustomSource: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };

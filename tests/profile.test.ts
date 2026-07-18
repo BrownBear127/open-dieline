@@ -239,7 +239,7 @@ describe('computeProfileStrides — RTE 預設件（27"×39"直放·咬口20·ga
     //      條 arc + 3 條 bezier）上互相印證在同一數量級、差距可解釋——不是巧合對上、也
     //      不是暗藏一個抵銷另一個的鏡射 bug。
     //
-    // 另外發現（非本模組 bug，記錄供 controller 知悉）：探針 v2 手動組 params 時遺漏
+    // 另外發現（非本模組 bug，記錄供 實作輪 知悉）：探針 v2 手動組 params 時遺漏
     // `tuckClearance` 的 `derivedDefault`（`0.5+thickness`），實際餵入 0.5 而非
     // canonical 的 0.8——這也是探針 193.57 跟本檔（用 `resolveParams` 走正規 derivedDefault
     // 解析鏈得到 tuckClearance=0.8）之間一部分差距的來源，與 arc/bezier 讀取 bug 無關。
@@ -253,7 +253,7 @@ describe('computeProfileStrides — RTE 預設件（27"×39"直放·咬口20·ga
     expect(strides.strideY).toBeGreaterThan(100); // 遠高於「完全不合理」的下界，防止公式整個算反
   });
 
-  it('27"×39"（686×991mm，咬口20→可用區646×951）模數錨不受 arc 保守化影響：0° 2×4=8、90° 3×4=12（與探針 v1.2 記錄的 spec 錨相同——若這裡變動須停下回報 controller，本次驗證未變動）', () => {
+  it('27"×39"（686×991mm，咬口20→可用區646×951）模數錨不受 arc 保守化影響：0° 2×4=8、90° 3×4=12（與探針 v1.2 記錄的 spec 錨相同——若這裡變動須停下回報實作輪，本次驗證未變動）', () => {
     const usableW = 646;
     const usableH = 951;
     const sf = (avail: number, piece: number, stride: number) => (avail + 1e-6 < piece ? 0 : 1 + Math.floor((avail - piece + 1e-6) / stride));
@@ -544,7 +544,7 @@ describe('computeProfileStrides — 效能記錄', () => {
 
     // 實測值（見 開發紀錄）：約 0.3-2.5ms，遠低於 10ms 參考門檻。門檻本身放寬到
     // 50ms 防 CI 環境雜訊造成偶發 flaky（門檻參考值本身不是本次要鎖的精確數字，真正的
-    // 觀測數字記在 report 裡供 controller 參考）。
+    // 觀測數字記在 report 裡供 實作輪 參考）。
     expect(elapsed).toBeLessThan(50);
   });
 });

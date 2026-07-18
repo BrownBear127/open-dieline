@@ -257,7 +257,7 @@ function discretizeArc(seg: Extract<Segment, { kind: 'arc' }>, maxChordMM: numbe
   return { points, pointErrorMM: chordLen / 2 + sagitta };
 }
 
-/** `bezier`：**獨立於 `core/geometry.ts` 既有 `flattenBezier` 的終止判準**（2026-07 review
+/** `bezier`：**獨立於 `core/geometry.ts` 既有 `flattenBezier` 的終止判準**（2026-07
  *  review M finding——原本這裡直接沿用共用的 `flattenBezier`：它的 `chordHeight()` 只採樣
  *  「曲線中點」`B(0.5)` 到弦（P0-P3 連線）的距離當判準，對多數曲線夠用，但對「控制點 P1/P2
  *  關於弦中點反對稱」的對稱 S 形曲線會被騙過——`B(0.5)=(P0+3P1+3P2+P3)/8`，反對稱項在這個

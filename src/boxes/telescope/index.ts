@@ -522,8 +522,8 @@ export const MIN_TONGUE_PERP_HALF = TONGUE_END_RECESS + TUCK_FLAP_SHALLOW_DEPTH;
  * perpHalf < B_TONGUE_RESERVED_LONGWALL+innerWallReduction+TUCK_FLAP_SHALLOW_DEPTH）：
  * production 預設 innerWallReduction=0.8 時＝17.698（對應面板邊長 35.396mm），比原
  * MIN_TONGUE_PERP_HALF(16.5mm／33mm) 更緊——若沿用舊門檻，面板邊長落在
- * [33,35.396) 這個窗口時 B 款 longWall 插底舌已實際自撞但不變式仍回報正常（review
- * re-review Medium finding，2026-07-11：baseLength=34＋basePlatformWidth=0 實測驗證，
+ * [33,35.396) 這個窗口時 B 款 longWall 插底舌已實際自撞但不變式仍回報正常
+ *（re-review Medium finding，2026-07-11：baseLength=34＋basePlatformWidth=0 實測驗證，
  * 見 開發紀錄 concern 1 fix 段的重現紀錄；已用 generateTray+
  * hasSelfIntersection 對 baseLength 掃描驗證：35.39（perpHalf=17.695）自撞、35.396
  * （perpHalf=17.698）乾淨，門檻精確落在此處）。

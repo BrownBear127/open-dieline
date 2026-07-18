@@ -30,6 +30,8 @@ function createFakeScene(): FakeScene {
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),
+      installCustomSource: vi.fn(),
+      removeCustomSource: vi.fn(),
       resize: vi.fn(),
       dispose: vi.fn(),
     };
@@ -75,9 +77,90 @@ describe('App fold mode', () => {
     expect(design).toHaveAttribute('aria-pressed', 'true');
     expect(fold).toHaveAttribute('aria-pressed', 'false');
   });
+
+  it('retries a rejected FoldView chunk after switching away and back to FOLD', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let attempt = 0;
+    const loadFoldView = vi.fn(() => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error('first chunk failure'));
+      return Promise.resolve({
+        default: () => <section data-testid="retry-fold-view">retry succeeded</section>,
+      });
+    });
+    render(<App loadFoldView={loadFoldView} />);
+    const fold = screen.getByRole('button', { name: t('mode.fold') });
+    const design = screen.getByRole('button', { name: t('mode.design') });
+
+    fireEvent.click(fold);
+    await waitFor(() => expect(loadFoldView).toHaveBeenCalledOnce());
+    expect(await screen.findByText(t('fold.loadFailed'))).toBeInTheDocument();
+
+    fireEvent.click(design);
+    fireEvent.click(fold);
+
+    expect(await screen.findByTestId('retry-fold-view')).toHaveTextContent('retry succeeded');
+    expect(loadFoldView).toHaveBeenCalledTimes(2);
+    expect(consoleError).toHaveBeenCalled();
+  });
 });
 
 describe('FoldView scene lifecycle', () => {
+  it('keeps data-artwork-ready at none until a retained custom source is installed on every remount', async () => {
+    const source = {
+      canvas: document.createElement('canvas'),
+      signature: 'retained-custom-source',
+    };
+
+    for (let visit = 0; visit < 2; visit += 1) {
+      const fake = createFakeScene();
+      const view = render(
+        <FoldView
+          boxId="rte"
+          values={RTE_VALUES}
+          createScene={fake.createScene}
+          customSource={source}
+        />,
+      );
+      const foldView = view.container.querySelector('.fold-view');
+
+      expect(foldView).toHaveAttribute('data-artwork-ready', 'none');
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      expect(fake.handles[0]!.installCustomSource).toHaveBeenCalledExactlyOnceWith(source);
+      expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('custom');
+      await waitFor(() => expect(foldView).toHaveAttribute('data-artwork-ready', 'custom'));
+
+      view.unmount();
+    }
+  });
+
+  it('aborts an in-flight upload when its FoldView owner unmounts', async () => {
+    const fake = createFakeScene();
+    let signal: AbortSignal | undefined;
+    const loadArtwork = vi.fn((_file: File, options: { signal?: AbortSignal }) => {
+      signal = options.signal;
+      return new Promise<never>(() => undefined);
+    });
+    const view = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(loadArtwork).toHaveBeenCalledOnce());
+
+    view.unmount();
+
+    expect(signal?.aborted).toBe(true);
+  });
+
   it('pairs canvas creation and disposal across three visits', async () => {
     const fake = createFakeScene();
     const view = render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);

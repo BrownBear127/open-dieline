@@ -31,3 +31,5 @@
 - [PASS] fold-comp-drift → fold-reconcile：目標紅=true、復原全綠=true
 - [PASS] tucklock-degenerate → fold-model-validate：目標紅=true、復原全綠=true
 - [PASS] fold-reset-stuck → fold-reset-reversibility：目標紅=true、復原全綠=true
+- [PASS] c1-alignment-drift → c1-artwork-alignment：目標紅=true、復原全綠=true
+- [PASS] artwork-upload-mutation → artwork-upload-transaction：目標紅=true、復原全綠=true

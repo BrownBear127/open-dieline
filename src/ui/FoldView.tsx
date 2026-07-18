@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import type { ResolvedParams } from '@/core/types';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
+import {
+  clearInitialFoldProgress,
+  P3_TEST_HOOKS_ENABLED,
+  peekInitialFoldProgress,
+} from '@/ui/fold-hooks';
+import type { ArtworkLoadResult } from '@/ui/artwork-source';
+import { artworkLayoutSignature } from '@/ui/artwork-layout';
 import type {
   ArtworkMode,
   createFoldScene,
+  CustomArtworkSource,
   FoldRecipeName,
   FoldSceneHandle,
 } from '@/ui/fold-scene';
@@ -12,17 +20,10 @@ import type {
 const defaultLoadScene = () => import('./fold-scene');
 const FOLD_PLAY_DURATION_MS = 2400;
 const DEFAULT_FOLD_PROGRESS = 1;
-const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
-let nextInitialFoldProgress: number | undefined;
+// __p3SetInitialFoldProgress 註冊已遷 fold-hooks.ts（main 側·lazy 化後須先於本 chunk 存在）。
 
 function clampFoldProgress(progress: number): number {
   return Math.min(1, Math.max(0, progress));
-}
-
-if (P3_TEST_HOOKS_ENABLED && typeof window !== 'undefined') {
-  (window as unknown as Record<string, unknown>).__p3SetInitialFoldProgress = (progress: number) => {
-    nextInitialFoldProgress = Number.isFinite(progress) ? clampFoldProgress(progress) : 0;
-  };
 }
 
 const FOLD_CARD_RECIPES = [
@@ -52,9 +53,25 @@ async function loadFoldModelRuntime(): Promise<FoldModelRuntime> {
 export interface FoldViewProps {
   boxId: string;
   values: ResolvedParams;
+  customSource?: CustomArtworkSource | null;
+  onCustomSourceChange?: (source: CustomArtworkSource | null) => void;
+  loadArtwork?: ArtworkFileLoader;
   createScene?: typeof createFoldScene;
   loadScene?: () => Promise<{ createFoldScene: typeof createFoldScene }>;
 }
+
+export interface ArtworkFileLoadOptions {
+  signature: string;
+  signal?: AbortSignal;
+  onCommit: (source: CustomArtworkSource) => void;
+}
+
+export type ArtworkFileLoader = (
+  file: File,
+  options: ArtworkFileLoadOptions,
+) => Promise<ArtworkLoadResult>;
+
+type UploadStatus = 'idle' | 'loading' | 'error';
 
 function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
   return (
@@ -64,9 +81,33 @@ function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: bo
   );
 }
 
-export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProps) {
+function FoldArtworkStatus({
+  uploadStatus,
+  staleTemplate,
+}: {
+  uploadStatus: UploadStatus;
+  staleTemplate: boolean;
+}) {
+  if (uploadStatus === 'error') {
+    return <p className="fold-status mono" role="alert">{t('fold.art.invalidFile')}</p>;
+  }
+  if (staleTemplate) {
+    return <p className="fold-status mono" role="status">{t('fold.art.staleTemplate')}</p>;
+  }
+  return null;
+}
+
+export function FoldView({
+  boxId,
+  values,
+  customSource = null,
+  onCustomSourceChange,
+  loadArtwork,
+  createScene,
+  loadScene,
+}: FoldViewProps) {
   const initialFoldProgress = P3_TEST_HOOKS_ENABLED
-    ? nextInitialFoldProgress ?? DEFAULT_FOLD_PROGRESS
+    ? peekInitialFoldProgress() ?? DEFAULT_FOLD_PROGRESS
     : DEFAULT_FOLD_PROGRESS;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLElement>(null);
@@ -76,14 +117,21 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const playbackOriginRef = useRef(DEFAULT_FOLD_PROGRESS);
   const foldProgressRef = useRef(initialFoldProgress);
   const cardRecipeRef = useRef<FoldRecipeName>('kraft');
-  const artworkRef = useRef<ArtworkMode>('none');
+  const initialArtwork: ArtworkMode = customSource === null ? 'none' : 'custom';
+  const artworkRef = useRef<ArtworkMode>(initialArtwork);
+  const customSourceRef = useRef<CustomArtworkSource | null>(customSource);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 自轉預設關閉（2026-07-17 E2E 驗收裁決）：進場靜止，由使用者主動開啟。
   const autoRotateRef = useRef(false);
   const [foldProgress, setFoldProgress] = useState(initialFoldProgress);
   const [playing, setPlaying] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [cardRecipe, setCardRecipe] = useState<FoldRecipeName>('kraft');
-  const [artwork, setArtwork] = useState<ArtworkMode>('none');
+  const [artwork, setArtwork] = useState<ArtworkMode>(initialArtwork);
+  const [sceneArtwork, setSceneArtwork] = useState<ArtworkMode>('none');
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [staleTemplate, setStaleTemplate] = useState(false);
   const artworkEnabled = artwork === 'sample';
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
@@ -93,6 +141,10 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
   const model = useMemo<FoldModel | undefined>(() => builder?.(values), [boxId, values, builder]);
+  const artworkSignature = useMemo(
+    () => model === undefined ? null : artworkLayoutSignature(model),
+    [model],
+  );
   const validationErrors = useMemo(
     () => model === undefined ? [] : modelRuntime?.validate(model) ?? [],
     [model, modelRuntime],
@@ -156,10 +208,80 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     sceneRef.current?.applyRecipe(name);
   };
 
+  const cancelPendingUpload = (): void => {
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
+  };
+
   const selectArtwork = (mode: ArtworkMode): void => {
+    cancelPendingUpload();
+    setUploadStatus('idle');
+    setStaleTemplate(false);
     artworkRef.current = mode;
     setArtwork(mode);
-    sceneRef.current?.applyArtwork(mode);
+    const scene = sceneRef.current;
+    if (scene !== null) {
+      scene.applyArtwork(mode);
+      setSceneArtwork(mode);
+    }
+    if (mode !== 'custom' && customSourceRef.current !== null) {
+      scene?.removeCustomSource();
+      customSourceRef.current = null;
+      onCustomSourceChange?.(null);
+    }
+  };
+
+  // P3 M3 T1——重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（J1 C7b：main
+  // 只收接線）。model 已在本元件算好（TEMPLATE 鈕只在 canCreateScene 為真時渲染，此時
+  // model 必已定義），連同 boxId/values 一併傳給 builder；lang 由 downloadTemplate 內部
+  // 讀 getLang()，不需在此額外傳遞。
+  const handleTemplateDownload = (): void => {
+    if (model === undefined) return;
+    void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate({ model, boxId, values }));
+  };
+
+  const handleUploadClick = (): void => {
+    if (artwork === 'custom') {
+      selectArtwork('none');
+      return;
+    }
+    setUploadStatus('idle');
+    fileInputRef.current?.click();
+  };
+
+  const handleUploadFile = (event: ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file === undefined) return;
+    cancelPendingUpload();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+    setUploadStatus('loading');
+
+    const startUpload = async (): Promise<void> => {
+      const loader = loadArtwork ?? (await import('./artwork-source')).loadArtworkFile;
+      if (controller.signal.aborted) return;
+      const result = await loader(file, {
+        signature: artworkSignature ?? '',
+        signal: controller.signal,
+        onCommit: (source) => {
+          customSourceRef.current = source;
+          onCustomSourceChange?.(source);
+          sceneRef.current?.installCustomSource(source);
+          selectArtwork('custom');
+        },
+      });
+      if (uploadAbortRef.current !== controller) return;
+      uploadAbortRef.current = null;
+      setUploadStatus(result === 'committed' || result === 'cancelled' ? 'idle' : 'error');
+    };
+
+    void startUpload().catch((error: unknown) => {
+      if (uploadAbortRef.current !== controller) return;
+      uploadAbortRef.current = null;
+      setUploadStatus('error');
+      console.error(error);
+    });
   };
 
   const toggleAutoRotate = (): void => {
@@ -186,9 +308,40 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
 
   useEffect(() => () => cancelPlaybackFrame(), []);
 
+  useEffect(() => () => cancelPendingUpload(), []);
+
+  useEffect(() => {
+    if (!P3_TEST_HOOKS_ENABLED) return undefined;
+    const readArtworkPixel = (u: number, v: number): number[] | null => {
+      const canvas = customSourceRef.current?.canvas;
+      if (canvas === undefined || !Number.isFinite(u) || !Number.isFinite(v)) return null;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (context === null) return null;
+      const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(u * canvas.width)));
+      const y = Math.min(canvas.height - 1, Math.max(0, Math.floor((1 - v) * canvas.height)));
+      return [...context.getImageData(x, y, 1, 1).data];
+    };
+    const hooks = window as unknown as Record<string, unknown>;
+    hooks.__p3ReadArtworkPixel = readArtworkPixel;
+    return () => {
+      if (hooks.__p3ReadArtworkPixel === readArtworkPixel) delete hooks.__p3ReadArtworkPixel;
+    };
+  }, []);
+
   useEffect(() => {
     if (validationErrors.length > 0) console.error(validationErrors);
   }, [validationErrors]);
+
+  useEffect(() => {
+    if (
+      artwork === 'custom'
+      && artworkSignature !== null
+      && customSourceRef.current !== null
+      && customSourceRef.current.signature !== artworkSignature
+    ) {
+      setStaleTemplate(true);
+    }
+  }, [artwork, artworkSignature]);
 
   useEffect(() => {
     if (canCreateScene && model !== undefined) {
@@ -241,12 +394,15 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
         return;
       }
 
-      if (P3_TEST_HOOKS_ENABLED) nextInitialFoldProgress = undefined;
+      if (P3_TEST_HOOKS_ENABLED) clearInitialFoldProgress();
       scene = nextScene;
       sceneRef.current = nextScene;
       const currentModel = modelRef.current;
       if (currentModel !== undefined) {
         nextScene.replaceModel(currentModel, { thickness: thicknessRef.current });
+      }
+      if (customSourceRef.current !== null) {
+        nextScene.installCustomSource(customSourceRef.current);
       }
       nextScene.updatePose(foldProgressRef.current);
       nextScene.setAutoRotate(autoRotateRef.current);
@@ -256,6 +412,7 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
       if (artworkRef.current !== 'none') {
         nextScene.applyArtwork(artworkRef.current);
       }
+      setSceneArtwork(artworkRef.current);
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver((entries) => {
@@ -295,11 +452,28 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
     return <FoldEmpty copy={t('fold.webglUnavailable')} />;
   }
 
+  const artworkStatus = (
+    <FoldArtworkStatus uploadStatus={uploadStatus} staleTemplate={staleTemplate} />
+  );
+
   return modelRuntime === null ? (
-    <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef} />
+    <section
+      className="fold-view"
+      data-artwork-ready={sceneArtwork}
+      data-context-lost={String(contextLost)}
+      ref={containerRef}
+    >
+      {artworkStatus}
+    </section>
   ) : (
-    <section className="fold-view" data-context-lost={String(contextLost)} ref={containerRef}>
+    <section
+      className="fold-view"
+      data-artwork-ready={sceneArtwork}
+      data-context-lost={String(contextLost)}
+      ref={containerRef}
+    >
       <canvas className="fold-canvas" ref={canvasRef} />
+      {artworkStatus}
       <div className="fold-tools">
         <div className="fold-tool-group" role="group" aria-label={t('fold.card.label')}>
           {FOLD_CARD_RECIPES.map(({ name, labelKey }) => (
@@ -323,6 +497,24 @@ export function FoldView({ boxId, values, createScene, loadScene }: FoldViewProp
           >
             {t('fold.art.sample')}
           </button>
+          <button type="button" className="btn label" onClick={handleTemplateDownload}>
+            {t('fold.art.template')}
+          </button>
+          <button
+            type="button"
+            className={`btn tog label${artwork === 'custom' ? ' on' : ''}`}
+            aria-pressed={artwork === 'custom'}
+            onClick={handleUploadClick}
+          >
+            {t('fold.art.upload')}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml"
+            hidden
+            onChange={handleUploadFile}
+          />
         </div>
         <button
           type="button"

@@ -232,7 +232,7 @@ Vendor date: 2026-07-17
 （mode.fold 的 EN 顯示形＝label 聲部 uppercase 由 CSS 管，字典存 Title case——同 mode.design 慣例；
 兩條 aria 不渲染。）
 
-### A9 摺盒卡色（P3 M2 新增·2026-07-17 controller 提案·待 B5-final 追認）
+### A9 摺盒卡色（P3 M2 新增·2026-07-17 實作輪 提案·待 B5-final 追認）
 
 | key | EN | zh | lock | 聲部 |
 |-----|-----|-----|------|------|
@@ -241,13 +241,22 @@ Vendor date: 2026-07-17
 | fold.card.kraft | KRAFT | 牛皮 | | label |
 | fold.card.black | BLACK | 黑 | | label |
 
-### A10 摺盒圖稿（P3 M2 T2.6 新增·2026-07-17 controller 提案·待 B5-final 追認）
+### A10 摺盒圖稿（P3 M2 T2.6 新增·2026-07-17 實作輪 提案·待 B5-final 追認）
 
 | key | EN | zh | lock | 聲部 |
 |-----|-----|-----|------|------|
 | fold.art.label | ART | 圖稿 | | label |
 | fold.art.none | NONE | 無 | | label |
 | fold.art.sample | SAMPLE | 範例 | | label |
+
+### A11 設計稿上傳（P3 M3 T0 新增·2026-07-17 review 草案＋採納·待 C9 簽核輪終裁）
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.art.template | TEMPLATE | 模板 | | label |
+| fold.art.upload | UPLOAD | 上傳 | | label |
+| fold.art.staleTemplate | Parameters changed. Download a new template to realign your artwork. | 參數已變更，建議重新下載模板對位。 | | status |
+| fold.art.invalidFile | This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit. | 無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。 | | alert |
 
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 

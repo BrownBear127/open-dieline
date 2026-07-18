@@ -80,6 +80,23 @@
     "source": "derived — canvas 填滿剩餘預覽區且不撐開容器·簽核=M2 視覺輪"
   },
   {
+    "selector": ".fold-status",
+    "props": {
+      "position": "absolute",
+      "top": "24px",
+      "left": "24px",
+      "z-index": "1",
+      "max-width": "calc(100% - 48px)",
+      "margin": "0",
+      "padding": "8px 10px",
+      "border": "1px solid var(--hairline)",
+      "background": "var(--paper)",
+      "color": "var(--ink)",
+      "line-height": "1.5"
+    },
+    "source": "derived — canvas 左上角輔助狀態以紙色實底維持卡色上的可讀性·簽核=M2 視覺輪"
+  },
+  {
     "selector": ".fold-tools",
     "props": {
       "position": "absolute",
