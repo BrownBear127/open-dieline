@@ -36,7 +36,7 @@ const revert = () => {
   originals = new Map();
 };
 
-const EXPECTED_E2E_TOTAL = 61;
+const EXPECTED_E2E_TOTAL = 64;
 const REQUIRED_EDITOR_E2E = [
   'loads the editor chunk only after EDIT and keeps it cached after DONE',
   'EDIT adds an image and text, drags the text, then DONE updates the 3D preview',

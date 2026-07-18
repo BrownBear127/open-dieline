@@ -10,7 +10,7 @@
  * reference，不是各自維護一份公式）。
  *
  * `deriveArtworkLayout`：自 `worldGeometry(model, foldPose(0, model))` 取名義攤平
- * 幾何——與 `fold-scene.ts` 現行 UV 生成／`sampleArtworkPlan` 同款呼叫。t=0 時
+ * 幾何——與 `fold-scene.ts` 現行 UV／SAMPLE 方形貼圖同款呼叫。t=0 時
  * FoldModel 的 pose 對每個非 root 面板角度皆為 0，`hingeRotation(hinge, 0)` 化簡為
  * identity transform（`Math.cos(0)=1`、`Math.sin(0)=0` 為精確值，無浮點誤差），
  * 因此 `worldGeometry` 在 t=0 回傳的每個 panel 頂點與該 panel 宣告時的

@@ -80,6 +80,96 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function mockSceneCanvasContext(): ReturnType<typeof vi.fn> {
+  const drawImage = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(
+    this: HTMLCanvasElement,
+  ) {
+    return {
+      canvas: this,
+      createImageData: (width: number, height: number) => ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+      }),
+      putImageData: vi.fn(),
+      createRadialGradient: () => ({ addColorStop: vi.fn() }),
+      fillRect: vi.fn(),
+      drawImage,
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+  });
+  return drawImage;
+}
+
+function mockSampleImageDecode(outcome: 'resolve' | 'reject') {
+  const images: Array<{ src: string; decode: ReturnType<typeof vi.fn> }> = [];
+  class MockImage {
+    src = '';
+    decode = vi.fn(() => outcome === 'resolve'
+      ? Promise.resolve()
+      : Promise.reject(new Error('sample decode failed')));
+
+    constructor() {
+      images.push(this);
+    }
+  }
+  vi.stubGlobal('Image', MockImage);
+  return images;
+}
+
+describe('brand SAMPLE artwork', () => {
+  it('decodes the branded WebP, draws it across the square frame, and redraws it for a resized model', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const drawImage = mockSceneCanvasContext();
+    const images = mockSampleImageDecode('resolve');
+    const scene = createFoldScene(document.createElement('canvas'));
+    const defaults = resolveParams(reverseTuckEnd, {});
+
+    scene.replaceModel(buildRteFoldModel(defaults));
+    scene.applyArtwork('sample');
+
+    expect(images).toHaveLength(1);
+    expect(images[0]!.src).toMatch(/\/sample-artwork\.webp$/);
+    expect(images[0]!.decode).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(drawImage.mock.calls.filter(([source]) => source === images[0])).toHaveLength(1);
+    });
+    expect(drawImage.mock.calls.find(([source]) => source === images[0])).toEqual([
+      images[0],
+      0,
+      0,
+      512,
+      512,
+    ]);
+
+    scene.replaceModel(buildRteFoldModel(resolveParams(reverseTuckEnd, { L: 65 })));
+
+    expect(drawImage.mock.calls.filter(([source]) => source === images[0])).toHaveLength(2);
+    expect(images[0]!.decode).toHaveBeenCalledOnce();
+    scene.dispose();
+  });
+
+  it('swallows WebP decode failure and keeps the sample path on the paper-only fallback', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const drawImage = mockSceneCanvasContext();
+    const images = mockSampleImageDecode('reject');
+    const scene = createFoldScene(document.createElement('canvas'));
+
+    scene.replaceModel(buildRteFoldModel(resolveParams(reverseTuckEnd, {})));
+    expect(() => scene.applyArtwork('sample')).not.toThrow();
+
+    expect(images).toHaveLength(1);
+    expect(images[0]!.decode).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    expect(drawImage.mock.calls.some(([source]) => source === images[0])).toBe(false);
+    scene.dispose();
+  });
+});
+
 describe('custom artwork albedo composition', () => {
   it('creates a 2048 target, upscales paper first, then overlays the full source at alpha 0.88', () => {
     const paper = document.createElement('canvas');

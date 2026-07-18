@@ -116,6 +116,12 @@ export type FoldViewLoader = () => Promise<{ default: ComponentType<FoldViewProp
 const defaultLoadFoldView: FoldViewLoader = () => import('@/ui/FoldView')
   .then((module) => ({ default: module.FoldView }));
 
+const APP_FOOTER_LINKS = [
+  ['PolyForm Noncommercial', 'https://polyformproject.org/licenses/noncommercial/1.0.0'],
+  ['GitHub', 'https://github.com/BrownBear127/open-dieline'],
+  ['Substack', 'https://konvolut.substack.com'],
+] as const;
+
 function RetryableFoldView({
   loadFoldView,
   ...props
@@ -528,6 +534,18 @@ export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: Fol
       {appMode === 'design' && (
         <ExportBar boxId={boxId} values={values} result={result} activePiece={activePiece} />
       )}
+
+      <footer className="app-footer mono">
+        <span>source-available</span>
+        {APP_FOOTER_LINKS.map(([label, href]) => (
+          <span key={href}>
+            {' · '}
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {label}
+            </a>
+          </span>
+        ))}
+      </footer>
 
       <AnnouncementModal open={announcementOpen} onClose={() => setAnnouncementOpen(false)} />
     </div>

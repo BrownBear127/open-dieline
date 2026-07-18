@@ -50,6 +50,47 @@ for (const lang of LANGUAGES) {
   });
 }
 
+// Containment is asserted at the default desktop viewport only: .app is a desktop-only
+// single-column grid, so at phone widths every row (masthead, moderow, main, platebar,
+// footer) stretches to the same track forced by the toolbars' min-content — the footer
+// cannot fit the viewport there without whole-app responsive work.
+test('footer and modal expose the exact safe external links inside the app frame', async ({ page }) => {
+  await gotoReady(page);
+
+  const app = page.locator('.app');
+  const footer = page.locator('.app-footer');
+  await expect(footer).toHaveText('source-available · PolyForm Noncommercial · GitHub · Substack');
+  await expect(footer.getByRole('link')).toHaveCount(3);
+  await expect(footer.getByRole('link', { name: 'PolyForm Noncommercial' })).toHaveAttribute(
+    'href',
+    'https://polyformproject.org/licenses/noncommercial/1.0.0',
+  );
+  await expect(footer.getByRole('link', { name: 'GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/BrownBear127/open-dieline',
+  );
+  await expect(footer.getByRole('link', { name: 'Substack' })).toHaveAttribute(
+    'href',
+    'https://konvolut.substack.com',
+  );
+  for (const link of await footer.getByRole('link').all()) {
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  }
+  const [appBox, footerBox] = await Promise.all([app.boundingBox(), footer.boundingBox()]);
+  expect(appBox).not.toBeNull();
+  expect(footerBox).not.toBeNull();
+  expect(footerBox!.x).toBeGreaterThanOrEqual(appBox!.x);
+  expect(footerBox!.x + footerBox!.width).toBeLessThanOrEqual(appBox!.x + appBox!.width);
+
+  await page.getByRole('button', { name: dict['chrome.about'].en, exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  for (const name of ['GitHub', 'Substack'] as const) {
+    await expect(dialog.getByRole('link', { name })).toHaveAttribute('target', '_blank');
+    await expect(dialog.getByRole('link', { name })).toHaveAttribute('rel', 'noopener noreferrer');
+  }
+});
+
 test('G6 complete interaction flow makes no request outside the localhost origin', async ({ page }) => {
   const requestUrls: string[] = [];
   await page.route('**/*', async (route) => {

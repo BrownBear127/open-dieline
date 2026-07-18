@@ -93,6 +93,8 @@ const EXPECTED_COUNTS = {
     '.platebar .acts': 1,
     '.platebar .compat': 1,
     '.platebar .compat .tick': 1,
+    '.app-footer': 1,
+    '.app-footer a': 3,
   },
   fold: {
     'input[type="range"]': 1,
@@ -136,9 +138,11 @@ const EXPECTED_COUNTS = {
   },
   zhDesign: {
     '.zh .label': 17,
-    '.zh .mono': 32,
+    '.zh .mono': 33,
     '.zh .boxsel select': 3,
     '.zh .param-select select': 2,
+    '.app-footer': 1,
+    '.app-footer a': 3,
   },
   zhImposition: {
     '.zh .imp-card h4': 2,
@@ -190,6 +194,8 @@ const SKIPPED = [
 // `excludedManifest` also carries its independently counted raw declaration total; adding a
 // second declaration of an existing property therefore changes the manifest and fails.
 const FROZEN_EXCLUSION_SET = [
+  { selector: '.app-footer a:focus-visible', category: 'pseudoClass', props: ['border-bottom-color', 'color'] },
+  { selector: '.app-footer a:hover', category: 'pseudoClass', props: ['border-bottom-color', 'color'] },
   { selector: '.boxsel select:focus-visible', category: 'pseudoClass', props: ['outline', 'outline-offset'] },
   { selector: '.boxsel::after', category: 'pseudoElement', props: ['color', 'content', 'font-size', 'pointer-events', 'position', 'right', 'top', 'transform'] },
   { selector: '.btn.quiet:hover', category: 'pseudoClass', props: ['background', 'border-color', 'color'] },
@@ -482,8 +488,14 @@ const FOLD_SHARED_SELECTORS = new Set([
   '.btn.tog.on',
 ]);
 
+const LANGUAGE_SHARED_SELECTORS = new Set([
+  '.app-footer',
+  '.app-footer a',
+]);
+
 function contextsFor(selector: string): readonly BaselineContext[] {
   if (selector.startsWith('.foldbar ')) return ['fold'];
+  if (LANGUAGE_SHARED_SELECTORS.has(selector)) return ['design', 'zhDesign'];
 
   let primary: BaselineContext = 'design';
   if (selector.startsWith('.zh .imp-')) primary = 'zhImposition';

@@ -354,6 +354,41 @@ describe('M1 T5 console sidebar and parameter panel', () => {
 });
 
 describe('App 冒煙測試', () => {
+  it('app 底部頁尾逐字呈現並提供三個安全外連', () => {
+    render(<App />);
+
+    const footer = document.querySelector<HTMLElement>('.app-footer');
+    expect(footer).not.toBeNull();
+    expect(footer).toHaveTextContent(
+      'source-available · PolyForm Noncommercial · GitHub · Substack',
+    );
+    expect(within(footer!).getAllByRole('link').map((link) => ({
+      text: link.textContent,
+      href: link.getAttribute('href'),
+      target: link.getAttribute('target'),
+      rel: link.getAttribute('rel'),
+    }))).toEqual([
+      {
+        text: 'PolyForm Noncommercial',
+        href: 'https://polyformproject.org/licenses/noncommercial/1.0.0',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+      {
+        text: 'GitHub',
+        href: 'https://github.com/BrownBear127/open-dieline',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+      {
+        text: 'Substack',
+        href: 'https://konvolut.substack.com',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+    ]);
+  });
+
   it('M1 fix wave 2／3：vocab 保留 App 繼承基底並採用置中裁決', () => {
     const css = readFileSync('src/styles/vocab.css', 'utf8');
 
@@ -1694,15 +1729,15 @@ describe('AnnouncementModal：v0.2.0 公開發布宣告視窗', () => {
     expect(localStorage.getItem(ANNOUNCEMENT_DISMISS_KEY)).toBe('true');
   });
 
-  it('連結 href/target/rel 正確：Konvolut→https://konvolut.art，Substack→https://konvolut.substack.com，皆開新分頁', async () => {
+  it('modal 第三段的 GitHub／Substack 皆為安全的新分頁連結', async () => {
     localStorage.clear();
     render(<App />);
     const dialog = await screen.findByRole('dialog');
 
-    const konvolutLink = within(dialog).getByRole('link', { name: 'Konvolut' });
-    expect(konvolutLink).toHaveAttribute('href', 'https://konvolut.art');
-    expect(konvolutLink).toHaveAttribute('target', '_blank');
-    expect(konvolutLink).toHaveAttribute('rel', 'noopener noreferrer');
+    const githubLink = within(dialog).getByRole('link', { name: 'GitHub' });
+    expect(githubLink).toHaveAttribute('href', 'https://github.com/BrownBear127/open-dieline');
+    expect(githubLink).toHaveAttribute('target', '_blank');
+    expect(githubLink).toHaveAttribute('rel', 'noopener noreferrer');
 
     const substackLink = within(dialog).getByRole('link', { name: 'Substack' });
     expect(substackLink).toHaveAttribute('href', 'https://konvolut.substack.com');
