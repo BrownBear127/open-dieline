@@ -78,7 +78,7 @@ describe('App fold mode', () => {
     expect(fold).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('retries a rejected FoldView chunk after switching away and back to FOLD', async () => {
+  it('retries a rejected FoldView chunk in place', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     let attempt = 0;
     const loadFoldView = vi.fn(() => {
@@ -90,18 +90,35 @@ describe('App fold mode', () => {
     });
     render(<App loadFoldView={loadFoldView} />);
     const fold = screen.getByRole('button', { name: t('mode.fold') });
-    const design = screen.getByRole('button', { name: t('mode.design') });
 
     fireEvent.click(fold);
     await waitFor(() => expect(loadFoldView).toHaveBeenCalledOnce());
     expect(await screen.findByText(t('fold.loadFailed'))).toBeInTheDocument();
 
-    fireEvent.click(design);
-    fireEvent.click(fold);
+    fireEvent.click(screen.getByRole('button', { name: t('fold.retry') }));
 
     expect(await screen.findByTestId('retry-fold-view')).toHaveTextContent('retry succeeded');
     expect(loadFoldView).toHaveBeenCalledTimes(2);
+    expect(fold).toHaveAttribute('aria-pressed', 'true');
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('reloads once when a retried FoldView chunk rejects again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const loadFoldView = vi.fn(() => Promise.reject(new Error('chunk unavailable')));
+    const reloadPage = vi.fn();
+    render(<App loadFoldView={loadFoldView} reloadPage={reloadPage} />);
+
+    fireEvent.click(screen.getByRole('button', { name: t('mode.fold') }));
+
+    expect(await screen.findByText(t('fold.loadFailed'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('fold.retry') })).toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.retry') }));
+
+    await waitFor(() => expect(loadFoldView).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(reloadPage).toHaveBeenCalledOnce());
   });
 });
 
@@ -359,8 +376,8 @@ describe('FoldView visible failure states', () => {
   });
 
   it.each([
-    ['en', '3D fold preview failed to load. Switch modes to retry.'],
-    ['zh', '3D 摺盒預覽載入失敗，切換模式可重試。'],
+    ['en', '3D fold preview failed to load.'],
+    ['zh', '3D 摺盒預覽載入失敗。'],
   ] as const)('fold-scene chunk 載入失敗時以 %s render loadFailed 文案、不留死控制列', async (lang, copy) => {
     setLang(lang);
     // jsdom getContext 天然 null 會先走 WebGL fallback——mock 成 truthy 讓流程進到 loadScene
@@ -375,10 +392,57 @@ describe('FoldView visible failure states', () => {
     expect(error).toHaveClass('fold-empty');
     expect(t('fold.loadFailed')).toBe(copy);
     expect(within(error).getByText(t('fold.loadFailed'))).toHaveClass('mono');
+    expect(within(error).getByRole('button', { name: t('fold.retry') })).toBeInTheDocument();
     // 失敗態不得殘留任何看似可操作的控制件或 canvas
     expect(screen.queryByRole('slider')).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(document.querySelector('canvas')).toBeNull();
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('retries a failed fold-scene chunk in place', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fake = createFakeScene();
+    let attempt = 0;
+    const loadScene = vi.fn(() => {
+      attempt += 1;
+      return attempt === 1
+        ? Promise.reject(new Error('first chunk failure'))
+        : Promise.resolve({ createFoldScene: fake.createScene });
+    });
+    render(<FoldView boxId="rte" values={RTE_VALUES} loadScene={loadScene} />);
+
+    expect(await screen.findByText(t('fold.loadFailed'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('fold.retry') }));
+
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    expect(loadScene).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(t('fold.loadFailed'))).not.toBeInTheDocument();
+    expect(document.querySelector('.fold-canvas')).not.toBeNull();
+  });
+
+  it('reloads once when a retried fold-scene chunk rejects again', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const loadScene = vi.fn(() => Promise.reject(new Error('chunk unavailable')));
+    const reloadPage = vi.fn();
+    render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        loadScene={loadScene}
+        reloadPage={reloadPage}
+      />,
+    );
+
+    expect(await screen.findByText(t('fold.loadFailed'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('fold.retry') })).toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.retry') }));
+
+    await waitFor(() => expect(loadScene).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(reloadPage).toHaveBeenCalledOnce());
   });
 });

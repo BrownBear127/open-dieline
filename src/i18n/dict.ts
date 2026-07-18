@@ -196,9 +196,10 @@ export const dict = {
     zh: '瀏覽器不支援 WebGL，無法顯示 3D 摺盒預覽。',
   },
   'fold.loadFailed': {
-    en: '3D fold preview failed to load. Switch modes to retry.',
-    zh: '3D 摺盒預覽載入失敗，切換模式可重試。',
+    en: '3D fold preview failed to load.',
+    zh: '3D 摺盒預覽載入失敗。',
   },
+  'fold.retry': { en: 'RETRY', zh: '重試' },
 
   'editor.done': { en: 'DONE', zh: '完成' },
   'editor.addImage': { en: 'IMAGE', zh: '加圖' },

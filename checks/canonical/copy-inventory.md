@@ -249,6 +249,12 @@ Vendor date: 2026-07-17
 | fold.art.none | NONE | 無 | | label |
 | fold.art.sample | SAMPLE | 範例 | | label |
 
+### 摺盒載入復原
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.retry | RETRY | 重試 | | label |
+
 ### A11 設計稿上傳（P3 M3 T0 新增·2026-07-17 review 草案＋採納·待 C9 簽核輪終裁）
 
 | key | EN | zh | lock | 聲部 |
