@@ -71,6 +71,11 @@
   color: var(--ink-soft);
 }
 
+.fold-empty[data-fold-error="true"] {
+  flex-direction: column;
+  gap: 12px;
+}
+
 .editor-view {
   position: relative;
   display: grid;

@@ -116,6 +116,8 @@ export type FoldViewLoader = () => Promise<{ default: ComponentType<FoldViewProp
 const defaultLoadFoldView: FoldViewLoader = () => import('@/ui/FoldView')
   .then((module) => ({ default: module.FoldView }));
 
+const defaultReloadPage = (): void => window.location.reload();
+
 const APP_FOOTER_LINKS = [
   ['PolyForm Noncommercial', 'https://polyformproject.org/licenses/noncommercial/1.0.0'],
   ['GitHub', 'https://github.com/BrownBear127/open-dieline'],
@@ -124,26 +126,46 @@ const APP_FOOTER_LINKS = [
 
 function RetryableFoldView({
   loadFoldView,
+  reloadPage,
   ...props
-}: FoldViewProps & { loadFoldView: FoldViewLoader }) {
-  const FoldView = useMemo(() => lazy(loadFoldView), [loadFoldView]);
+}: FoldViewProps & { loadFoldView: FoldViewLoader; reloadPage: () => void }) {
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const FoldView = useMemo(() => lazy(loadFoldView), [loadFoldView, loadAttempt]);
   return (
-    <Suspense fallback={null}>
-      <FoldView {...props} />
-    </Suspense>
+    <FoldChunkBoundary
+      key={loadAttempt}
+      attempt={loadAttempt}
+      reloadPage={reloadPage}
+      onRetry={() => setLoadAttempt((attempt) => attempt + 1)}
+    >
+      <Suspense fallback={null}>
+        <FoldView {...props} reloadPage={reloadPage} />
+      </Suspense>
+    </FoldChunkBoundary>
   );
 }
 
-class FoldChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class FoldChunkBoundary extends Component<{
+  attempt: number;
+  children: ReactNode;
+  onRetry: () => void;
+  reloadPage: () => void;
+}, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
+  }
+  componentDidCatch(): void {
+    if (this.props.attempt > 0) this.props.reloadPage();
   }
   render(): ReactNode {
     if (this.state.failed) {
       return (
         <div className="fold-empty" data-fold-error="true">
           <p className="mono">{t('fold.loadFailed')}</p>
+          <button type="button" className="btn label" onClick={this.props.onRetry}>
+            {t('fold.retry')}
+          </button>
         </div>
       );
     }
@@ -166,7 +188,13 @@ function emphasisParts(copy: string): [before: string, emphasis: string, after: 
   return [match[1]!, match[2]!, match[3]!];
 }
 
-export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: FoldViewLoader } = {}) {
+export function App({
+  loadFoldView = defaultLoadFoldView,
+  reloadPage = defaultReloadPage,
+}: {
+  loadFoldView?: FoldViewLoader;
+  reloadPage?: () => void;
+} = {}) {
   // root 訂閱讓語言變更重繪全樹；後代既有 t()/getLang() 呼叫不需逐點訂閱。
   const lang = useLang();
   const boxes = useMemo(() => listBoxes(), []);
@@ -513,20 +541,19 @@ export function App({ loadFoldView = defaultLoadFoldView }: { loadFoldView?: Fol
               <ImpositionResults result={result} state={impositionState} />
             </section>
           ) : (
-            <FoldChunkBoundary>
-              <RetryableFoldView
-                loadFoldView={loadFoldView}
-                boxId={boxId}
-                values={values}
-                customSource={customArtworkSourceRef.current}
-                onCustomSourceChange={replaceCustomArtworkSource}
-                editableArtwork={editableArtwork}
-                onEditableArtworkChange={replaceEditableArtwork}
-                onEditableArtworkConsumed={consumeEditableArtwork}
-                editorSession={editorSession}
-                onEditorSessionChange={replaceEditorSession}
-              />
-            </FoldChunkBoundary>
+            <RetryableFoldView
+              loadFoldView={loadFoldView}
+              reloadPage={reloadPage}
+              boxId={boxId}
+              values={values}
+              customSource={customArtworkSourceRef.current}
+              onCustomSourceChange={replaceCustomArtworkSource}
+              editableArtwork={editableArtwork}
+              onEditableArtworkChange={replaceEditableArtwork}
+              onEditableArtworkConsumed={consumeEditableArtwork}
+              editorSession={editorSession}
+              onEditorSessionChange={replaceEditorSession}
+            />
           )}
         </main>
       </div>

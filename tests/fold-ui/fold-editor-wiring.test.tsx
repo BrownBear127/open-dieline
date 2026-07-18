@@ -162,6 +162,7 @@ interface HarnessProps {
   initialEditable?: EditableArtworkAsset | null;
   loadArtwork?: ArtworkFileLoader;
   loadEditorView?: EditorViewLoader;
+  reloadPage?: () => void;
 }
 
 function Harness({
@@ -171,6 +172,7 @@ function Harness({
   initialEditable = null,
   loadArtwork,
   loadEditorView,
+  reloadPage,
 }: HarnessProps) {
   const fake = useState(createFakeScene)[0];
   const [session, setSession] = useState(initialSession);
@@ -193,6 +195,7 @@ function Harness({
         onEditorSessionChange={setSession}
         loadArtwork={loadArtwork}
         loadEditorView={loadEditorView}
+        reloadPage={reloadPage}
       />
       <div data-testid="session-probe">
         {session === null
@@ -278,9 +281,16 @@ describe('FoldView editor chunk boundary', () => {
     expect(loadEditorView).toHaveBeenCalledOnce();
   });
 
-  it('shows the established load-failure state when the editor chunk rejects', async () => {
+  it('retries a rejected editor chunk in place', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const loadEditorView = vi.fn<EditorViewLoader>(() => Promise.reject(new Error('chunk unavailable')));
+    const editorModule = await import('@/ui/editor/EditorView');
+    let attempt = 0;
+    const loadEditorView = vi.fn<EditorViewLoader>(() => {
+      attempt += 1;
+      return attempt === 1
+        ? Promise.reject(new Error('chunk unavailable'))
+        : Promise.resolve(editorModule);
+    });
     render(<Harness loadEditorView={loadEditorView} />);
     await screen.findByRole('button', { name: t('fold.art.edit') });
 
@@ -291,7 +301,33 @@ describe('FoldView editor chunk boundary', () => {
     expect(failure.parentElement).toHaveAttribute('data-fold-error', 'true');
     expect(screen.queryByTestId('editor-stub')).not.toBeInTheDocument();
     expect(loadEditorView).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.retry') }));
+
+    expect(await screen.findByTestId('editor-stub')).toBeInTheDocument();
+    expect(loadEditorView).toHaveBeenCalledTimes(2);
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('reloads once when a retried editor chunk rejects again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const loadEditorView = vi.fn<EditorViewLoader>(
+      () => Promise.reject(new Error('chunk unavailable')),
+    );
+    const reloadPage = vi.fn();
+    render(<Harness loadEditorView={loadEditorView} reloadPage={reloadPage} />);
+    await screen.findByRole('button', { name: t('fold.art.edit') });
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.art.edit') }));
+
+    expect(await screen.findByText(t('fold.loadFailed'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('fold.retry') })).toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: t('fold.retry') }));
+
+    await waitFor(() => expect(loadEditorView).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(reloadPage).toHaveBeenCalledOnce());
   });
 });
 

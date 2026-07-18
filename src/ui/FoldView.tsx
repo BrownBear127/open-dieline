@@ -43,6 +43,7 @@ import type {
 
 const defaultLoadScene = () => import('./fold-scene');
 const defaultLoadEditorView: EditorViewLoader = () => import('@/ui/editor/EditorView');
+const defaultReloadPage = (): void => window.location.reload();
 const FOLD_PLAY_DURATION_MS = 2400;
 const DEFAULT_FOLD_PROGRESS = 1;
 const EDITOR_COMPOSE_SIZE = 2048;
@@ -111,6 +112,7 @@ export interface FoldViewProps {
   createScene?: typeof createFoldScene;
   loadScene?: () => Promise<{ createFoldScene: typeof createFoldScene }>;
   loadEditorView?: EditorViewLoader;
+  reloadPage?: () => void;
 }
 
 export type EditorViewLoader = () => Promise<{ default: ComponentType<EditorViewProps> }>;
@@ -137,10 +139,23 @@ function uploadStatusForResult(result: ArtworkLoadResult): UploadStatus {
     : 'fold.art.invalidFile';
 }
 
-function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
+function FoldEmpty({
+  copy,
+  loadFailed = false,
+  onRetry,
+}: {
+  copy: string;
+  loadFailed?: boolean;
+  onRetry?: () => void;
+}) {
   return (
     <div className="fold-empty" data-fold-error={loadFailed ? 'true' : undefined}>
       <p className="mono">{copy}</p>
+      {onRetry !== undefined && (
+        <button type="button" className="btn label" onClick={onRetry}>
+          {t('fold.retry')}
+        </button>
+      )}
     </div>
   );
 }
@@ -149,15 +164,26 @@ function EditorChunkLoading() {
   return <div className="fold-empty" data-editor-loading="true" aria-busy="true" />;
 }
 
-class EditorChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class EditorChunkBoundary extends Component<{
+  attempt: number;
+  children: ReactNode;
+  onRetry: () => void;
+  reloadPage: () => void;
+}, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
   }
 
+  componentDidCatch(): void {
+    if (this.props.attempt > 0) this.props.reloadPage();
+  }
+
   render(): ReactNode {
-    if (this.state.failed) return <FoldEmpty copy={t('fold.loadFailed')} loadFailed />;
+    if (this.state.failed) {
+      return <FoldEmpty copy={t('fold.loadFailed')} loadFailed onRetry={this.props.onRetry} />;
+    }
     return this.props.children;
   }
 }
@@ -202,10 +228,12 @@ export function FoldView({
   createScene,
   loadScene,
   loadEditorView,
+  reloadPage = defaultReloadPage,
 }: FoldViewProps) {
+  const [editorLoadAttempt, setEditorLoadAttempt] = useState(0);
   const EditorView = useMemo(
     () => lazy(loadEditorView ?? defaultLoadEditorView),
-    [loadEditorView],
+    [loadEditorView, editorLoadAttempt],
   );
   const initialFoldProgress = P3_TEST_HOOKS_ENABLED
     ? peekInitialFoldProgress() ?? DEFAULT_FOLD_PROGRESS
@@ -253,8 +281,8 @@ export function FoldView({
   const [contextLost, setContextLost] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
   // dynamic chunk（model runtime 或 fold-scene）載入失敗：藏控制列與 canvas、render 文案空狀態。
-  // 切走再進＝remount 重試。
   const [loadFailed, setLoadFailed] = useState(false);
+  const [previewLoadAttempt, setPreviewLoadAttempt] = useState(0);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
   const model = useMemo<FoldModel | undefined>(() => builder?.(values), [boxId, values, builder]);
@@ -579,6 +607,16 @@ export function FoldView({
     sceneRef.current?.setAutoRotate(enabled);
   };
 
+  const retryPreviewLoad = (): void => {
+    setLoadFailed(false);
+    setModelRuntime(null);
+    setPreviewLoadAttempt((attempt) => attempt + 1);
+  };
+
+  useEffect(() => {
+    if (previewLoadAttempt > 0 && loadFailed) reloadPage();
+  }, [loadFailed, previewLoadAttempt, reloadPage]);
+
   useEffect(() => {
     let cancelled = false;
     loadFoldModelRuntime()
@@ -592,7 +630,7 @@ export function FoldView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [previewLoadAttempt]);
 
   useEffect(() => () => cancelPlaybackFrame(), []);
 
@@ -749,10 +787,10 @@ export function FoldView({
         scene.dispose();
       }
     };
-  }, [canCreateScene, createScene, loadScene]);
+  }, [canCreateScene, createScene, loadScene, previewLoadAttempt]);
 
   if (loadFailed) {
-    return <FoldEmpty copy={t('fold.loadFailed')} loadFailed />;
+    return <FoldEmpty copy={t('fold.loadFailed')} loadFailed onRetry={retryPreviewLoad} />;
   }
 
   if (modelRuntime !== null && builder === undefined) {
@@ -891,7 +929,12 @@ export function FoldView({
           {staleEditor && editorStatusKey === null && (
             <p className="fold-status mono" role="status">{t('editor.stale')}</p>
           )}
-          <EditorChunkBoundary>
+          <EditorChunkBoundary
+            key={editorLoadAttempt}
+            attempt={editorLoadAttempt}
+            reloadPage={reloadPage}
+            onRetry={() => setEditorLoadAttempt((attempt) => attempt + 1)}
+          >
             <Suspense fallback={<EditorChunkLoading />}>
               <EditorView
                 state={currentEditorSession.state}

@@ -1,5 +1,5 @@
 // checks/probes/run-probes.mjs — Spec §8.2 bypass-family probes。
-// 共 36 probes：既有 33 項＋M4 compose 疊序／reducer 域值／session 轉換表——見各 probe 註解。
+// 共 37 probes：既有 36 項＋SVG 行內事件屬性掃描——見各 probe 註解。
 // 每 probe：套變異→跑對應驗證→預期非零 exit→原 byte 復原→驗證轉綠。
 // 精準性：GATE_ONLY 限定目標 gate；probe 通過=「目標紅」且「復原全綠」。
 import { execSync } from 'node:child_process';
@@ -36,9 +36,10 @@ const revert = () => {
   originals = new Map();
 };
 
-const EXPECTED_E2E_TOTAL = 64;
+const EXPECTED_E2E_TOTAL = 65;
 const REQUIRED_EDITOR_E2E = [
   'loads the editor chunk only after EDIT and keeps it cached after DONE',
+  'reloads after a cached editor chunk retry and succeeds on the next document',
   'EDIT adds an image and text, drags the text, then DONE updates the 3D preview',
   'C1 keeps fixed overlap colors aligned across editor, 2048 source, and 4096 download',
   'C2 square A-1 seed is pixel-identical and remains the non-undoable baseline',
@@ -250,6 +251,12 @@ const PROBES = [
       'const isCurrent = (): boolean => requestId === latestRequestId && !options.signal?.aborted;',
       'const isCurrent = (): boolean => true;'),
     check: () => shFails('npx vitest run tests/fold-ui/artwork-source.test.ts -t "commits only B when A and B finish in reverse order"'),
+    greenCheck: () => !shFails('npx vitest run tests/fold-ui/artwork-source.test.ts') },
+  { id: 'artwork-event-attribute-scan', gate: 'artwork-inline-event-scan',
+    run: () => mutate('src/ui/artwork-source.ts',
+      "if (attributeName.startsWith('on')) return true;",
+      "if (false && attributeName.startsWith('on')) return true;"),
+    check: () => shFails('npx vitest run tests/fold-ui/artwork-source.test.ts -t "rejects an inline event handler attribute"'),
     greenCheck: () => !shFails('npx vitest run tests/fold-ui/artwork-source.test.ts') },
   // M4 C1：兩張完全重疊的實色 bitmap 以 array 尾端藍色為固定 oracle；反轉疊序必須翻紅。
   { id: 'm4-compose-layer-order', gate: 'editor-compose-layer-order',

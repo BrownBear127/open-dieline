@@ -22,6 +22,15 @@ interface NormalizedSample {
   expected: readonly [number, number, number, number];
 }
 
+interface NormalizedRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  expected: readonly [number, number, number, number];
+  tolerance: number;
+}
+
 interface CanvasTranslation {
   width: number;
   height: number;
@@ -33,6 +42,10 @@ const RED = [214, 48, 72, 255] as const;
 const BLUE = [35, 92, 214, 255] as const;
 const PAPER = [255, 255, 255, 255] as const;
 const CUT = [201, 58, 43, 255] as const;
+// editor-compose INK_COLORS.ink #191712 — 文字取樣以「匹配 ink 色」計數而非「非紙色」
+// 計數：cut/crease 導線任一 channel 與 ink 差 >170，容差 60 內只有文字像素會命中，
+// 導線恰好穿過取樣區也不會撐出假陽性。
+const TEXT_INK = [25, 23, 18, 255] as const;
 const DEFAULT_VALUES = resolveParams(reverseTuckEnd, {});
 const DEFAULT_LAYOUT = deriveArtworkLayout(buildRteFoldModel(DEFAULT_VALUES));
 
@@ -242,6 +255,21 @@ function panelCenterSample(
   return normalizedLayoutPoint(layout, center);
 }
 
+function centeredTextRegion(layout: ArtworkLayout): NormalizedRegion {
+  const center = normalizedLayoutPoint(layout, {
+    x: layout.frame.minX - layout.frame.offsetX + layout.frame.span / 2,
+    y: layout.frame.minY - layout.frame.offsetY + layout.frame.span / 2,
+  });
+  return {
+    x: center.x - 0.13,
+    y: center.y - 0.04,
+    width: 0.26,
+    height: 0.08,
+    expected: TEXT_INK,
+    tolerance: 60,
+  };
+}
+
 // 取最長的 cut 邊：長直邊中點的 stroke 中心是實色，短邊/斜邊中點會吃到抗鋸齒混色。
 function longestCutMidpointSample(layout: ArtworkLayout): Pick<NormalizedSample, 'x' | 'y'> {
   const edges = dedupCutEdges(layout.panels);
@@ -318,14 +346,16 @@ async function inspectDownload(
   page: Page,
   downloadPath: string,
   samples: readonly Pick<NormalizedSample, 'x' | 'y'>[] = [],
+  regions: readonly NormalizedRegion[] = [],
 ): Promise<{
   width: number;
   height: number;
   corners: number[];
   samples: Array<[number, number, number, number]>;
+  regionMatchCounts: number[];
 }> {
   const base64 = readFileSync(downloadPath).toString('base64');
-  return page.evaluate(async ({ pngBase64, normalizedSamples }) => {
+  return page.evaluate(async ({ pngBase64, normalizedSamples, normalizedRegions }) => {
     const bytes = Uint8Array.from(atob(pngBase64), (value) => value.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
     const canvas = document.createElement('canvas');
@@ -346,11 +376,32 @@ async function inspectDownload(
       const py = Math.min(canvas.height - 1, Math.max(0, Math.floor(y * canvas.height)));
       return [...context.getImageData(px, py, 1, 1).data] as [number, number, number, number];
     });
-    const result = { width: canvas.width, height: canvas.height, corners, samples: sampled };
+    const regionMatchCounts = normalizedRegions.map((region) => {
+      const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(region.x * canvas.width)));
+      const y = Math.min(canvas.height - 1, Math.max(0, Math.floor(region.y * canvas.height)));
+      const width = Math.max(1, Math.min(canvas.width - x, Math.ceil(region.width * canvas.width)));
+      const height = Math.max(1, Math.min(canvas.height - y, Math.ceil(region.height * canvas.height)));
+      const pixels = context.getImageData(x, y, width, height).data;
+      let matches = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        const withinTolerance = region.expected.every(
+          (channel, channelIndex) => Math.abs(pixels[index + channelIndex]! - channel) <= region.tolerance,
+        );
+        if (withinTolerance) matches += 1;
+      }
+      return matches;
+    });
+    const result = {
+      width: canvas.width,
+      height: canvas.height,
+      corners,
+      samples: sampled,
+      regionMatchCounts,
+    };
     bitmap.close();
     canvas.width = canvas.height = 0;
     return result;
-  }, { pngBase64: base64, normalizedSamples: samples });
+  }, { pngBase64: base64, normalizedSamples: samples, normalizedRegions: regions });
 }
 
 async function latestCanvasDigest(page: Page, size: number): Promise<string> {
@@ -455,6 +506,45 @@ test('loads the editor chunk only after EDIT and keeps it cached after DONE', as
   await expect(page.locator('.fold-canvas')).toBeVisible();
   await enterEditor(page);
   expect(editorChunkRequests, 'DONE then EDIT must reuse the loaded chunk').toHaveLength(1);
+});
+
+test('reloads after a cached editor chunk retry and succeeds on the next document', async ({ page }) => {
+  let editorChunkRequests = 0;
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    if (request.resourceType() === 'script' && isEditorChunk(request.url())) {
+      editorChunkRequests += 1;
+      if (editorChunkRequests === 1) {
+        await route.abort('failed');
+        return;
+      }
+    }
+    await route.continue();
+  });
+
+  await enterFold(page);
+  await page.getByRole('button', { name: dict['fold.art.edit'].en, exact: true }).click();
+  await expect(page.getByText(dict['fold.loadFailed'].en, { exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as unknown as Record<string, unknown>).__chunkRetryReloadProbe = 1;
+  });
+  const reloadComplete = page.waitForEvent('load');
+  await page.getByRole('button', { name: dict['fold.retry'].en, exact: true }).click();
+  await reloadComplete;
+
+  expect(await page.evaluate(
+    () => (window as unknown as Record<string, unknown>).__chunkRetryReloadProbe,
+  )).toBeUndefined();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await settleFontsAndLayout(page);
+  await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
+  await expect(page.locator('.fold-canvas')).toBeVisible();
+  await page.getByRole('button', { name: dict['fold.art.edit'].en, exact: true }).click();
+  await expect(page.getByTestId('editor-canvas-container')).toBeVisible();
+  expect(editorChunkRequests).toBe(2);
+  await expect(page.getByRole('button', { name: dict['mode.fold'].en, exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
 });
 
 test('EDIT adds an image and text, drags the text, then DONE updates the 3D preview', async ({ page }) => {
@@ -610,12 +700,21 @@ test('C5 downloads a paper-backed, clipped, guided 4096 PNG and disables downloa
     { ...panelCenterSample(DEFAULT_LAYOUT, 'P4'), expected: PAPER },
     { ...longestCutMidpointSample(DEFAULT_LAYOUT), expected: CUT },
   ];
-  const inspected = await inspectDownload(page, path, outputSamples);
+  const inspected = await inspectDownload(
+    page,
+    path,
+    outputSamples,
+    [centeredTextRegion(DEFAULT_LAYOUT)],
+  );
   expect({ width: inspected.width, height: inspected.height }).toEqual({ width: 4096, height: 4096 });
   expect(inspected.corners).toEqual([0, 0, 0, 0]);
   inspected.samples.forEach((pixel, index) => {
     expectColor(pixel, outputSamples[index]!.expected, `C5 download sample ${index}`, 12);
   });
+  expect(
+    inspected.regionMatchCounts[0],
+    'download must contain ink-colored text pixels in the centered text region',
+  ).toBeGreaterThan(1_000);
   await download.delete();
 });
 
