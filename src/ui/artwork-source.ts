@@ -231,6 +231,7 @@ function hasExternalDomResource(documentNode: Document): boolean {
     for (const attribute of element.attributes) {
       const attributeName = attribute.localName.toLowerCase();
       const value = attribute.value.trim();
+      if (attributeName.startsWith('on')) return true;
       if (RESOURCE_ATTRIBUTE_NAMES.has(attributeName) && !value.startsWith('#')) {
         const allowedSize = readAllowedEmbeddedRasterSize(element, attribute);
         if (allowedSize === null) return true;

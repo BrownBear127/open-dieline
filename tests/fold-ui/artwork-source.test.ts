@@ -196,6 +196,30 @@ describe('validateArtworkFile', () => {
     await expect(validateArtworkFile(file)).resolves.toBeNull();
   });
 
+  it('accepts a clean SVG without inline event handler attributes', async () => {
+    const file = new File([
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g><rect width="10" height="10"/></g></svg>',
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
+  it.each([
+    [
+      'root',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><rect width="10" height="10"/></svg>',
+    ],
+    [
+      'child',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" onclick="alert(1)"/></svg>',
+    ],
+  ])('rejects an inline event handler attribute on the %s element', async (_label, markup) => {
+    const file = new File([markup], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toEqual({ code: 'external' });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
   it('rejects an SVG without a valid positive viewBox', async () => {
     const file = new File([
       '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>',
