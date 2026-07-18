@@ -48,11 +48,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
 // M3 rebudget（2026-07-18 裁決·一次裁到收官）：total 265,000→270,000——
 // T2 上傳管線落地後 headroom 僅 66B，覆蓋 T3 overlay＋T5 e2e hook/probes
 // （全 lazy chunk·main 118,000 不動）。
+// editor chunk 使 total bundle 預算調整為 315,000；main 預算維持 118,000 不變。
 // 基準=正式 minified 產物：.gate-dist 是 --minify false 私有建置（G2 需求）、
 // gzip 數字失真——本 gate 自跑一次正式 `vite build`（dist/）再量。
 // GATE_SKIP_BUILD 時跳過（該 flag 僅配 GATE_ONLY 給純 source gate 的 probe 提速用）。
 const MAIN_BUNDLE_BUDGET = 118_000;
-const TOTAL_BUDGET = 270_000;
+const TOTAL_BUDGET = 315_000;
 
 export async function run({ root: gateRoot }) {
   if (process.env.GATE_SKIP_BUILD) {

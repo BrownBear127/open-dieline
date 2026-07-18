@@ -98,8 +98,8 @@ const EXPECTED_COUNTS = {
     'input[type="range"]': 1,
     '.mode': 3,
     '.mode.on': 1,
-    // M3：+TEMPLATE（btn label）+UPLOAD（btn tog label）→ 8+2＝10（Q2 拆 AI SCRIPT 鈕後）。
-    '.btn': 10,
+    // M4 T5：在 machine-derived M3 基線加入 EDIT（btn label）→ 10+1＝11。
+    '.btn': 11,
     '.btn.quiet': 0,
     '.btn.tog.on': 1,
     '.foldbar .compat': 0,

@@ -117,8 +117,15 @@ describe('FoldView controls', () => {
     expect(tools).not.toBeNull();
     expect(cardGroup).toHaveClass('fold-tool-group');
     expect(artworkGroup).toHaveClass('fold-tool-group');
-    // M3（Q2 拆鈕後）：CARD 3＋ART 3（SAMPLE/TEMPLATE/UPLOAD）＋AUTO-ROTATE 1。
-    expect(within(tools as HTMLElement).getAllByRole('button')).toHaveLength(7);
+    // M4 T5：CARD 3＋ART 4（SAMPLE/TEMPLATE/UPLOAD/EDIT）＋AUTO-ROTATE 1。
+    expect(within(tools as HTMLElement).getAllByRole('button')).toHaveLength(8);
+    expect(within(artworkGroup).getAllByRole('button').map((button) => button.textContent))
+      .toEqual([
+        t('fold.art.sample'),
+        t('fold.art.template'),
+        t('fold.art.upload'),
+        t('fold.art.edit'),
+      ]);
     expect(autoRotate).toHaveClass('btn', 'tog', 'label');
     expect(autoRotate).toHaveAttribute('aria-pressed', 'false');
     // 自轉預設關閉：進場靜止、由使用者主動開啟。
@@ -557,14 +564,14 @@ describe('FoldView controls', () => {
     );
     const englishGroup = await screen.findByRole('group', { name: 'ART' });
     expect(within(englishGroup).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['SAMPLE', 'TEMPLATE', 'UPLOAD']);
+      .toEqual(['SAMPLE', 'TEMPLATE', 'UPLOAD', 'EDIT']);
 
     view.unmount();
     setLang('zh');
     render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
     const chineseGroup = await screen.findByRole('group', { name: '圖稿' });
     expect(within(chineseGroup).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['範例', '模板', '上傳']);
+      .toEqual(['範例', '模板', '上傳', '編輯']);
   });
 
   it('drives the current scene pose from the progress slider without recreating the scene', async () => {
@@ -668,6 +675,15 @@ describe('FoldView controls', () => {
     render(<FoldView boxId="rte" values={RTE_VALUES} loadScene={loadScene} />);
     expect(await screen.findByText(t('fold.webglUnavailable'))).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: t('fold.controls.aria') })).not.toBeInTheDocument();
+  });
+
+  it('renders EDIT disabled for telescope while retaining the unsupported preview', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="telescope" values={{}} createScene={fake.createScene} />);
+
+    expect(await screen.findByText(t('fold.unsupported'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('fold.art.edit') })).toBeDisabled();
+    expect(fake.createScene).not.toHaveBeenCalled();
   });
 
   it('使用者拖轉（onUserInteract）後自轉按鈕同步關閉、可手動重開（final review F3）', async () => {
