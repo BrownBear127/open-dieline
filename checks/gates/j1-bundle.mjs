@@ -39,13 +39,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   printMeasurement(measureBundle());
 }
 
-// ── J1 gate（2026-07-17 裁決：動態 import＋雙預算·shrink-only）──
+// ── J1 gate：動態 import＋雙預算·shrink-only ──
 // 主 bundle ≤118,000B（防 fold 代碼漏進主 bundle 的「動態假象」）；
 // 全部 JS gzip 總和 ≤265,000B。
-// M2 rebudget（2026-07-17 裁決「一次裁到收官」）：117,000→118,000／
+// M2 rebudget（一次調整到位）：117,000→118,000／
 // 260,000→265,000——覆蓋 M2 production 新功能（卡色切換＋設計稿貼圖＋tuckLock
 // ＋loadFailed）；shrink-only 精神不變，新預算仍為硬頂。
-// M3 rebudget（2026-07-18 裁決·一次裁到收官）：total 265,000→270,000——
+// M3 rebudget（一次調整到位）：total 265,000→270,000——
 // T2 上傳管線落地後 headroom 僅 66B，覆蓋 T3 overlay＋T5 e2e hook/probes
 // （全 lazy chunk·main 118,000 不動）。
 // editor chunk 使 total bundle 預算調整為 315,000；main 預算維持 118,000 不變。
