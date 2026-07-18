@@ -290,6 +290,34 @@ describe('FoldView scene lifecycle', () => {
 
 describe('FoldView visible failure states', () => {
   it.each([
+    ['external', 'fold.art.invalidSvg'],
+    ['parse', 'fold.art.invalidSvg'],
+    ['bytes', 'fold.art.invalidFile'],
+    ['pixels', 'fold.art.invalidFile'],
+    ['decode', 'fold.art.invalidFile'],
+  ] as const)('maps an upload %s rejection to %s', async (code, copyKey) => {
+    const fake = createFakeScene();
+    const loadArtwork = vi.fn(async () => ({ code }));
+    const { container } = render(
+      <FoldView
+        boxId="rte"
+        values={RTE_VALUES}
+        createScene={fake.createScene}
+        loadArtwork={loadArtwork}
+      />,
+    );
+
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(['svg'], 'art.svg', { type: 'image/svg+xml' })] },
+    });
+
+    const copy = t(copyKey);
+    expect(await screen.findByRole('alert')).toHaveTextContent(copy);
+  });
+
+  it.each([
     ['en', '3D fold preview is not yet available for this box style.'],
     ['zh', '此盒型尚未支援 3D 摺盒預覽。'],
   ] as const)('does not create a scene for an unsupported box in %s', async (lang, copy) => {

@@ -160,6 +160,15 @@ function genericSvgFixture(): UploadFixture {
   ].join(''));
 }
 
+function embeddedPngSvgFixture(): UploadFixture {
+  const embeddedPng = pngFixture().buffer.toString('base64');
+  return svgFixture([
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">',
+    `<image href="data:image/png;base64,${embeddedPng}" width="100" height="100"/>`,
+    '</svg>',
+  ].join(''), 'embedded-png.svg');
+}
+
 function panelBounds(panelId: string): { minX: number; minY: number; width: number; height: number } {
   const panel = DEFAULT_LAYOUT.panels.find(({ id }) => id === panelId);
   if (panel === undefined) throw new Error(`Missing panel ${panelId}`);
@@ -434,6 +443,11 @@ test('upload jpeg artwork renders a custom frame distinct from none and sample',
 test('upload svg artwork renders a custom frame distinct from none and sample', async ({ page }) => {
   await enterFold(page);
   await expectDistinctCustomFrame(page, genericSvgFixture());
+});
+
+test('upload svg artwork with an embedded PNG renders successfully', async ({ page }) => {
+  await enterFold(page);
+  await expectDistinctCustomFrame(page, embeddedPngSvgFixture());
 });
 
 test('uploaded artwork lands on the correct panel after folding', async ({ page }) => {

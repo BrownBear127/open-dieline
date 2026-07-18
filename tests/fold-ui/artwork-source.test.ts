@@ -1,3 +1,4 @@
+import { deflateSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   loadArtworkFile,
@@ -16,6 +17,58 @@ function fileWithSize(name: string, type: string, size: number): File {
 
 function bitmap(width = 100, height = 100): ImageBitmap {
   return { width, height, close: vi.fn() } as unknown as ImageBitmap;
+}
+
+function crc32(bytes: Buffer): number {
+  let crc = 0xffff_ffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb8_8320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffff_ffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, 'ascii');
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])));
+  return Buffer.concat([length, typeBytes, data, checksum]);
+}
+
+function pngDataUri(width = 1, height = 1): string {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const scanline = Buffer.from([0, 34, 85, 204, 255]);
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(scanline)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+
+function jpegDataUri(marker: 0xc0 | 0xc2, width = 1, height = 1): string {
+  const frame = Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xe0, 0x00, 0x04, 0x12, 0x34,
+    0xff, marker, 0x00, 0x11, 0x08,
+    height >> 8, height & 0xff,
+    width >> 8, width & 0xff,
+    0x03,
+    0x01, 0x11, 0x00,
+    0x02, 0x11, 0x00,
+    0x03, 0x11, 0x00,
+    0xff, 0xd9,
+  ]);
+  return `data:image/jpeg;base64,${frame.toString('base64')}`;
 }
 
 class DeferredImage {
@@ -190,6 +243,52 @@ describe('validateArtworkFile', () => {
     ], 'art.svg', { type: 'image/svg+xml' });
 
     await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
+  it('accepts a 1x1 PNG data URI on an image href', async () => {
+    const file = new File([
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="${pngDataUri()}"/></svg>`,
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
+  it.each([
+    ['SOF0', jpegDataUri(0xc0)],
+    ['SOF2', jpegDataUri(0xc2)],
+  ])('accepts a JPEG data URI whose dimensions come from %s', async (_label, dataUri) => {
+    const file = new File([
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><image xlink:href="${dataUri}"/></svg>`,
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toBeNull();
+  });
+
+  it.each([
+    ['SVG image data URI', 'image', 'href', 'data:image/svg+xml;base64,PHN2Zy8+'],
+    ['URL-encoded PNG data URI', 'image', 'href', 'data:image/png,%89PNG'],
+    ['PNG data URI with a media parameter', 'image', 'href', pngDataUri().replace(';base64', ';charset=utf-8;base64')],
+    ['PNG data URI on a use element', 'use', 'href', pngDataUri()],
+    ['PNG data URI on an image src attribute', 'image', 'src', pngDataUri()],
+    ['PNG data URI on an uppercase IMAGE element', 'IMAGE', 'href', pngDataUri()],
+    ['PNG data URI in a style url', 'rect', 'style', `fill:url(${pngDataUri()})`],
+    ['PNG data URI with an oversized IHDR', 'image', 'href', pngDataUri(8193, 1)],
+    ['PNG data URI whose IHDR area is oversized', 'image', 'href', pngDataUri(6000, 6000)],
+    ['truncated PNG base64', 'image', 'href', 'data:image/png;base64,iVBORw0KGgoAAAAA'],
+  ])('rejects %s', async (_label, element, attribute, value) => {
+    const file = new File([
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><${element} ${attribute}="${value}"/></svg>`,
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toEqual({ code: 'external' });
+  });
+
+  it('rejects a data URI on a mixed-case XLink:href attribute', async () => {
+    const file = new File([
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:XLink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><image XLink:href="${pngDataUri()}"/></svg>`,
+    ], 'art.svg', { type: 'image/svg+xml' });
+
+    await expect(validateArtworkFile(file)).resolves.toEqual({ code: 'external' });
   });
 
   it.each([

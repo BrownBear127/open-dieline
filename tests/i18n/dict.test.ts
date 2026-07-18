@@ -116,6 +116,13 @@ describe('i18n dictionary', () => {
     expect(dict['fold.art.sample']).toEqual({ en: 'SAMPLE', zh: '範例' });
   });
 
+  it('keeps the SVG safety rejection copy byte-for-byte in both languages', () => {
+    expect((dict as Record<string, { en: string; zh: string }>)['fold.art.invalidSvg']).toEqual({
+      en: 'This SVG contains an unsupported external reference or script.',
+      zh: '此 SVG 含不支援的外部引用或指令碼。',
+    });
+  });
+
   it.each(['en', 'zh'] as const)('keeps every approved M4 F7 %s value byte-for-byte', (lang) => {
     for (const [key, copy] of Object.entries(EXPECTED_EDITOR_COPY)) {
       const actual = dict[key as keyof typeof dict] as { en: string; zh: string } | undefined;

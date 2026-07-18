@@ -126,9 +126,16 @@ export type ArtworkFileLoader = (
   options: ArtworkFileLoadOptions,
 ) => Promise<ArtworkLoadResult>;
 
-type UploadStatus = 'idle' | 'loading' | 'error';
+type UploadStatus = 'idle' | 'loading' | 'fold.art.invalidFile' | 'fold.art.invalidSvg';
 type EditorStatusKey = 'editor.limit.objects' | 'editor.error.compose';
 export type FoldViewMode = 'preview' | 'editor';
+
+function uploadStatusForResult(result: ArtworkLoadResult): UploadStatus {
+  if (result === 'committed' || result === 'cancelled') return 'idle';
+  return result.code === 'external' || result.code === 'parse'
+    ? 'fold.art.invalidSvg'
+    : 'fold.art.invalidFile';
+}
 
 function FoldEmpty({ copy, loadFailed = false }: { copy: string; loadFailed?: boolean }) {
   return (
@@ -166,8 +173,8 @@ function FoldArtworkStatus({
   staleTemplate: boolean;
   staleEditor: boolean;
 }) {
-  if (uploadStatus === 'error') {
-    return <p className="fold-status mono" role="alert">{t('fold.art.invalidFile')}</p>;
+  if (uploadStatus === 'fold.art.invalidFile' || uploadStatus === 'fold.art.invalidSvg') {
+    return <p className="fold-status mono" role="alert">{t(uploadStatus)}</p>;
   }
   if (editorStatusKey !== null) {
     return <p className="fold-status mono" role="status">{t(editorStatusKey)}</p>;
@@ -477,7 +484,7 @@ export function FoldView({
               }
             } catch (error) {
               source.canvas.width = source.canvas.height = 0;
-              setUploadStatus('error');
+              setUploadStatus('fold.art.invalidFile');
               console.error(error);
             }
             return;
@@ -487,13 +494,13 @@ export function FoldView({
       });
       if (uploadAbortRef.current !== controller) return;
       uploadAbortRef.current = null;
-      setUploadStatus(result === 'committed' || result === 'cancelled' ? 'idle' : 'error');
+      setUploadStatus(uploadStatusForResult(result));
     };
 
     void startUpload().catch((error: unknown) => {
       if (uploadAbortRef.current !== controller) return;
       uploadAbortRef.current = null;
-      setUploadStatus('error');
+      setUploadStatus('fold.art.invalidFile');
       console.error(error);
     });
   };

@@ -183,6 +183,10 @@ export const dict = {
     en: 'This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit.',
     zh: '無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。',
   },
+  'fold.art.invalidSvg': {
+    en: 'This SVG contains an unsupported external reference or script.',
+    zh: '此 SVG 含不支援的外部引用或指令碼。',
+  },
   'fold.unsupported': {
     en: '3D fold preview is not yet available for this box style.',
     zh: '此盒型尚未支援 3D 摺盒預覽。',
@@ -233,8 +237,8 @@ export const dict = {
   'modal.begin': { en: 'Begin', zh: '開始使用' },
   'modal.title': { en: 'open-dieline', zh: 'open-dieline' },
   'modal.body.p1': {
-    en: 'A print-dieline generator—packaging structure made into an instrument whose measures can be adjusted, printed, and folded for trial.<br>Its geometry is calibrated by reverse-measuring production dielines.',
-    zh: '一個印刷刀模（dieline）產生器——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具。<br>幾何規則以真實生產刀模逆向量測校準。',
+    en: 'A rapid-prototyping dieline instrument—packaging structure made into a tool whose measures can be adjusted, printed, and folded for trial, close to real production dielines.<br>Its geometry is calibrated by reverse-measuring production dielines; always proof with your die maker before production.',
+    zh: '一個刀模（dieline）快速原型工具——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具，產出接近真實刀模的原型展示。<br>幾何規則以真實生產刀模逆向量測校準；正式生產前請與刀模廠校對打樣。',
   },
   'modal.body.p2': {
     en: 'This is a development build with two box styles: Reverse Tuck End (RTE) and the three-piece Telescope Box—lid, base, and platform liner. More forms are in development.',
