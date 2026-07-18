@@ -97,6 +97,10 @@
   white-space: nowrap;
 }
 
+.editor-toolbar .btn:last-child {
+  border-right: 0;
+}
+
 .editor-toolbar .btn:disabled,
 .editor-toolbar .btn:disabled:hover {
   border-color: var(--hairline);

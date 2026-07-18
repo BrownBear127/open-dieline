@@ -502,7 +502,7 @@ describe('FoldView editor transition matrix', () => {
 });
 
 describe('FoldView artwork download', () => {
-  it('composes a 4096px guide-free PNG and downloads it with resolved dimensions', async () => {
+  it('composes a 4096px boxed download and downloads it with resolved dimensions', async () => {
     const session = sessionWithText();
     const composed = document.createElement('canvas');
     const png = new Blob(['png'], { type: 'image/png' });
@@ -527,7 +527,7 @@ describe('FoldView artwork download', () => {
       session.state,
       expect.objectContaining({ frame: RTE_LAYOUT.frame }),
       4096,
-      { guides: false },
+      { mode: 'download' },
       session.assetRegistry,
     );
     expect(toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png');

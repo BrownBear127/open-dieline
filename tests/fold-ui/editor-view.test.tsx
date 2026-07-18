@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import { readFileSync } from 'node:fs';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ArtworkLayout } from '@/ui/artwork-layout';
@@ -708,6 +709,22 @@ describe('EditorView text editor', () => {
 });
 
 describe('EditorView toolbar', () => {
+  it.each([
+    ['en', 'DONE'],
+    ['zh', '完成'],
+  ] as const)('uses only the toolbar frame for the final %s button right edge', (lang, doneCopy) => {
+    setLang(lang);
+    renderEditor(state());
+
+    const toolbar = screen.getByRole('toolbar');
+    const doneButton = screen.getByRole('button', { name: doneCopy });
+    const css = readFileSync('src/index.css', 'utf8');
+    const finalButtonRule = css.match(/\.editor-toolbar \.btn:last-child\s*\{([^}]*)\}/)?.[1];
+
+    expect(toolbar.lastElementChild).toBe(doneButton);
+    expect(finalButtonRule).toMatch(/border-right:\s*0\s*;/);
+  });
+
   it('shows the approved empty-state copy when only whitespace text remains', () => {
     renderEditor(state([text('blank', { text: '   ' })]));
 

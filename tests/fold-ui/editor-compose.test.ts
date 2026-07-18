@@ -58,6 +58,8 @@ class RecordingContext {
   closePath(): void { this.record('closePath'); }
   moveTo(x: number, y: number): void { this.record('moveTo', x, y); }
   lineTo(x: number, y: number): void { this.record('lineTo', x, y); }
+  fill(): void { this.record('fill'); }
+  clip(): void { this.record('clip'); }
   stroke(): void { this.record('stroke'); }
   setLineDash(segments: number[]): void {
     this.lineDashes.push([...segments]);
@@ -327,6 +329,54 @@ describe('composeArtwork', () => {
     ]);
     expect(context.lineDashes).toEqual([[], [4, 2]]);
     expect(lastGuideStroke).toBeLessThan(firstObjectSave);
+  });
+
+  it('downloads paper, panel-clipped artwork, then cut and crease guides in that order', () => {
+    const context = new RecordingContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValueOnce(context as unknown as CanvasRenderingContext2D);
+
+    composeArtwork(
+      state,
+      layout,
+      100,
+      { mode: 'download' },
+      registry,
+    );
+
+    const layerCalls = context.calls.filter(({ name }) => [
+      'fill',
+      'clip',
+      'drawImage',
+      'fillText',
+      'stroke',
+    ].includes(name));
+    const foldSceneSource = readFileSync('src/ui/fold-scene.ts', 'utf8');
+    const cardColorLiteral = foldSceneSource.match(/const CARD_COLOR = (0x[\da-f]+);/i)?.[1];
+    const expectedPaperColor = cardColorLiteral === undefined
+      ? undefined
+      : `#${Number.parseInt(cardColorLiteral, 16).toString(16).padStart(6, '0')}`;
+
+    expect(expectedPaperColor, 'fold-scene CARD_COLOR must stay discoverable').toBeDefined();
+    expect(context.fillStyles[0]?.toLowerCase()).toBe(expectedPaperColor);
+    expect(layerCalls.map(({ name }) => name)).toEqual([
+      'fill',
+      'clip',
+      'drawImage',
+      'fillText',
+      'fillText',
+      'stroke',
+      'stroke',
+    ]);
+    const lastGuideStroke = context.calls.reduce(
+      (last, call, index) => call.name === 'stroke' ? index : last,
+      -1,
+    );
+    const clipRestore = context.calls.reduce(
+      (last, call, index) => call.name === 'restore' ? index : last,
+      -1,
+    );
+    expect(clipRestore).toBeGreaterThan(lastGuideStroke);
   });
 
   it('draws a shared panel edge only as a crease guide', () => {

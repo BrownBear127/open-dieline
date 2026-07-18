@@ -33,6 +33,10 @@ export interface Block {
 
 type LineStyle = { stroke: string; strokeWidth: number; dasharray?: string };
 
+export type ComposeArtworkOptions =
+  | { guides: boolean; mode?: never }
+  | { mode: 'download'; guides?: never };
+
 const FONT_STACKS: Readonly<Record<TextObject['fontFamily'], string>> = {
   sans: 'system-ui, sans-serif',
   serif: 'serif',
@@ -46,6 +50,9 @@ export const INK_COLORS: Readonly<Record<InkPaletteColor, string>> = {
   crease: '#2C4EC4',
   brass: '#96742F',
 };
+
+// Canvas CSS form of fold-scene CARD_COLOR; the compositor test keeps both values aligned.
+const CARD_COLOR = '#ffffff';
 
 /** Converts flattened millimetres to canvas backing-store pixels. */
 export function toCanvas(
@@ -181,6 +188,35 @@ function drawGuides(
   context.stroke();
 }
 
+function tracePanelUnion(
+  context: CanvasRenderingContext2D,
+  layout: ArtworkLayout,
+  sizePx: number,
+): void {
+  context.beginPath();
+  for (const panel of layout.panels) {
+    const [first, ...rest] = panel.polygon;
+    if (first === undefined) continue;
+    const start = toCanvas(first, layout.frame, sizePx);
+    context.moveTo(start.x, start.y);
+    for (const point of rest) {
+      const next = toCanvas(point, layout.frame, sizePx);
+      context.lineTo(next.x, next.y);
+    }
+    context.closePath();
+  }
+}
+
+function drawPanelPaper(
+  context: CanvasRenderingContext2D,
+  layout: ArtworkLayout,
+  sizePx: number,
+): void {
+  context.fillStyle = CARD_COLOR;
+  tracePanelUnion(context, layout, sizePx);
+  context.fill();
+}
+
 function drawImageObject(
   context: CanvasRenderingContext2D,
   object: ImageObject,
@@ -231,11 +267,27 @@ function drawTextObject(
   context.restore();
 }
 
+function drawObjects(
+  context: CanvasRenderingContext2D,
+  state: EditorState,
+  layout: ArtworkLayout,
+  sizePx: number,
+  registry: AssetRegistry,
+): void {
+  for (const object of effectiveObjects(state)) {
+    if (object.kind === 'image') {
+      drawImageObject(context, object, layout, sizePx, registry);
+    } else {
+      drawTextObject(context, object, layout, sizePx);
+    }
+  }
+}
+
 export function composeArtwork(
   state: EditorState,
   layout: ArtworkLayout,
   sizePx: number,
-  { guides }: { guides: boolean },
+  options: ComposeArtworkOptions,
   registry: AssetRegistry,
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -244,13 +296,17 @@ export function composeArtwork(
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas 2D context unavailable');
 
-  if (guides) drawGuides(context, layout, sizePx);
-  for (const object of effectiveObjects(state)) {
-    if (object.kind === 'image') {
-      drawImageObject(context, object, layout, sizePx, registry);
-    } else {
-      drawTextObject(context, object, layout, sizePx);
-    }
+  if (options.mode === 'download') {
+    drawPanelPaper(context, layout, sizePx);
+    context.save();
+    tracePanelUnion(context, layout, sizePx);
+    context.clip();
+    drawObjects(context, state, layout, sizePx, registry);
+    drawGuides(context, layout, sizePx);
+    context.restore();
+  } else {
+    if (options.guides) drawGuides(context, layout, sizePx);
+    drawObjects(context, state, layout, sizePx, registry);
   }
 
   return canvas;

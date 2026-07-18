@@ -7,6 +7,7 @@ import { resolveParams } from '../src/core/registry';
 import { buildRteFoldModel } from '../src/fold/models/reverse-tuck-end';
 import { dict } from '../src/i18n/dict';
 import { deriveArtworkLayout, type ArtworkLayout } from '../src/ui/artwork-layout';
+import { dedupCutEdges } from '../src/ui/fold-template';
 import { gotoReady, settleFontsAndLayout } from './helpers';
 
 interface UploadFixture {
@@ -30,7 +31,10 @@ interface CanvasTranslation {
 
 const RED = [214, 48, 72, 255] as const;
 const BLUE = [35, 92, 214, 255] as const;
+const PAPER = [255, 255, 255, 255] as const;
+const CUT = [201, 58, 43, 255] as const;
 const DEFAULT_VALUES = resolveParams(reverseTuckEnd, {});
+const DEFAULT_LAYOUT = deriveArtworkLayout(buildRteFoldModel(DEFAULT_VALUES));
 
 test.setTimeout(60_000);
 
@@ -213,6 +217,43 @@ function expectColor(
       `${label} channel ${channel}: ${actual.join(',')} vs ${expected.join(',')}`,
     ).toBeLessThanOrEqual(tolerance);
   }
+}
+
+function normalizedLayoutPoint(
+  layout: ArtworkLayout,
+  point: { x: number; y: number },
+): Pick<NormalizedSample, 'x' | 'y'> {
+  return {
+    x: (point.x - layout.frame.minX + layout.frame.offsetX) / layout.frame.span,
+    y: (point.y - layout.frame.minY + layout.frame.offsetY) / layout.frame.span,
+  };
+}
+
+function panelCenterSample(
+  layout: ArtworkLayout,
+  panelId: string,
+): Pick<NormalizedSample, 'x' | 'y'> {
+  const panel = layout.panels.find(({ id }) => id === panelId);
+  if (panel === undefined) throw new Error(`Missing panel ${panelId}`);
+  const center = {
+    x: panel.polygon.reduce((sum, point) => sum + point.x, 0) / panel.polygon.length,
+    y: panel.polygon.reduce((sum, point) => sum + point.y, 0) / panel.polygon.length,
+  };
+  return normalizedLayoutPoint(layout, center);
+}
+
+// 取最長的 cut 邊：長直邊中點的 stroke 中心是實色，短邊/斜邊中點會吃到抗鋸齒混色。
+function longestCutMidpointSample(layout: ArtworkLayout): Pick<NormalizedSample, 'x' | 'y'> {
+  const edges = dedupCutEdges(layout.panels);
+  if (edges.length === 0) throw new Error('Missing cut edge');
+  const longest = edges.reduce((best, edge) => {
+    const len = (e: typeof edge) => Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y);
+    return len(edge) > len(best) ? edge : best;
+  });
+  return normalizedLayoutPoint(layout, {
+    x: (longest.a.x + longest.b.x) / 2,
+    y: (longest.a.y + longest.b.y) / 2,
+  });
 }
 
 async function readArtworkPixel(
@@ -459,9 +500,9 @@ test('C1 keeps fixed overlap colors aligned across editor, 2048 source, and 4096
   await uploadArtwork(page, solidPng('top-blue.png', 48, 96, BLUE));
 
   const samples: NormalizedSample[] = [
-    { x: 0.12, y: 0.17, expected: RED },
-    { x: 0.44, y: 0.19, expected: BLUE },
-    { x: 0.62, y: 0.81, expected: BLUE },
+    { ...panelCenterSample(DEFAULT_LAYOUT, 'P1'), expected: RED },
+    { ...panelCenterSample(DEFAULT_LAYOUT, 'P2'), expected: BLUE },
+    { ...panelCenterSample(DEFAULT_LAYOUT, 'P3'), expected: BLUE },
   ];
   const displayCanvas = page.getByTestId('editor-canvas-container').locator('canvas').first();
   await expect.poll(async () => {
@@ -542,9 +583,13 @@ test('C2 A-1 seed centers landscape 2:1 and portrait 1:2 without distortion', as
   }
 });
 
-test('C5 downloads a transparent 4096 PNG and disables download for whitespace-only text', async ({ page }) => {
+test('C5 downloads a paper-backed, clipped, guided 4096 PNG and disables download for whitespace-only text', async ({ page }) => {
   await enterFold(page);
   await enterEditor(page);
+  await expect(page.getByRole('button', { name: dict['editor.done'].en, exact: true })).toHaveCSS(
+    'border-right-width',
+    '0px',
+  );
   await page.getByRole('button', { name: dict['editor.addText'].en, exact: true }).click();
   const interaction = page.getByTestId('editor-interaction-canvas');
   await interaction.dblclick({ position: { x: 256, y: 256 } });
@@ -561,9 +606,16 @@ test('C5 downloads a transparent 4096 PNG and disables download for whitespace-o
   const download = await downloadPromise;
   const path = await download.path();
   if (path === null) throw new Error('Playwright did not provide a download path');
-  const inspected = await inspectDownload(page, path);
+  const outputSamples: NormalizedSample[] = [
+    { ...panelCenterSample(DEFAULT_LAYOUT, 'P4'), expected: PAPER },
+    { ...longestCutMidpointSample(DEFAULT_LAYOUT), expected: CUT },
+  ];
+  const inspected = await inspectDownload(page, path, outputSamples);
   expect({ width: inspected.width, height: inspected.height }).toEqual({ width: 4096, height: 4096 });
   expect(inspected.corners).toEqual([0, 0, 0, 0]);
+  inspected.samples.forEach((pixel, index) => {
+    expectColor(pixel, outputSamples[index]!.expected, `C5 download sample ${index}`, 12);
+  });
   await download.delete();
 });
 
@@ -680,6 +732,10 @@ test('zh editor interface matches every visible F7 literal word-for-word', async
   for (const copy of ['加圖', '加字', '上移', '下移', '複製', '刪除', '下載成品', '完成']) {
     await expect(toolbar.getByRole('button', { name: copy, exact: true })).toHaveCount(1);
   }
+  await expect(toolbar.getByRole('button', { name: '完成', exact: true })).toHaveCSS(
+    'border-right-width',
+    '0px',
+  );
   await expect(page.getByRole('status')).toHaveText('加入圖片或文字開始編輯。');
 
   await toolbar.getByRole('button', { name: '加字', exact: true }).click();

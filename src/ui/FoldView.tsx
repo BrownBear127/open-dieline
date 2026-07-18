@@ -531,7 +531,7 @@ export function FoldView({
         session.state,
         layout,
         EDITOR_DOWNLOAD_SIZE,
-        { guides: false },
+        { mode: 'download' },
         session.assetRegistry,
       );
       canvas.toBlob((blob) => {
