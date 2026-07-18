@@ -7,6 +7,7 @@ import { resolveParams } from '../src/core/registry';
 import { buildRteFoldModel } from '../src/fold/models/reverse-tuck-end';
 import { dict } from '../src/i18n/dict';
 import { deriveArtworkLayout, type ArtworkLayout } from '../src/ui/artwork-layout';
+import { PAPER_RECIPE_BASE_COLORS } from '../src/ui/fold-paper-colors';
 import { dedupCutEdges } from '../src/ui/fold-template';
 import { gotoReady, settleFontsAndLayout } from './helpers';
 
@@ -31,7 +32,13 @@ interface CanvasTranslation {
 
 const RED = [214, 48, 72, 255] as const;
 const BLUE = [35, 92, 214, 255] as const;
-const PAPER = [255, 255, 255, 255] as const;
+const KRAFT_PAPER_COLOR = PAPER_RECIPE_BASE_COLORS.kraft;
+const PAPER = [
+  KRAFT_PAPER_COLOR >> 16,
+  (KRAFT_PAPER_COLOR >> 8) & 0xff,
+  KRAFT_PAPER_COLOR & 0xff,
+  255,
+] as const;
 const CUT = [201, 58, 43, 255] as const;
 const DEFAULT_VALUES = resolveParams(reverseTuckEnd, {});
 const DEFAULT_LAYOUT = deriveArtworkLayout(buildRteFoldModel(DEFAULT_VALUES));

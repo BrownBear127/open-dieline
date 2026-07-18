@@ -33,11 +33,14 @@ import {
   updateEditorSessionState,
   type EditorSession,
 } from '@/ui/editor/editor-session';
+import {
+  PAPER_RECIPE_BASE_COLORS,
+  type FoldRecipeName,
+} from '@/ui/fold-paper-colors';
 import type {
   ArtworkMode,
   createFoldScene,
   CustomArtworkSource,
-  FoldRecipeName,
   FoldSceneHandle,
 } from '@/ui/fold-scene';
 
@@ -531,7 +534,10 @@ export function FoldView({
         session.state,
         layout,
         EDITOR_DOWNLOAD_SIZE,
-        { mode: 'download' },
+        {
+          mode: 'download',
+          paperColor: PAPER_RECIPE_BASE_COLORS[cardRecipeRef.current],
+        },
         session.assetRegistry,
       );
       canvas.toBlob((blob) => {

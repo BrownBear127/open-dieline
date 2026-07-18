@@ -19,6 +19,7 @@ import {
   deriveArtworkLayout,
 } from '@/ui/artwork-layout';
 import type { EditableArtworkAsset } from '@/ui/artwork-source';
+import { PAPER_RECIPE_BASE_COLORS } from '@/ui/fold-paper-colors';
 import {
   createEditorSession,
   destroyEditorSession,
@@ -518,7 +519,8 @@ describe('FoldView artwork download', () => {
       filename = this.download;
     });
     render(<Harness initialSession={session} />);
-    await screen.findByRole('button', { name: t('fold.art.edit') });
+    const blackPaper = await screen.findByRole('button', { name: t('fold.card.black') });
+    fireEvent.click(blackPaper);
     await openEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'STUB DOWNLOAD' }));
@@ -527,7 +529,7 @@ describe('FoldView artwork download', () => {
       session.state,
       expect.objectContaining({ frame: RTE_LAYOUT.frame }),
       4096,
-      { mode: 'download' },
+      { mode: 'download', paperColor: PAPER_RECIPE_BASE_COLORS.black },
       session.assetRegistry,
     );
     expect(toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png');

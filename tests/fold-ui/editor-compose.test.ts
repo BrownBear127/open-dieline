@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs';
 import type { ArtworkLayout, FlatDielineUvFrame } from '@/ui/artwork-layout';
 import type { AssetRegistry } from '@/ui/editor/editor-assets';
 import {
+  paperColorCss,
+  PAPER_RECIPE_BASE_COLORS,
+} from '@/ui/fold-paper-colors';
+import {
   composeArtwork,
   fromCanvas,
   INK_COLORS,
@@ -340,7 +344,7 @@ describe('composeArtwork', () => {
       state,
       layout,
       100,
-      { mode: 'download' },
+      { mode: 'download', paperColor: PAPER_RECIPE_BASE_COLORS.kraft },
       registry,
     );
 
@@ -351,14 +355,8 @@ describe('composeArtwork', () => {
       'fillText',
       'stroke',
     ].includes(name));
-    const foldSceneSource = readFileSync('src/ui/fold-scene.ts', 'utf8');
-    const cardColorLiteral = foldSceneSource.match(/const CARD_COLOR = (0x[\da-f]+);/i)?.[1];
-    const expectedPaperColor = cardColorLiteral === undefined
-      ? undefined
-      : `#${Number.parseInt(cardColorLiteral, 16).toString(16).padStart(6, '0')}`;
-
-    expect(expectedPaperColor, 'fold-scene CARD_COLOR must stay discoverable').toBeDefined();
-    expect(context.fillStyles[0]?.toLowerCase()).toBe(expectedPaperColor);
+    expect(context.fillStyles[0]?.toLowerCase())
+      .toBe(paperColorCss(PAPER_RECIPE_BASE_COLORS.kraft));
     expect(layerCalls.map(({ name }) => name)).toEqual([
       'fill',
       'clip',

@@ -54,12 +54,12 @@ describe('completed-fold overlap layering', () => {
       renderOrder: 0,
     });
     expect(panelOverlapPlan('glue', 0.5)).toEqual({
-      normalOffset: -0.51,
-      polygonOffsetUnits: 0,
+      normalOffset: -0.55,
+      polygonOffsetUnits: 1,
       renderOrder: -1,
     });
     expect(panelOverlapPlan('topTuck', 0.5)).toEqual({
-      normalOffset: -1.02,
+      normalOffset: -1.1,
       polygonOffsetUnits: 0,
       renderOrder: -2,
     });
@@ -72,12 +72,12 @@ describe('completed-fold overlap layering', () => {
       renderOrder: 0,
     });
     expect(panelOverlapPlan('topLidC', 0.5)).toEqual({
-      normalOffset: 0.51,
+      normalOffset: 0.55,
       polygonOffsetUnits: 0,
       renderOrder: 1,
     });
     expect(panelOverlapPlan('topLidL', 0.5)).toEqual({
-      normalOffset: 0.51,
+      normalOffset: 0.55,
       polygonOffsetUnits: -1,
       renderOrder: 2,
     });
@@ -87,9 +87,9 @@ describe('completed-fold overlap layering', () => {
   });
 
   it('keeps a small non-zero separation in zero-thickness card mode', () => {
-    expect(panelOverlapPlan('bottomLid', 0).normalOffset).toBe(0.01);
-    expect(panelOverlapPlan('glue', 0).normalOffset).toBe(-0.01);
-    expect(panelOverlapPlan('bottomTuck', 0).normalOffset).toBe(-0.02);
+    expect(panelOverlapPlan('bottomLid', 0).normalOffset).toBe(0.05);
+    expect(panelOverlapPlan('glue', 0).normalOffset).toBe(-0.05);
+    expect(panelOverlapPlan('bottomTuck', 0).normalOffset).toBe(-0.1);
   });
 
   it('ramps the render-only layer offset with fold completion and leaves flat geometry unchanged', () => {
@@ -104,13 +104,13 @@ describe('completed-fold overlap layering', () => {
 
     expect(panelRenderVertices(lid, vertices, 0, 'front', 0.5)).toBe(vertices);
     expect(panelRenderVertices(lid, vertices, lid.foldAngle / 2, 'front', 0.5))
-      .toEqual(vertices.map((vertex) => ({ ...vertex, z: 0.255 })));
+      .toEqual(vertices.map((vertex) => ({ ...vertex, z: 0.275 })));
     expect(panelRenderVertices(lid, vertices, lid.foldAngle, 'front', 0.5))
-      .toEqual(vertices.map((vertex) => ({ ...vertex, z: 0.51 })));
+      .toEqual(vertices.map((vertex) => ({ ...vertex, z: 0.55 })));
 
     const tuck = model.panels.find(({ id }) => id === 'topTuck')!;
     expect(panelRenderVertices(tuck, vertices, tuck.foldAngle, 'front', 0.5))
-      .toEqual(vertices.map((vertex) => ({ ...vertex, z: -1.02 })));
+      .toEqual(vertices.map((vertex) => ({ ...vertex, z: -1.1 })));
   });
 
   it.each([

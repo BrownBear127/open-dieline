@@ -26,6 +26,11 @@ import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
+import {
+  PAPER_RECIPE_BASE_COLORS,
+  type FoldRecipeName,
+} from './fold-paper-colors';
+
 // P3 M3 T1（F1.0）：ArtworkLayout 抽取層搬走了 flatDielineUvFrame（TEMPLATE 與 3D UV
 // 共用同一份 square frame 真相源）。這裡改 import 再 re-export 回同名稱——
 // 既有 fold-scene-geometry/fold-paper-texture 兩份測試 `import { flatDielineUvFrame }
@@ -36,9 +41,10 @@ import type { ArtworkLayout, FlatDielineUvFrame } from './artwork-layout';
 
 export { flatDielineUvFrame };
 export type { FlatDielineUvFrame };
+export type { FoldRecipeName } from './fold-paper-colors';
 
 const PAPER_FALLBACK = '#FAF7F0'; // Source: src/styles/tokens.css --paper.
-const CARD_COLOR = 0xffffff;
+const UNTINTED_MATERIAL_COLOR = 0xffffff;
 const CARD_ROUGHNESS = 0.9;
 const CARD_METALNESS = 0;
 const CAMERA_FOV_DEGREES = 35;
@@ -595,7 +601,7 @@ export function createPaperAlbedoTexture(
 }
 
 export function createPaperBumpTexture(params: PaperParams): CanvasTexture {
-  return renderPaperTextures(params, CARD_COLOR, false, true).bump!;
+  return renderPaperTextures(params, UNTINTED_MATERIAL_COLOR, false, true).bump!;
 }
 
 export interface FoldRecipe {
@@ -613,10 +619,10 @@ export interface FoldRecipe {
 
 export type FoldLook = FoldRecipe['look'];
 
-export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
+export const FOLD_RECIPES: Record<FoldRecipeName, FoldRecipe> = {
   white: {
     look: {
-      cardColor: 0xd1d0cc,
+      cardColor: PAPER_RECIPE_BASE_COLORS.white,
       keyIntensity: 2,
       keyColor: 0xffffff,
       fillIntensity: 2,
@@ -641,7 +647,7 @@ export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
   },
   kraft: {
     look: {
-      cardColor: 0x332615,
+      cardColor: PAPER_RECIPE_BASE_COLORS.kraft,
       keyIntensity: 6,
       keyColor: 0xfff1dd,
       fillIntensity: 3,
@@ -666,7 +672,7 @@ export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
   },
   black: {
     look: {
-      cardColor: 0x1c1a17,
+      cardColor: PAPER_RECIPE_BASE_COLORS.black,
       keyIntensity: 5,
       keyColor: 0xffffff,
       fillIntensity: 2,
@@ -691,7 +697,6 @@ export const FOLD_RECIPES: Record<'white' | 'kraft' | 'black', FoldRecipe> = {
   },
 };
 
-export type FoldRecipeName = keyof typeof FOLD_RECIPES;
 export const FOLD_DEFAULT_RECIPE: 'kraft' = 'kraft';
 
 function mapDielineY(y: number): number {
@@ -788,7 +793,7 @@ export interface PanelOverlapPlan {
   renderOrder: number;
 }
 
-const SURFACE_GAP_MM = 0.01;
+const SURFACE_GAP_MM = 0.05;
 
 function verticesCenter(vertices: Vec3[]): Vec3 {
   return vertices.reduce((center, vertex) => ({
@@ -892,7 +897,7 @@ export function panelOverlapPlan(panelId: string, thickness: number): PanelOverl
   }
 
   if (panelId === 'glue') {
-    return { normalOffset: -layerOffset, polygonOffsetUnits: 0, renderOrder: -1 };
+    return { normalOffset: -layerOffset, polygonOffsetUnits: 1, renderOrder: -1 };
   }
 
   const isLid = panelId.startsWith('topLid') || panelId.startsWith('bottomLid');
@@ -1072,7 +1077,7 @@ function createCardMaterial(
   polygonOffsetUnits = 0,
 ): MeshStandardMaterial {
   return new MeshStandardMaterial({
-    color: CARD_COLOR,
+    color: UNTINTED_MATERIAL_COLOR,
     metalness: CARD_METALNESS,
     polygonOffset: polygonOffsetUnits !== 0,
     polygonOffsetFactor: 0,
@@ -1529,8 +1534,10 @@ export function shadowPlacement(bounds: GeometryBounds): ShadowPlacement {
 }
 
 export interface CameraFrame {
-  /** 自轉／注視軸心＝摺合完成（t=1）的盒體中心（2026-07-17 E2E 驗收裁決）。 */
+  /** OrbitControls uses the scene origin after the completed box is centered there. */
   target: Vec3;
+  /** Fixed translation that places the completed-fold bounds center at the scene origin. */
+  modelOffset: Vec3;
   /** 取景對角線＝攤平（t=0）極端外廓——相機距離／far／maxDistance 以此定，全程不出框。 */
   fitDiagonal: number;
   /** 聚焦對角線＝盒體外廓——near／minDistance 以此定，近縮放不被大紙鎖死。 */
@@ -1564,11 +1571,17 @@ export function computeCameraFrame(model: FoldModel): CameraFrame | null {
   if (!foldedBounds || !flatBounds) return null;
 
   const focusDiagonal = boundsDiagonal(foldedBounds);
+  const foldedCenter = {
+    x: (foldedBounds.minX + foldedBounds.maxX) / 2,
+    y: (foldedBounds.minY + foldedBounds.maxY) / 2,
+    z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+  };
   return {
-    target: {
-      x: (foldedBounds.minX + foldedBounds.maxX) / 2,
-      y: (foldedBounds.minY + foldedBounds.maxY) / 2,
-      z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+    target: { x: 0, y: 0, z: 0 },
+    modelOffset: {
+      x: -foldedCenter.x,
+      y: -foldedCenter.y,
+      z: -foldedCenter.z,
     },
     fitDiagonal: Math.max(boundsDiagonal(flatBounds), focusDiagonal),
     focusDiagonal,
@@ -1628,12 +1641,16 @@ export function createFoldScene(
   const fillLightOffset = new Vector3(0.52, 0.08, -0.36);
   scene.add(ambient, keyLight, fillLight);
 
+  const modelRoot = new Group();
+  modelRoot.name = 'fold-model-root';
+  scene.add(modelRoot);
+
   const panelRoot = new Group();
   panelRoot.name = 'fold-panel-root';
-  scene.add(panelRoot);
+  modelRoot.add(panelRoot);
 
   let contactShadow = createContactShadow();
-  scene.add(contactShadow.mesh);
+  modelRoot.add(contactShadow.mesh);
 
   const panelMeshes = new Map<
     string,
@@ -1782,6 +1799,11 @@ export function createFoldScene(
     const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
     const cameraDistance = fitDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
 
+    modelRoot.position.set(
+      frame.modelOffset.x,
+      frame.modelOffset.y,
+      frame.modelOffset.z,
+    );
     controls.target.set(frame.target.x, frame.target.y, frame.target.z);
     camera.position.set(
       frame.target.x,
@@ -2012,19 +2034,19 @@ export function createFoldScene(
     renderer.dispose();
     renderer = createRenderer();
 
-    scene.remove(contactShadow.mesh);
+    modelRoot.remove(contactShadow.mesh);
     disposeContactShadow(contactShadow);
     contactShadow = createContactShadow();
-    scene.add(contactShadow.mesh);
+    modelRoot.add(contactShadow.mesh);
 
-    scene.remove(panelRoot);
+    modelRoot.remove(panelRoot);
     disposePanelTree();
     if (activeArtwork !== 'none') refreshArtworkAlbedo();
     if (currentModel) {
       buildPanelTree(currentModel);
       updateModelPose();
     }
-    scene.add(panelRoot);
+    modelRoot.add(panelRoot);
 
     contextLost = false;
     markNeedsRender();

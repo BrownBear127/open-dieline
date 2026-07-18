@@ -1,5 +1,9 @@
 import { LINE_STYLES } from '@/core/styles';
 import type { ArtworkLayout, FlatDielineUvFrame } from '../artwork-layout';
+import {
+  paperColorCss,
+  type PaperRecipeBaseColor,
+} from '../fold-paper-colors';
 import { dedupCutEdges } from '../fold-template';
 import type { AssetRegistry } from './editor-assets';
 import type { AABB } from './editor-snap';
@@ -35,7 +39,7 @@ type LineStyle = { stroke: string; strokeWidth: number; dasharray?: string };
 
 export type ComposeArtworkOptions =
   | { guides: boolean; mode?: never }
-  | { mode: 'download'; guides?: never };
+  | { mode: 'download'; paperColor: PaperRecipeBaseColor; guides?: never };
 
 const FONT_STACKS: Readonly<Record<TextObject['fontFamily'], string>> = {
   sans: 'system-ui, sans-serif',
@@ -50,9 +54,6 @@ export const INK_COLORS: Readonly<Record<InkPaletteColor, string>> = {
   crease: '#2C4EC4',
   brass: '#96742F',
 };
-
-// Canvas CSS form of fold-scene CARD_COLOR; the compositor test keeps both values aligned.
-const CARD_COLOR = '#ffffff';
 
 /** Converts flattened millimetres to canvas backing-store pixels. */
 export function toCanvas(
@@ -211,8 +212,9 @@ function drawPanelPaper(
   context: CanvasRenderingContext2D,
   layout: ArtworkLayout,
   sizePx: number,
+  paperColor: PaperRecipeBaseColor,
 ): void {
-  context.fillStyle = CARD_COLOR;
+  context.fillStyle = paperColorCss(paperColor);
   tracePanelUnion(context, layout, sizePx);
   context.fill();
 }
@@ -297,7 +299,7 @@ export function composeArtwork(
   if (!context) throw new Error('Canvas 2D context unavailable');
 
   if (options.mode === 'download') {
-    drawPanelPaper(context, layout, sizePx);
+    drawPanelPaper(context, layout, sizePx, options.paperColor);
     context.save();
     tracePanelUnion(context, layout, sizePx);
     context.clip();
