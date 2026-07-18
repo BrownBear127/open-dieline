@@ -211,7 +211,7 @@ const PROBES = [
     check: () => shFails('node checks/style-gate.mjs', { GATE_ONLY: 'a15-copy', GATE_SKIP_BUILD: '1' }) },
   // — Fold look frozen family：任一 FOLD_RECIPES 宣告值漂移都必須被逐欄凍結測試抓到 —
   { id: 'look-frozen-drift', gate: 'fold-look-frozen',
-    run: () => mutate('src/ui/fold-scene.ts', 'cardColor: 0x332615', 'cardColor: 0x332616'),
+    run: () => mutate('src/ui/fold-paper-colors.ts', 'kraft: 0x332615', 'kraft: 0x332616'),
     check: () => shFails('npx vitest run tests/fold-ui/fold-look-frozen.test.ts'),
     greenCheck: () => !shFails('npx vitest run tests/fold-ui/fold-look-frozen.test.ts') },
   // — Fold model / 2D reconciliation —
