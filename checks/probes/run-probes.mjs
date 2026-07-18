@@ -43,7 +43,7 @@ const REQUIRED_EDITOR_E2E = [
   'C1 keeps fixed overlap colors aligned across editor, 2048 source, and 4096 download',
   'C2 square A-1 seed is pixel-identical and remains the non-undoable baseline',
   'C2 A-1 seed centers landscape 2:1 and portrait 1:2 without distortion',
-  'C5 downloads a transparent 4096 PNG and disables download for whitespace-only text',
+  'C5 downloads a paper-backed, clipped, guided 4096 PNG and disables download for whitespace-only text',
   'C7 keeps stale visible through two parameter changes, preserves coordinates, and clears on DONE',
   'uses a 2x backing store while CSS-center clicks still hit the rendered object',
   'keyboard chain handles duplicate, delete, undo, redo, and the two-stage Escape',
