@@ -4,19 +4,24 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import type { DictKey } from '../../i18n/dict';
+import { t } from '../../i18n/t';
 import type { ArtworkLayout } from '../artwork-layout';
 import type { AssetRegistry } from './editor-assets';
 import { composeArtwork, fromCanvas, textBlockMetrics } from './editor-compose';
 import { snapDelta, type AABB, type SnapTargets } from './editor-snap';
 import {
+  effectiveObjects,
   reduce,
   type EditorAction,
   type EditorObject,
   type EditorState,
   type History,
   type ImageObject,
+  type InkPaletteColor,
   type TextObject,
 } from './editor-state';
 
@@ -33,6 +38,8 @@ export interface EditorViewProps {
   viewCssPx: number;
   dpr: number;
   labels?: EditorViewLabels;
+  onAddImage?: () => void;
+  onDownload?: () => void;
   onExit: () => void;
 }
 
@@ -70,11 +77,43 @@ interface SnapLines {
 }
 
 type MeasureText = (value: string, font: string) => number;
+type TextPatch = Extract<EditorAction, { type: 'setText' }>['patch'];
+type SelectedAction = 'layerUp' | 'layerDown' | 'duplicate' | 'delete';
 
 const SNAP_THRESHOLD_MM = 2;
 const HANDLE_RADIUS_CSS_PX = 5;
 const HANDLE_HIT_RADIUS_CSS_PX = 8;
 const ROTATION_HANDLE_OFFSET_CSS_PX = 20;
+
+const INK_PALETTE = [
+  { color: 'ink', labelKey: 'editor.color.ink', token: 'var(--ink)' },
+  { color: 'inkSoft', labelKey: 'editor.color.inkSoft', token: 'var(--ink-soft)' },
+  { color: 'cut', labelKey: 'editor.color.cut', token: 'var(--cut)' },
+  { color: 'crease', labelKey: 'editor.color.crease', token: 'var(--crease)' },
+  { color: 'brass', labelKey: 'editor.color.brass', token: 'var(--brass)' },
+] as const satisfies readonly {
+  color: InkPaletteColor;
+  labelKey: DictKey;
+  token: string;
+}[];
+
+const FONT_FAMILIES = [
+  { value: 'sans', labelKey: 'editor.font.sans' },
+  { value: 'serif', labelKey: 'editor.font.serif' },
+  { value: 'mono', labelKey: 'editor.font.mono' },
+] as const satisfies readonly {
+  value: TextObject['fontFamily'];
+  labelKey: DictKey;
+}[];
+
+const TEXT_ALIGNMENTS = [
+  { value: 'left', labelKey: 'editor.align.left' },
+  { value: 'center', labelKey: 'editor.align.center' },
+  { value: 'right', labelKey: 'editor.align.right' },
+] as const satisfies readonly {
+  value: TextObject['align'];
+  labelKey: DictKey;
+}[];
 
 function rotateOffset(offset: Point, degrees: number): Point {
   const radians = degrees * Math.PI / 180;
@@ -344,6 +383,8 @@ export default function EditorView({
   viewCssPx,
   dpr,
   labels,
+  onAddImage,
+  onDownload,
   onExit,
 }: EditorViewProps) {
   const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
@@ -353,9 +394,13 @@ export default function EditorView({
   const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
   const measureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
+  const textEditorRef = useRef<HTMLDivElement>(null);
+  const editingTextIdRef = useRef<string | null>(null);
+  const textEditStartRef = useRef<TextObject | null>(null);
   const [renderState, setRenderState] = useState(state);
   const renderStateRef = useRef(renderState);
   const [snapLines, setSnapLines] = useState<SnapLines>({});
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const targets = useMemo(() => snapTargets(layout), [layout]);
 
   const measure = useCallback<MeasureText>((value, font) => {
@@ -379,11 +424,73 @@ export default function EditorView({
     return next;
   }, [publish]);
 
+  const commitAction = useCallback((action: EditorAction): EditorState => {
+    const current = renderStateRef.current;
+    const next = reduce(current, action);
+    if (next !== current) {
+      publish(next);
+      history.commit(next);
+    }
+    return next;
+  }, [history, publish]);
+
+  const commitSelectedAction = useCallback((type: SelectedAction): void => {
+    const selectedId = renderStateRef.current.selectedId;
+    if (selectedId !== null) commitAction({ type, id: selectedId });
+  }, [commitAction]);
+
+  const updateText = useCallback((id: string, patch: TextPatch): void => {
+    applyAction({ type: 'setText', id, patch, frameSpan: layout.frame.span });
+  }, [applyAction, layout.frame.span]);
+
+  const finishTextEdit = useCallback((): void => {
+    const editingId = editingTextIdRef.current;
+    if (editingId === null) return;
+
+    const current = renderStateRef.current;
+    const edited = current.objects.find((object): object is TextObject => (
+      object.id === editingId && object.kind === 'text'
+    ));
+    const started = textEditStartRef.current;
+    if (edited && started && !sameObject(edited, started)) history.commit(current);
+
+    editingTextIdRef.current = null;
+    textEditStartRef.current = null;
+    setEditingTextId(null);
+  }, [history]);
+
+  const handleDone = useCallback((): void => {
+    finishTextEdit();
+    const current = renderStateRef.current;
+    const objects = effectiveObjects(current);
+    if (objects.length !== current.objects.length) {
+      const next = {
+        objects,
+        selectedId: objects.some(({ id }) => id === current.selectedId) ? current.selectedId : null,
+      };
+      publish(next);
+      history.commit(next);
+    }
+    onExit();
+  }, [finishTextEdit, history, onExit, publish]);
+
   useEffect(() => {
     if (gestureRef.current !== null) return;
     renderStateRef.current = state;
     setRenderState(state);
   }, [state]);
+
+  useEffect(() => {
+    if (editingTextId === null) return;
+
+    function onDocumentPointerDown(event: PointerEvent): void {
+      const target = event.target;
+      if (target instanceof Node && !textEditorRef.current?.contains(target)) finishTextEdit();
+    }
+
+    document.addEventListener('pointerdown', onDocumentPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocumentPointerDown);
+  }, [editingTextId, finishTextEdit]);
 
   useEffect(() => {
     const canvas = displayCanvasRef.current;
@@ -419,6 +526,12 @@ export default function EditorView({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape' && editingTextIdRef.current !== null) {
+        event.preventDefault();
+        finishTextEdit();
+        return;
+      }
+
       if (isFormElement(event.target instanceof Element ? event.target : document.activeElement)
         || isFormElement(document.activeElement)) return;
 
@@ -466,7 +579,7 @@ export default function EditorView({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [applyAction, history, onExit, publish]);
+  }, [applyAction, finishTextEdit, history, onExit, publish]);
 
   const pointerPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -477,6 +590,30 @@ export default function EditorView({
       safeDpr,
     );
   }, [backingSize, layout.frame, safeDpr]);
+
+  const onDoubleClick = useCallback((event: ReactMouseEvent<HTMLCanvasElement>): void => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = fromCanvas(
+      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+      layout.frame,
+      backingSize,
+      safeDpr,
+    );
+    const hit = hitTest(point, renderStateRef.current.objects, registry, measure);
+    if (!hit || hit.kind !== 'text') return;
+
+    finishTextEdit();
+    if (renderStateRef.current.selectedId !== hit.id) applyAction({ type: 'select', id: hit.id });
+    const current = renderStateRef.current.objects.find((object): object is TextObject => (
+      object.id === hit.id && object.kind === 'text'
+    ));
+    if (!current) return;
+
+    editingTextIdRef.current = current.id;
+    textEditStartRef.current = { ...current };
+    setEditingTextId(current.id);
+  }, [applyAction, backingSize, finishTextEdit, layout.frame, measure, registry, safeDpr]);
 
   const startGesture = useCallback((
     event: ReactPointerEvent<HTMLCanvasElement>,
@@ -621,17 +758,90 @@ export default function EditorView({
     width: `${safeViewCssPx}px`,
     height: `${safeViewCssPx}px`,
   } as const;
+  const editingText = editingTextId === null
+    ? undefined
+    : renderState.objects.find((object): object is TextObject => (
+        object.id === editingTextId && object.kind === 'text'
+      ));
+  const frameCenterX = layout.frame.minX - layout.frame.offsetX + layout.frame.span / 2;
+  const frameCenterY = layout.frame.minY - layout.frame.offsetY + layout.frame.span / 2;
+  const selectedIndex = renderState.objects.findIndex(({ id }) => id === renderState.selectedId);
+  const hasEffectiveObjects = effectiveObjects(renderState).length > 0;
 
   return (
     <div
+      className="editor-view"
       data-testid="editor-canvas-container"
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'grid',
-        placeItems: 'center',
-      }}
     >
+      <div className="editor-toolbar" role="toolbar" aria-label={t('fold.art.edit')}>
+        <button type="button" className="btn label" onClick={onAddImage}>
+          {t('editor.addImage')}
+        </button>
+        <button
+          type="button"
+          className="btn label"
+          onClick={() => commitAction({
+            type: 'addText',
+            frameSpan: layout.frame.span,
+            frameCenterX,
+            frameCenterY,
+            defaultText: t('editor.addText'),
+          })}
+        >
+          {t('editor.addText')}
+        </button>
+        <button
+          type="button"
+          className="btn label"
+          disabled={selectedIndex < 0 || selectedIndex >= renderState.objects.length - 1}
+          onClick={() => commitSelectedAction('layerUp')}
+        >
+          {t('editor.layerUp')}
+        </button>
+        <button
+          type="button"
+          className="btn label"
+          disabled={selectedIndex <= 0}
+          onClick={() => commitSelectedAction('layerDown')}
+        >
+          {t('editor.layerDown')}
+        </button>
+        <button
+          type="button"
+          className="btn label"
+          disabled={selectedIndex < 0 || renderState.objects.length >= 32}
+          onClick={() => commitSelectedAction('duplicate')}
+        >
+          {t('editor.duplicate')}
+        </button>
+        <button
+          type="button"
+          className="btn label"
+          disabled={selectedIndex < 0}
+          onClick={() => commitSelectedAction('delete')}
+        >
+          {t('editor.delete')}
+        </button>
+        <button
+          type="button"
+          className="btn label"
+          disabled={!hasEffectiveObjects}
+          onClick={onDownload}
+        >
+          {t('editor.download')}
+        </button>
+        <button type="button" className="btn label" onClick={handleDone}>
+          {t('editor.done')}
+        </button>
+      </div>
+      {!hasEffectiveObjects && (
+        <p
+          role="status"
+          className="editor-empty mono"
+        >
+          {t('editor.empty')}
+        </p>
+      )}
       <div
         style={{
           position: 'relative',
@@ -660,9 +870,86 @@ export default function EditorView({
           onPointerMove={onPointerMove}
           onPointerUp={finishGesture}
           onPointerCancel={cancelGesture}
+          onDoubleClick={onDoubleClick}
           style={{ ...canvasStyle, touchAction: 'none' }}
         />
       </div>
+      {editingText && (
+        <div
+          ref={textEditorRef}
+          data-testid="editor-text-panel"
+          role="dialog"
+          aria-label={t('editor.addText')}
+          onBlurCapture={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+            finishTextEdit();
+          }}
+          className="editor-text-panel"
+        >
+          <textarea
+            autoFocus
+            aria-label={t('editor.addText')}
+            value={editingText.text}
+            onChange={(event) => updateText(editingText.id, { text: event.currentTarget.value })}
+          />
+          <div className="editor-text-options" data-testid="editor-font-family">
+            {FONT_FAMILIES.map(({ value, labelKey }) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={editingText.fontFamily === value}
+                onClick={() => updateText(editingText.id, { fontFamily: value })}
+              >
+                {t(labelKey)}
+              </button>
+            ))}
+          </div>
+          <label className="editor-text-size mono">
+            <span>mm</span>
+            <input
+              type="number"
+              min={2}
+              max={layout.frame.span * 10}
+              step="0.1"
+              value={editingText.fontSizeMm}
+              onChange={(event) => {
+                const fontSizeMm = event.currentTarget.valueAsNumber;
+                if (!Number.isFinite(fontSizeMm)) return;
+                updateText(editingText.id, { fontSizeMm });
+              }}
+            />
+          </label>
+          <div className="editor-text-options" data-testid="editor-text-alignment">
+            {TEXT_ALIGNMENTS.map(({ value, labelKey }) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={editingText.align === value}
+                onClick={() => updateText(editingText.id, { align: value })}
+              >
+                {t(labelKey)}
+              </button>
+            ))}
+          </div>
+          <div className="editor-color-palette" data-testid="editor-color-palette">
+            {INK_PALETTE.map(({ color, labelKey, token }) => (
+              <button
+                key={color}
+                type="button"
+                aria-pressed={editingText.color === color}
+                onClick={() => updateText(editingText.id, { color })}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ display: 'inline-block', width: 10, height: 10, background: token }}
+                />
+                {t(labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

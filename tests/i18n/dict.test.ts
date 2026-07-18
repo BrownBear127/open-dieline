@@ -31,6 +31,39 @@ const EXPECTED_STRUCTURAL_LOCK_EN = {
   'imp.placeholder.dash': '—',
 } as const;
 
+const EXPECTED_EDITOR_COPY = {
+  'fold.art.edit': { en: 'EDIT', zh: '編輯' },
+  'editor.done': { en: 'DONE', zh: '完成' },
+  'editor.addImage': { en: 'IMAGE', zh: '加圖' },
+  'editor.addText': { en: 'TEXT', zh: '加字' },
+  'editor.duplicate': { en: 'COPY', zh: '複製' },
+  'editor.delete': { en: 'DELETE', zh: '刪除' },
+  'editor.layerUp': { en: 'RAISE', zh: '上移' },
+  'editor.layerDown': { en: 'LOWER', zh: '下移' },
+  'editor.download': { en: 'ARTWORK PNG', zh: '下載成品' },
+  'editor.empty': { en: 'Add an image or text to begin.', zh: '加入圖片或文字開始編輯。' },
+  'editor.stale': {
+    en: 'Parameters changed. Reposition your artwork to realign.',
+    zh: '參數已變更，請重新對位物件。',
+  },
+  'editor.limit.objects': { en: 'Object limit reached (32).', zh: '已達物件上限（32）。' },
+  'editor.error.compose': {
+    en: 'Rendering failed. Try again or remove the last object.',
+    zh: '合成失敗，請重試或移除最後加入的物件。',
+  },
+  'editor.font.sans': { en: 'SANS', zh: '無襯線' },
+  'editor.font.serif': { en: 'SERIF', zh: '襯線' },
+  'editor.font.mono': { en: 'MONO', zh: '等寬' },
+  'editor.align.left': { en: 'LEFT', zh: '左' },
+  'editor.align.center': { en: 'CENTER', zh: '中' },
+  'editor.align.right': { en: 'RIGHT', zh: '右' },
+  'editor.color.ink': { en: 'INK', zh: '墨' },
+  'editor.color.inkSoft': { en: 'SOFT', zh: '淡墨' },
+  'editor.color.cut': { en: 'CUT', zh: '刀紅' },
+  'editor.color.crease': { en: 'CREASE', zh: '摺藍' },
+  'editor.color.brass': { en: 'BRASS', zh: '黃銅' },
+} as const;
+
 describe('i18n dictionary', () => {
   it('returns the default English copy', () => {
     expect(t('mode.design')).toBe('Design');
@@ -81,5 +114,12 @@ describe('i18n dictionary', () => {
     expect(dict['fold.art.label']).toEqual({ en: 'ART', zh: '圖稿' });
     expect(dict['fold.art.none']).toEqual({ en: 'NONE', zh: '無' });
     expect(dict['fold.art.sample']).toEqual({ en: 'SAMPLE', zh: '範例' });
+  });
+
+  it.each(['en', 'zh'] as const)('keeps every approved M4 F7 %s value byte-for-byte', (lang) => {
+    for (const [key, copy] of Object.entries(EXPECTED_EDITOR_COPY)) {
+      const actual = dict[key as keyof typeof dict] as { en: string; zh: string } | undefined;
+      expect(actual?.[lang], `${key}.${lang}`).toBe(copy[lang]);
+    }
   });
 });

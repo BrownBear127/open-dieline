@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import type { ArtworkLayout } from '@/ui/artwork-layout';
 import type { AssetRegistry } from '@/ui/editor/editor-assets';
 import EditorView, { type EditorViewProps } from '@/ui/editor/EditorView';
+import { setLang } from '@/i18n/lang';
 import type {
   EditorObject,
   EditorState,
   History,
   ImageObject,
+  InkPaletteColor,
   TextObject,
 } from '@/ui/editor/editor-state';
 
@@ -91,6 +93,9 @@ const registry = {
 
 interface RenderOptions {
   history?: ReturnType<typeof history>;
+  layout?: ArtworkLayout;
+  onAddImage?: Mock<() => void>;
+  onDownload?: Mock<() => void>;
   onExit?: Mock<() => void>;
   dpr?: number;
   viewCssPx?: number;
@@ -99,14 +104,18 @@ interface RenderOptions {
 function renderEditor(initialState: EditorState, options: RenderOptions = {}) {
   const dispatch = vi.fn<(nextState: EditorState) => void>();
   const editorHistory = options.history ?? history();
+  const onAddImage = options.onAddImage ?? vi.fn();
+  const onDownload = options.onDownload ?? vi.fn();
   const onExit = options.onExit ?? vi.fn();
   const props = {
     history: editorHistory,
-    layout,
+    layout: options.layout ?? layout,
     registry,
     viewCssPx: options.viewCssPx ?? 100,
     dpr: options.dpr ?? 1,
     labels: { canvas: 'Artwork editor canvas' },
+    onAddImage,
+    onDownload,
     onExit,
   } satisfies Omit<EditorViewProps, 'state' | 'dispatch'>;
 
@@ -126,7 +135,15 @@ function renderEditor(initialState: EditorState, options: RenderOptions = {}) {
 
   const view = render(<Harness />);
   const interaction = screen.getByTestId('editor-interaction-canvas');
-  return { ...view, dispatch, history: editorHistory, interaction, onExit };
+  return {
+    ...view,
+    dispatch,
+    history: editorHistory,
+    interaction,
+    onAddImage,
+    onDownload,
+    onExit,
+  };
 }
 
 function selectedId(dispatch: Mock<(nextState: EditorState) => void>): string | null | undefined {
@@ -140,6 +157,7 @@ function lastState(dispatch: Mock<(nextState: EditorState) => void>): EditorStat
 }
 
 beforeEach(() => {
+  setLang('en');
   registry.get = vi.fn(() => ({
     bitmap: { width: 100, height: 100 } as ImageBitmap,
     width: 100,
@@ -222,6 +240,20 @@ describe('EditorView canvas wiring', () => {
       { guides: true },
       registry,
     );
+  });
+
+  it('falls back to a one-pixel backing store and accepts layouts without a hinge', () => {
+    const layoutWithoutHinge: ArtworkLayout = {
+      ...layout,
+      panels: [{ id: 'panel', polygon: layout.panels[0]!.polygon }],
+    };
+    const { container } = renderEditor(state(), {
+      dpr: 0,
+      viewCssPx: 0,
+      layout: layoutWithoutHinge,
+    });
+
+    expect(container.querySelectorAll('canvas')[0]).toHaveAttribute('width', '1');
   });
 });
 
@@ -403,6 +435,36 @@ describe('EditorView pointer interactions', () => {
       2,
     );
   });
+
+  it('clears a selection when the pointer misses every object', () => {
+    const { dispatch, interaction } = renderEditor(state([image('a')], 'a'));
+
+    fireEvent.pointerDown(interaction, { clientX: 95, clientY: 95, pointerId: 1 });
+
+    expect(lastState(dispatch).selectedId).toBeNull();
+  });
+
+  it('restores only the gestured object when a pointer gesture is cancelled', () => {
+    const editorHistory = history();
+    const original = state([image('other', { x: 70 }), image('a')], 'a');
+    const { dispatch, interaction } = renderEditor(original, { history: editorHistory });
+
+    fireEvent.pointerDown(interaction, { clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(interaction, { clientX: 45, clientY: 40, pointerId: 1 });
+    fireEvent.pointerCancel(interaction, { clientX: 45, clientY: 40, pointerId: 1 });
+
+    expect(lastState(dispatch)).toEqual(original);
+    expect(editorHistory.commit).not.toHaveBeenCalled();
+  });
+
+  it('ignores pointer movement from a different pointer id', () => {
+    const { dispatch, interaction } = renderEditor(state([image('a')], 'a'));
+
+    fireEvent.pointerDown(interaction, { clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(interaction, { clientX: 45, clientY: 40, pointerId: 2 });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
 });
 
 describe('EditorView keyboard interactions', () => {
@@ -480,5 +542,257 @@ describe('EditorView keyboard interactions', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onExit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EditorView text editor', () => {
+  it('commits exactly one history entry when an edited text panel closes outside', () => {
+    const editorHistory = history();
+    const { dispatch, interaction } = renderEditor(state([text('copy')]), {
+      history: editorHistory,
+    });
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    const input = screen.getByRole('textbox', { name: 'TEXT' });
+
+    fireEvent.change(input, { target: { value: 'FIRST\nSECOND' } });
+
+    expect(lastState(dispatch).objects[0]).toMatchObject({ text: 'FIRST\nSECOND' });
+    expect(editorHistory.commit).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole('textbox', { name: 'TEXT' })).not.toBeInTheDocument();
+    expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+    expect(editorHistory.commit).toHaveBeenCalledWith(lastState(dispatch));
+  });
+
+  it('does not add history when an unchanged text panel closes', () => {
+    const editorHistory = history();
+    const { interaction } = renderEditor(state([text('copy')]), { history: editorHistory });
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    fireEvent.pointerDown(document.body);
+
+    expect(editorHistory.commit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['empty canvas', state()],
+    ['image object', state([image('artwork')])],
+  ])('does not open a text panel after double-clicking an %s', (_case, initialState) => {
+    const { interaction } = renderEditor(initialState);
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+
+    expect(screen.queryByTestId('editor-text-panel')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['INK', 'ink'],
+    ['SOFT', 'inkSoft'],
+    ['CUT', 'cut'],
+    ['CREASE', 'crease'],
+    ['BRASS', 'brass'],
+  ] as const)('maps the %s palette option to InkPaletteColor %s', (label, color) => {
+    const { dispatch, interaction } = renderEditor(state([text('copy')]));
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    fireEvent.click(screen.getByRole('button', { name: label }));
+
+    expect((lastState(dispatch).objects[0] as TextObject).color)
+      .toBe(color satisfies InkPaletteColor);
+  });
+
+  it('edits font family, millimetre size, and alignment in the same history session', () => {
+    const editorHistory = history();
+    const { dispatch, interaction } = renderEditor(state([text('copy')]), {
+      history: editorHistory,
+    });
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    fireEvent.click(screen.getByRole('button', { name: 'SERIF' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'mm' }), {
+      target: { value: '12.5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'RIGHT' }));
+
+    expect(lastState(dispatch).objects[0]).toMatchObject({
+      fontFamily: 'serif',
+      fontSizeMm: 12.5,
+      align: 'right',
+    });
+    expect(editorHistory.commit).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes and commits the text panel before Escape can affect the canvas', () => {
+    const editorHistory = history();
+    const onExit = vi.fn();
+    const { dispatch, interaction } = renderEditor(state([text('copy')], 'copy'), {
+      history: editorHistory,
+      onExit,
+    });
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    const input = screen.getByRole('textbox', { name: 'TEXT' });
+    fireEvent.change(input, { target: { value: 'EDITED' } });
+    input.focus();
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(screen.queryByTestId('editor-text-panel')).not.toBeInTheDocument();
+    expect(lastState(dispatch).selectedId).toBe('copy');
+    expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('commits once when focus leaves the whole text panel', () => {
+    const editorHistory = history();
+    const { interaction } = renderEditor(state([text('copy')]), { history: editorHistory });
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    const input = screen.getByRole('textbox', { name: 'TEXT' });
+    fireEvent.change(input, { target: { value: 'BLURRED' } });
+    fireEvent.blur(input, { relatedTarget: document.body });
+
+    expect(screen.queryByTestId('editor-text-panel')).not.toBeInTheDocument();
+    expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the panel open for internal focus moves and ignores a blank font size', () => {
+    const editorHistory = history();
+    const { dispatch, interaction } = renderEditor(state([text('copy')], 'copy'), {
+      history: editorHistory,
+    });
+
+    fireEvent.doubleClick(interaction, { clientX: 30, clientY: 30 });
+    const size = screen.getByRole('spinbutton', { name: 'mm' });
+    const serif = screen.getByRole('button', { name: 'SERIF' });
+    fireEvent.change(size, { target: { value: '' } });
+    fireEvent.blur(size, { relatedTarget: serif });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(screen.getByTestId('editor-text-panel')).toBeInTheDocument();
+    expect(editorHistory.commit).not.toHaveBeenCalled();
+  });
+});
+
+describe('EditorView toolbar', () => {
+  it('shows the approved empty-state copy when only whitespace text remains', () => {
+    renderEditor(state([text('blank', { text: '   ' })]));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Add an image or text to begin.');
+  });
+
+  it('adds the localized default text at the frame centre and commits immediately', () => {
+    const editorHistory = history();
+    const { dispatch } = renderEditor(state(), { history: editorHistory });
+
+    fireEvent.click(screen.getByRole('button', { name: 'TEXT' }));
+
+    expect(lastState(dispatch)).toMatchObject({
+      selectedId: 'text-1',
+      objects: [{
+        id: 'text-1',
+        kind: 'text',
+        text: 'TEXT',
+        x: 50,
+        y: 50,
+        fontSizeMm: 5,
+      }],
+    });
+    expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the approved Chinese add-text copy as the Chinese default object text', () => {
+    setLang('zh');
+    const { dispatch } = renderEditor(state());
+
+    fireEvent.click(screen.getByRole('button', { name: '加字' }));
+
+    expect((lastState(dispatch).objects[0] as TextObject).text).toBe('加字');
+  });
+
+  it('commits each selected-object layer, copy, and delete operation immediately', () => {
+    const editorHistory = history();
+    const { dispatch } = renderEditor(state([image('a'), image('b')], 'a'), {
+      history: editorHistory,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'RAISE' }));
+    expect(lastState(dispatch).objects.map(({ id }) => id)).toEqual(['b', 'a']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'LOWER' }));
+    expect(lastState(dispatch).objects.map(({ id }) => id)).toEqual(['a', 'b']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'COPY' }));
+    expect(lastState(dispatch)).toMatchObject({
+      selectedId: 'image-1',
+      objects: [{ id: 'a' }, { id: 'b' }, { id: 'image-1', x: 35, y: 35 }],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'DELETE' }));
+    expect(lastState(dispatch).objects.map(({ id }) => id)).toEqual(['a', 'b']);
+    expect(lastState(dispatch).selectedId).toBeNull();
+    expect(editorHistory.commit).toHaveBeenCalledTimes(4);
+  });
+
+  it('routes image, download, and done buttons to their owning callbacks', () => {
+    const onAddImage = vi.fn();
+    const onDownload = vi.fn();
+    const onExit = vi.fn();
+    renderEditor(state([image('artwork')]), { onAddImage, onDownload, onExit });
+
+    fireEvent.click(screen.getByRole('button', { name: 'IMAGE' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ARTWORK PNG' }));
+    fireEvent.click(screen.getByRole('button', { name: 'DONE' }));
+
+    expect(onAddImage).toHaveBeenCalledTimes(1);
+    expect(onDownload).toHaveBeenCalledTimes(1);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes whitespace-only text through effectiveObjects before Done exits', () => {
+    const editorHistory = history();
+    const onExit = vi.fn();
+    const artwork = image('artwork');
+    const blank = text('blank', { text: ' \n\t ' });
+    const { dispatch } = renderEditor(state([artwork, blank], 'blank'), {
+      history: editorHistory,
+      onExit,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'DONE' }));
+
+    expect(lastState(dispatch)).toEqual({ objects: [artwork], selectedId: null });
+    expect(editorHistory.commit).toHaveBeenCalledTimes(1);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains a valid selection while Done removes a different blank text object', () => {
+    const artwork = image('artwork');
+    const { dispatch } = renderEditor(state([
+      artwork,
+      text('blank', { text: ' ' }),
+    ], artwork.id));
+
+    fireEvent.click(screen.getByRole('button', { name: 'DONE' }));
+
+    expect(lastState(dispatch)).toEqual({ objects: [artwork], selectedId: artwork.id });
+  });
+
+  it('disables artwork download exactly when effective objects are empty', () => {
+    const blank = renderEditor(state([text('blank', { text: ' \n\t ' })]));
+
+    expect(screen.getByRole('button', { name: 'ARTWORK PNG' })).toBeDisabled();
+
+    blank.unmount();
+    renderEditor(state([image('artwork')]));
+
+    expect(screen.getByRole('button', { name: 'ARTWORK PNG' })).toBeEnabled();
   });
 });
