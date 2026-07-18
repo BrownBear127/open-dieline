@@ -331,27 +331,37 @@ async function latestAlphaBounds(page: Page, size: number): Promise<{
   maxX: number;
   maxY: number;
 }> {
+  // 只認「帶透明背景」的合成輸出：3D 管線在合成之後還會產同尺寸的不透明材質
+  // canvas（畫紙紋理），單純取最後一張會讀到材質而非合成結果。
   return page.evaluate((targetSize) => {
     const canvases = (window as unknown as Record<string, unknown>).__m4TrackedCanvases as HTMLCanvasElement[];
-    const canvas = canvases.filter(({ width, height }) => width === targetSize && height === targetSize).at(-1);
-    if (canvas === undefined) throw new Error(`No tracked ${targetSize}px canvas`);
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (context === null) throw new Error('2D context unavailable');
-    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-    let minX = canvas.width;
-    let minY = canvas.height;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < canvas.height; y += 1) {
-      for (let x = 0; x < canvas.width; x += 1) {
-        if (pixels[(y * canvas.width + x) * 4 + 3] === 0) continue;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
+    const candidates = canvases.filter(({ width, height }) => width === targetSize && height === targetSize);
+    if (candidates.length === 0) throw new Error(`No tracked ${targetSize}px canvas`);
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const canvas = candidates[index]!;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (context === null) continue;
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let minX = canvas.width;
+      let minY = canvas.height;
+      let maxX = -1;
+      let maxY = -1;
+      let transparent = 0;
+      for (let y = 0; y < canvas.height; y += 1) {
+        for (let x = 0; x < canvas.width; x += 1) {
+          if (pixels[(y * canvas.width + x) * 4 + 3] === 0) {
+            transparent += 1;
+            continue;
+          }
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
       }
+      if (transparent > 0) return { minX, minY, maxX, maxY };
     }
-    return { minX, minY, maxX, maxY };
+    throw new Error(`No tracked ${targetSize}px composition canvas with a transparent background`);
   }, size);
 }
 
@@ -523,10 +533,12 @@ test('C2 A-1 seed centers landscape 2:1 and portrait 1:2 without distortion', as
     await uploadArtwork(page, fixture);
     await enterEditor(page);
     await page.getByRole('button', { name: dict['editor.done'].en, exact: true }).click();
-    const bounds = await latestAlphaBounds(page, 2048);
-    for (const key of ['minX', 'minY', 'maxX', 'maxY'] as const) {
-      expect(Math.abs(bounds[key] - expected[key]), `${fixture.name} ${key}`).toBeLessThanOrEqual(1);
-    }
+    await expect.poll(async () => {
+      const bounds = await latestAlphaBounds(page, 2048);
+      return (['minX', 'minY', 'maxX', 'maxY'] as const).every(
+        (key) => Math.abs(bounds[key] - expected[key]) <= 1,
+      );
+    }, { message: `${fixture.name} seeded bounds must converge`, timeout: 15_000 }).toBe(true);
   }
 });
 
