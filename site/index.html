@@ -14,6 +14,17 @@
 <meta property="og:description" content="Rapid-prototype packaging dielines, drawn to real production conventions, in your browser. Free for noncommercial use — an independent press for packaging, kept by Konvolut.">
 <meta property="og:image" content="https://dieline.konvolut.art/assets/og-dieline.png">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://dieline.konvolut.art/">
+<meta property="og:site_name" content="Open Dieline">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_TW">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Open Dieline — dielines set like type">
+<meta name="twitter:description" content="Rapid-prototype packaging dielines, drawn to real production conventions, in your browser. Free for noncommercial use — an independent press for packaging, kept by Konvolut.">
+<meta name="twitter:image" content="https://dieline.konvolut.art/assets/og-dieline.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"Open Dieline","url":"https://dieline.konvolut.art/","applicationCategory":"DesignApplication","operatingSystem":"Web browser","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Rapid-prototype packaging dielines, drawn to real production conventions, in your browser. Free for noncommercial use — an independent press for packaging, kept by Konvolut.","image":"https://dieline.konvolut.art/assets/og-dieline.png","publisher":{"@type":"Organization","name":"Konvolut","url":"https://konvolut.art"},"inLanguage":"en"}
+</script>
 <link rel="preload" href="fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/fraunces-italic-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/tokens.css">
@@ -61,19 +72,19 @@
         <span class="no">No. 01</span>
         <h3>Generate</h3>
         <p>Three measurements in, a dieline drawn to trade practice out. Cut lines in red, creases in blue — the way the trade has always read them.</p>
-        <span class="label">Begin a dieline</span>
+        <a class="label" href="https://open-dieline.vercel.app">Begin a dieline</a>
       </div>
       <div class="toc">
         <span class="no">No. 02</span>
         <h3>Inspect</h3>
         <p>Every panel, flap and allowance is layered and labelled. Check the geometry the way a compositor checks a forme.</p>
-        <span class="label">Read the plates</span>
+        <a class="label" href="https://open-dieline.vercel.app">Read the plates</a>
       </div>
       <div class="toc">
         <span class="no">No. 03</span>
         <h3>Export</h3>
         <p>SVG and DXF, dimensioned in millimetres, accepted by any die-shop. What leaves the press is yours entirely.</p>
-        <span class="label">Take the files</span>
+        <a class="label" href="https://open-dieline.vercel.app">Take the files</a>
       </div>
     </div>
   </div>
@@ -118,7 +129,7 @@
 
 <div class="cta page">
   <a class="button" href="https://open-dieline.vercel.app">Open the instrument →</a>
-  <span class="note mono">Desktop browser only — the tool needs a wide bench.</span>
+  <span class="note mono">Desktop browser only — the tool needs a wide bench.<span class="phone-only"> On a phone, the live drawing above is yours to pull.</span></span>
 </div>
 
 <!-- ══ Act III · The composing room (B, light) ══ -->
@@ -173,9 +184,13 @@
 
   <section class="page">
     <div class="tagline rule-t">
-      <p class="big">Every line of this press is open to read. <b>Free for noncommercial use</b> —
+      <p class="big">Every line of this press is open to read, down to why it was set: <a class="essay" href="https://konvolut.substack.com/p/1eb">Transparent Fold Lines</a>. <b>Free for noncommercial use</b> —
          for commercial licensing, write to hello@konvolut.art.</p>
       <span class="mono">source-available · <a href="https://github.com/BrownBear127/open-dieline">github.com/BrownBear127/open-dieline</a></span>
+    </div>
+    <div class="subscribe">
+      <span class="lead">What the press sets next, to your inbox.</span>
+      <a class="button-ghost" href="https://konvolut.substack.com">Subscribe →</a>
     </div>
   </section>
 </section>
@@ -193,5 +208,7 @@
 </footer>
 
 <script src="js/site.js" defer></script>
+<script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
