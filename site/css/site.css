@@ -405,3 +405,30 @@ html[lang="zh-Hant"] #case-room .tagline .big {
 }
 /* CTA 按鈕：EN 版鎖 Fraunces + italic，中文改用 Noto TC + 正常體 */
 html[lang="zh-Hant"] .cta a.button { font-family: "Noto Serif TC", "Fraunces", Georgia, serif; font-style: normal; }
+
+/* ══ 目錄連結／手機註記／緣起連結／訂閱 CTA ══ */
+/* 目錄三標籤成真連結——.label 本就有 ink 底線（站內連結語彙），僅補 <a> 去預設底線＋hover 轉 --cut */
+#press .toc a.label { text-decoration: none; transition: color .18s, border-color .18s; }
+#press .toc a.label:hover { color: var(--cut); border-bottom-color: var(--cut); }
+
+/* CTA note 的手機專屬句（桌面隱藏、手機顯示）；字體隨 .note.mono 既有規則，與原句完全一致 */
+.cta .note .phone-only { display: none; }
+@media (max-width: 768px) { .cta .note .phone-only { display: inline; } }
+
+/* Act III essay 連結：融進 tagline .big（字體隨 .big：EN Fraunces／zh Noto TC 正常體，與原句一致）；篇名不斷行 */
+#case-room .tagline .big a.essay {
+  color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--ink); padding-bottom: 1px;
+  white-space: nowrap; transition: color .18s, border-color .18s;
+}
+#case-room .tagline .big a.essay:hover { color: var(--cut); border-bottom-color: var(--cut); }
+
+/* Act III 訂閱 CTA：次級 ghost 外框按鈕（字體語彙比照 .cta a.button：EN Fraunces italic／zh Noto TC 正常體） */
+.subscribe { display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap; padding: 8px 0 26px; }
+.subscribe .lead { color: var(--ink-soft); }
+.subscribe a.button-ghost {
+  font-family: "Fraunces", Georgia, serif; font-size: 20px; font-style: italic; font-weight: 500;
+  color: var(--ink); background: transparent; text-decoration: none; padding: 10px 24px;
+  border: 1px solid var(--ink); transition: background .2s, color .2s; white-space: nowrap;
+}
+.subscribe a.button-ghost:hover { background: var(--ink); color: var(--paper); }
+html[lang="zh-Hant"] .subscribe a.button-ghost { font-family: "Noto Serif TC", "Fraunces", Georgia, serif; font-style: normal; }

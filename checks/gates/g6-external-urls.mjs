@@ -30,6 +30,14 @@ const ALLOW = [
   /^https?:\/\/github\.com\/BrownBear127\/open-dieline(\/|$)/,
   /^https?:\/\/konvolut\.substack\.com(\/|$)/,
   /^https:\/\/jcgt\.org\/published\/0007\/04\/01\/$/,
+  // 頁面 <head> 的 canonical／og:url／og:image 需絕對 URL（社群分享預覽卡不吃相對路徑）；
+  // 放行 app 自身網域精確前綴，不擴及其他 host，維持 gate 對未知外部 URL 的判別力。
+  /^https?:\/\/open-dieline\.vercel\.app(\/|$)/,
+  // @vercel/analytics 依賴自嵌字串：production 走同源 /_vercel/insights/*，但 bundle 內含
+  // dev debug 腳本 host 與文件參考連結字面（runtime 分支保留·非 CDN·非追蹤第三方）。與 react.dev／
+  // tailwindcss.com 同類（依賴自嵌·app 原始碼未撰寫）；精確錨定 debug host 與 docs 路徑，不擴及整個 vercel.com。
+  /^https:\/\/va\.vercel-scripts\.com\//,
+  /^https:\/\/vercel\.com\/docs\//,
 ];
 
 function* walk(dir) {

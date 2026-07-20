@@ -59,8 +59,8 @@ test('footer and modal expose the exact safe external links inside the app frame
 
   const app = page.locator('.app');
   const footer = page.locator('.app-footer');
-  await expect(footer).toHaveText('source-available · PolyForm Noncommercial · GitHub · Substack');
-  await expect(footer.getByRole('link')).toHaveCount(3);
+  await expect(footer).toHaveText('source-available · PolyForm Noncommercial · GitHub · Substack · Konvolut');
+  await expect(footer.getByRole('link')).toHaveCount(4);
   await expect(footer.getByRole('link', { name: 'PolyForm Noncommercial' })).toHaveAttribute(
     'href',
     'https://polyformproject.org/licenses/noncommercial/1.0.0',
@@ -72,6 +72,10 @@ test('footer and modal expose the exact safe external links inside the app frame
   await expect(footer.getByRole('link', { name: 'Substack' })).toHaveAttribute(
     'href',
     'https://konvolut.substack.com',
+  );
+  await expect(footer.getByRole('link', { name: 'Konvolut' })).toHaveAttribute(
+    'href',
+    'https://konvolut.art',
   );
   for (const link of await footer.getByRole('link').all()) {
     await expect(link).toHaveAttribute('target', '_blank');
