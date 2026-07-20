@@ -94,7 +94,7 @@ const EXPECTED_COUNTS = {
     '.platebar .compat': 1,
     '.platebar .compat .tick': 1,
     '.app-footer': 1,
-    '.app-footer a': 3,
+    '.app-footer a': 4,
   },
   fold: {
     'input[type="range"]': 1,
@@ -142,7 +142,7 @@ const EXPECTED_COUNTS = {
     '.zh .boxsel select': 3,
     '.zh .param-select select': 2,
     '.app-footer': 1,
-    '.app-footer a': 3,
+    '.app-footer a': 4,
   },
   zhImposition: {
     '.zh .imp-card h4': 2,

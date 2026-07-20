@@ -122,6 +122,7 @@ const APP_FOOTER_LINKS = [
   ['PolyForm Noncommercial', 'https://polyformproject.org/licenses/noncommercial/1.0.0'],
   ['GitHub', 'https://github.com/BrownBear127/open-dieline'],
   ['Substack', 'https://konvolut.substack.com'],
+  ['Konvolut', 'https://konvolut.art'],
 ] as const;
 
 function RetryableFoldView({
@@ -354,6 +355,14 @@ export function App({
       setImpositionState((prev) => ({ ...prev, pieceId: fallbackId }));
     }
   }, [result.pieces, impositionState.pieceId]);
+
+  // Web Analytics：僅正式 production build 動態載入（dev／e2e 零 beacon，不干擾測試）。動態
+  // import 讓 analytics 落獨立 chunk、不佔主 bundle 預算（與 FoldView lazy 邊界同精神）；
+  // production 走同源 /_vercel/insights/*，只送 pageview（URL／referrer／國家），不碰使用者匯入的檔案。
+  useEffect(() => {
+    if (!import.meta.env.PROD || import.meta.env.MODE === 'e2e') return;
+    void import('@vercel/analytics').then(({ inject }) => inject());
+  }, []);
 
   const invariantWarnings = useMemo(
     () =>

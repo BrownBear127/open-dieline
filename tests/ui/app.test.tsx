@@ -354,13 +354,13 @@ describe('M1 T5 console sidebar and parameter panel', () => {
 });
 
 describe('App 冒煙測試', () => {
-  it('app 底部頁尾逐字呈現並提供三個安全外連', () => {
+  it('app 底部頁尾逐字呈現並提供四個安全外連', () => {
     render(<App />);
 
     const footer = document.querySelector<HTMLElement>('.app-footer');
     expect(footer).not.toBeNull();
     expect(footer).toHaveTextContent(
-      'source-available · PolyForm Noncommercial · GitHub · Substack',
+      'source-available · PolyForm Noncommercial · GitHub · Substack · Konvolut',
     );
     expect(within(footer!).getAllByRole('link').map((link) => ({
       text: link.textContent,
@@ -383,6 +383,12 @@ describe('App 冒煙測試', () => {
       {
         text: 'Substack',
         href: 'https://konvolut.substack.com',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+      {
+        text: 'Konvolut',
+        href: 'https://konvolut.art',
         target: '_blank',
         rel: 'noopener noreferrer',
       },
