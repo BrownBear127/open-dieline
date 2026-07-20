@@ -1,6 +1,6 @@
 # open-dieline
 
-> A [Konvolut](https://konvolut.art) project · **Live: [open-dieline.vercel.app](https://open-dieline.vercel.app)**
+> A [Konvolut](https://konvolut.art) project · **Live: [tool.konvolut.art](https://tool.konvolut.art)**
 
 A source-available dieline prototyping tool for print & packaging — parametric, printable, calibrated against real production dielines. For rapid prototyping and visual proofs; verify with your die maker before production.
 
@@ -25,7 +25,7 @@ A source-available dieline prototyping tool for print & packaging — parametric
 
 ## 使用
 
-**直接使用（免安裝）**：開啟 **[open-dieline.vercel.app](https://open-dieline.vercel.app)** 即可。所有計算都在瀏覽器內完成，不需要安裝任何東西，匯入的刀模檔也不會上傳到任何伺服器。
+**直接使用（免安裝）**：開啟 **[tool.konvolut.art](https://tool.konvolut.art)** 即可。所有計算都在瀏覽器內完成，不需要安裝任何東西，匯入的刀模檔也不會上傳到任何伺服器。
 
 **本地執行（想改程式碼的人）**：需要先安裝 [Node.js](https://nodejs.org/)（20 以上，選 LTS 版即可），然後在終端機依序執行：
 
@@ -55,6 +55,6 @@ npm run dev
 
 ## Links
 
-- [Live demo](https://open-dieline.vercel.app)
+- [Live demo](https://tool.konvolut.art)
 - [Konvolut](https://konvolut.art)
 - [Substack](https://konvolut.substack.com)
