@@ -1,0 +1,16 @@
+{
+  "_note": "插底盒依原刀模量測的參考值（local mm：x0=P1/糊邊摺線、y0=頂摺線、1pt=0.352778mm）。observed=原刀模實測值、normalized=產品正規值、tol=逐特徵容許誤差。P4 由原刀模 54.4mm 對稱正規化為 55mm。dustFlapDepth 取原刀模實測 31.6mm。",
+  "features": {
+    "panelWidths": { "observed": [85.002, 54.998, 85.002, 54.4], "normalized": [85, 55, 85, 55], "tol": 0.05 },
+    "bodyDepth": { "observed": 125.003, "normalized": 125, "tol": 0.05 },
+    "glueWidth": { "observed": 18.0, "normalized": 18, "tol": 0.1 },
+    "tuckFoldWidth": { "observed": 70.0, "normalized": 70, "tol": 0.05 },
+    "tuckTipWidth": { "observed": 54.5, "normalized": 54.5, "tol": 0.05 },
+    "tuckDepth": { "observed": 18.0, "normalized": 18, "tol": 0.05 },
+    "dustFlapDepth": { "observed": 31.6, "normalized": 31.6, "tol": 0.1 },
+    "lockFlapDepth": { "observed": 38.548, "normalized": 38.5, "tol": 0.1 },
+    "lockTabWidth": { "observed": 31.4995, "normalized": 31.5, "tol": 0.05 },
+    "lockReceiveWidth": { "observed": 39.5006, "normalized": 39.5, "tol": 0.05 },
+    "lockReceiveDepth": { "observed": 11.049, "normalized": 11.0, "tol": 0.1 }
+  }
+}

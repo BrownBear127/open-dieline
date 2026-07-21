@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
+import { tuckTopSnapLock } from '@/boxes/tuck-top-snap-lock';
 import { hasNaN } from '@/core/geometry';
 import type { BoxModule, GenerateResult, ResolvedParams } from '@/core/types';
 
@@ -462,4 +463,63 @@ describe('invariant 英文訊息不洩漏 CJK 文案', () => {
       }
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 插底盒（tuckTopSnapLock）：參數邊界掃描（同 RTE 安全網哲學：不 throw／無 NaN／bounds 有限）
+// ─────────────────────────────────────────────────────────────────────────
+describe('插底盒（tuckTopSnapLock）參數邊界掃描', () => {
+  function assertSafeTtsl(label: string, overrides: Overrides): void {
+    it(`${label}：generate 不 throw、無 NaN、bounds 有限`, () => {
+      let result: GenerateResult | null = null;
+      expect(() => {
+        result = tuckTopSnapLock.generate(resolveParams(tuckTopSnapLock, overrides));
+      }, label).not.toThrow();
+      const segs = result!.paths.flatMap((p) => p.segments);
+      expect(hasNaN(segs), `${label}：不應含 NaN 座標`).toBe(false);
+      for (const [key, v] of Object.entries(result!.bounds)) {
+        expect(Number.isFinite(v), `${label}：bounds.${key} 應為有限值，實際為 ${v}`).toBe(true);
+      }
+    });
+  }
+
+  describe('單一參數 min/max（其餘維持預設）', () => {
+    for (const p of tuckTopSnapLock.params) {
+      if (p.unit !== 'mm' && p.unit !== 'deg') continue;
+      if (p.min !== undefined) assertSafeTtsl(`${p.key}=min(${p.min})`, { [p.key]: p.min });
+      if (p.max !== undefined) assertSafeTtsl(`${p.key}=max(${p.max})`, { [p.key]: p.max });
+    }
+  });
+
+  describe('多參數極端組合（交互作用；可重現）', () => {
+    const combos: { label: string; overrides: Overrides }[] = [
+      { label: '全部尺寸取 min', overrides: { L: 20, W: 20, D: 20, tuckDepth: 4, dustFlapDepth: 5, lockFlapDepth: 10, lockReceiveWidth: 10, lockReceiveDepth: 1, lockTabWidth: 5, glueSize: 5 } },
+      { label: '全部尺寸取 max', overrides: { L: 500, W: 500, D: 500, tuckDepth: 60, dustFlapDepth: 60, lockFlapDepth: 250, lockReceiveWidth: 400, lockReceiveDepth: 100, lockTabWidth: 400, glueSize: 60 } },
+      { label: '窄盒＋深底片（P2/P4 對撞域）', overrides: { L: 20, lockFlapDepth: 250 } },
+      { label: '缺口窄於尖端（退化插入域）', overrides: { lockReceiveWidth: 10, lockTabWidth: 400 } },
+      { label: 'glueSide=right ＋ 全 min', overrides: { glueSide: 'right', L: 20, W: 20, D: 20, lockFlapDepth: 10 } },
+      { label: '接收缺口內縮 = 底片深（退化域）', overrides: { lockReceiveDepth: 100, lockFlapDepth: 100 } },
+    ];
+    for (const c of combos) assertSafeTtsl(c.label, c.overrides);
+  });
+
+  // 合法組合須「全 invariants 通過且無自交」——讓相依合法域 invariant 有實際覆蓋（非只驗不崩）。
+  describe('合法參數組合：全 invariants 通過、無退化輪廓', () => {
+    const legal: { label: string; overrides: Overrides }[] = [
+      { label: '預設', overrides: { thickness: 0 } },
+      { label: '大盒', overrides: { thickness: 0, L: 120, W: 80, D: 200, tuckDepth: 24, dustFlapDepth: 40, lockFlapDepth: 52, lockReceiveWidth: 60, lockReceiveDepth: 14, lockTabWidth: 45 } },
+      { label: '中盒·咬合貼下限 4mm', overrides: { thickness: 0, L: 90, W: 50, D: 100, tuckDepth: 16, dustFlapDepth: 28, lockFlapDepth: 30, lockReceiveWidth: 40, lockReceiveDepth: 6, lockTabWidth: 30 } },
+      { label: 'glueSide=right', overrides: { thickness: 0, glueSide: 'right' } },
+      { label: '含紙厚補償', overrides: { thickness: 0.4 } },
+    ];
+    for (const c of legal) {
+      it(`${c.label}：全 invariants 通過`, () => {
+        const params = resolveParams(tuckTopSnapLock, c.overrides);
+        const result = tuckTopSnapLock.generate(params);
+        for (const inv of tuckTopSnapLock.invariants) {
+          expect(inv.check(params, result), `${c.label} / ${inv.id}`).toMatchObject({ ok: true });
+        }
+      });
+    }
+  });
 });
