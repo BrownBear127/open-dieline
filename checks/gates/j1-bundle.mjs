@@ -49,10 +49,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
 // T2 上傳管線落地後 headroom 僅 66B，覆蓋 T3 overlay＋T5 e2e hook/probes
 // （全 lazy chunk·main 118,000 不動）。
 // editor chunk 使 total bundle 預算調整為 315,000；main 預算維持 118,000 不變。
+// 三角盒 rebudget（新增核心盒型的預算調整）：main 118,000→122,000——新增核心盒型
+// boxes/triangular-tube.ts（靜態 side-effect import·入主 bundle），實測主 bundle
+// 117,399→121,241B（+3,842B），新預算 122,000 留 759B headroom；shrink-only 硬頂不變。
 // 基準=正式 minified 產物：.gate-dist 是 --minify false 私有建置（G2 需求）、
 // gzip 數字失真——本 gate 自跑一次正式 `vite build`（dist/）再量。
 // GATE_SKIP_BUILD 時跳過（該 flag 僅配 GATE_ONLY 給純 source gate 的 probe 提速用）。
-const MAIN_BUNDLE_BUDGET = 118_000;
+const MAIN_BUNDLE_BUDGET = 122_000;
 const TOTAL_BUDGET = 315_000;
 
 export async function run({ root: gateRoot }) {

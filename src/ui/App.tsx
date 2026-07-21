@@ -86,6 +86,7 @@ import { listBoxes } from '@/core/registry';
 // （Slice 2 新增 boxes/telescope.ts 時，只需在這裡多加一行 import）。
 import '@/boxes/reverse-tuck-end';
 import '@/boxes/telescope';
+import '@/boxes/triangular-tube';
 import type { LocalizedText } from '@/core/types';
 import { initialLayersState } from '@/overlay/layers';
 import type { LayersState } from '@/overlay/layers';

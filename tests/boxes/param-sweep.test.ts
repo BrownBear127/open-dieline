@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { resolveParams } from '@/core/registry';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { telescope } from '@/boxes/telescope';
+import { triangularTube } from '@/boxes/triangular-tube';
 import { hasNaN } from '@/core/geometry';
 import type { BoxModule, GenerateResult, ResolvedParams } from '@/core/types';
 
@@ -444,6 +445,7 @@ describe('invariant 英文訊息不洩漏 CJK 文案', () => {
     ['RTE wide-panel/min-positive-lock', reverseTuckEnd, { ...extremeOverrides(reverseTuckEnd, 'max'), tuckLock: 1 }],
     ['telescope all-min', telescope, extremeOverrides(telescope, 'min')],
     ['telescope all-max', telescope, extremeOverrides(telescope, 'max')],
+    ['triangular all-min', triangularTube, extremeOverrides(triangularTube, 'min')],
   ];
 
   for (const [label, box, overrides] of cases) {
@@ -462,4 +464,62 @@ describe('invariant 英文訊息不洩漏 CJK 文案', () => {
       }
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 三角盒（triangularTube）：參數邊界掃描（同安全網哲學：不 throw／無 NaN／bounds 有限）
+// ─────────────────────────────────────────────────────────────────────────
+describe('三角盒（triangularTube）參數邊界掃描', () => {
+  function assertSafeTri(label: string, overrides: Overrides): void {
+    it(`${label}：generate 不 throw、無 NaN、bounds 有限`, () => {
+      let result: GenerateResult | null = null;
+      expect(() => {
+        result = triangularTube.generate(resolveParams(triangularTube, overrides));
+      }, label).not.toThrow();
+      const segs = result!.paths.flatMap((p) => p.segments);
+      expect(hasNaN(segs), `${label}：不應含 NaN 座標`).toBe(false);
+      for (const [key, v] of Object.entries(result!.bounds)) {
+        expect(Number.isFinite(v), `${label}：bounds.${key} 應為有限值，實際為 ${v}`).toBe(true);
+      }
+    });
+  }
+
+  describe('單一參數 min/max（其餘維持預設）', () => {
+    for (const p of triangularTube.params) {
+      if (p.unit !== 'mm' && p.unit !== 'deg') continue;
+      if (p.min !== undefined) assertSafeTri(`${p.key}=min(${p.min})`, { [p.key]: p.min });
+      if (p.max !== undefined) assertSafeTri(`${p.key}=max(${p.max})`, { [p.key]: p.max });
+    }
+  });
+
+  describe('多參數極端組合（交互作用；可重現）', () => {
+    const combos: { label: string; overrides: Overrides }[] = [
+      { label: '全部尺寸取 min（tubeLength 遠低於下限·退化域）', overrides: { edgeA: 20, tubeLength: 30 } },
+      { label: '全部尺寸取 max', overrides: { edgeA: 250, tubeLength: 500 } },
+      { label: '大剖面＋短管（abEndCrease 近零域）', overrides: { edgeA: 250, tubeLength: 275 } },
+      { label: '小剖面＋長管', overrides: { edgeA: 20, tubeLength: 500 } },
+      { label: '近下限 tubeLength（剛好合法）', overrides: { edgeA: 58.5, tubeLength: 83 } },
+    ];
+    for (const c of combos) assertSafeTri(c.label, c.overrides);
+  });
+
+  // 合法組合須「全 invariants 通過且無自交」（讓合法域 invariant 有牙·非只驗不崩）。
+  describe('合法參數組合：全 invariants 通過、無退化輪廓', () => {
+    const legal: { label: string; overrides: Overrides }[] = [
+      { label: '預設 S1', overrides: {} },
+      { label: 'S2 tubeLength 變體', overrides: { tubeLength: 115 } },
+      { label: 'S3 剖面變體', overrides: { edgeA: 78.5, tubeLength: 150 } },
+      { label: '大盒', overrides: { edgeA: 120, tubeLength: 300 } },
+      { label: '小盒（合法下限附近）', overrides: { edgeA: 20, tubeLength: 60 } },
+    ];
+    for (const c of legal) {
+      it(`${c.label}：全 invariants 通過`, () => {
+        const params = resolveParams(triangularTube, c.overrides);
+        const result = triangularTube.generate(params);
+        for (const inv of triangularTube.invariants) {
+          expect(inv.check(params, result), `${c.label} / ${inv.id}`).toMatchObject({ ok: true });
+        }
+      });
+    }
+  });
 });

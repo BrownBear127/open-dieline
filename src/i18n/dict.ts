@@ -242,8 +242,8 @@ export const dict = {
     zh: '一個刀模（dieline）快速原型工具——把包裝盒的結構知識做成可以調參數、可以列印試摺的工具，產出接近真實刀模的原型展示。<br>幾何規則以真實生產刀模逆向量測校準；正式生產前請與刀模廠校對打樣。',
   },
   'modal.body.p2': {
-    en: 'This is a development build with two box styles: Reverse Tuck End (RTE) and the three-piece Telescope Box—lid, base, and platform liner. More forms are in development.',
-    zh: '目前為開發測試版，僅提供兩種盒型——反向插舌盒（RTE）與天地盒三件套（上蓋／下盒／平台式內襯），更多盒型陸續開發中。',
+    en: 'This is a development build with three box styles: Reverse Tuck End (RTE), the three-piece Telescope Box—lid, base, and platform liner—and the Triangular Tube Box. More forms are in development.',
+    zh: '目前為開發測試版，提供三種盒型——反向插舌盒（RTE）、天地盒三件套（上蓋／下盒／平台式內襯）與三角盒，更多盒型陸續開發中。',
   },
   'modal.body.p3': {
     en: 'This project is part of Konvolut—a practice concerned with books, paper, print, and collecting. The source is on GitHub; the writing appears on Substack.',
