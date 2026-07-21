@@ -1,0 +1,64 @@
+{
+  "_note": "三角盒依三個參考尺寸的原刀模量測值（local mm：左端 hinge x=0、Face A 自由邊 y=0、1pt=0.352778mm）。每樣本 params=產品正規參數；observed=原刀模實測值、normalized=產品正規值。剖面 edgeA→edgeB=A+1.5/edgeC=A+2.5 固定差值近等邊族。外翼四遠端頂點 P3/P4/Q1/Q2 為右端封閉式（左端 X 對 tubeCenter 鏡射）·逐點量自原刀模。S1 觀測噪音較大且 tubeLength 134.96→135 正規化使右端 x 偏移約 0.06mm，故 wingTol 取 0.1；S2/S3 殘差 <0.012mm。scalarTol/wingTol 為 observed↔normalized 自洽容差·詳見測試。",
+  "scalarTol": 0.05,
+  "wingTol": 0.1,
+  "samples": {
+    "S1": {
+      "params": { "edgeA": 58.5, "tubeLength": 135 },
+      "observed": {
+        "faceWidths": [58.484, 59.983, 60.985], "tubeLength": 134.964,
+        "abEndCrease": 27.493, "slotWidth": 63.984, "triangleSide": 59.733,
+        "centralZoneWidth": 79.977, "tabBaseDepth": 61.483, "insertionRatio": 0.8
+      },
+      "normalized": {
+        "faceWidths": [58.5, 60.0, 61.0], "tubeLength": 135.0,
+        "abEndCrease": 27.501, "slotWidth": 64.0, "triangleSide": 59.75,
+        "centralZoneWidth": 80.0, "tabBaseDepth": 61.5, "insertionRatio": 0.8
+      },
+      "wing": {
+        "P3": { "observed": [156.756, 25.237], "normalized": [156.801, 25.241] },
+        "P4": { "observed": [206.754, 54.105], "normalized": [206.806, 54.111] },
+        "Q1": { "observed": [155.024, 152.714], "normalized": [155.068, 152.759] },
+        "Q2": { "observed": [206.754, 122.848], "normalized": [206.813, 122.884] }
+      }
+    },
+    "S2": {
+      "params": { "edgeA": 58.5, "tubeLength": 115 },
+      "observed": {
+        "faceWidths": [58.501, 60.0, 60.999], "tubeLength": 115.006,
+        "abEndCrease": 17.501, "slotWidth": 64.001, "triangleSide": 59.751,
+        "centralZoneWidth": 79.999, "tabBaseDepth": 61.5, "insertionRatio": 0.8
+      },
+      "normalized": {
+        "faceWidths": [58.5, 60.0, 61.0], "tubeLength": 115.0,
+        "abEndCrease": 17.501, "slotWidth": 64.0, "triangleSide": 59.75,
+        "centralZoneWidth": 80.0, "tabBaseDepth": 61.5, "insertionRatio": 0.8
+      },
+      "wing": {
+        "P3": { "observed": [136.8, 25.245], "normalized": [136.801, 25.241] },
+        "P4": { "observed": [186.814, 54.12], "normalized": [186.806, 54.111] },
+        "Q1": { "observed": [135.068, 152.756], "normalized": [135.068, 152.759] },
+        "Q2": { "observed": [186.814, 122.883], "normalized": [186.813, 122.884] }
+      }
+    },
+    "S3": {
+      "params": { "edgeA": 78.5, "tubeLength": 150 },
+      "observed": {
+        "faceWidths": [78.5, 80.003, 80.998], "tubeLength": 150.001,
+        "abEndCrease": 25.001, "slotWidth": 84.0, "triangleSide": 79.751,
+        "centralZoneWidth": 99.998, "tabBaseDepth": 81.502, "insertionRatio": 0.84
+      },
+      "normalized": {
+        "faceWidths": [78.5, 80.0, 81.0], "tubeLength": 150.0,
+        "abEndCrease": 25.001, "slotWidth": 84.0, "triangleSide": 79.75,
+        "centralZoneWidth": 100.0, "tabBaseDepth": 81.5, "insertionRatio": 0.84
+      },
+      "wing": {
+        "P3": { "observed": [178.449, 33.726], "normalized": [178.45, 33.725] },
+        "P4": { "observed": [245.784, 72.602], "normalized": [245.775, 72.595] },
+        "Q1": { "observed": [176.717, 204.276], "normalized": [176.717, 204.276] },
+        "Q2": { "observed": [245.784, 164.402], "normalized": [245.783, 164.401] }
+      }
+    }
+  }
+}

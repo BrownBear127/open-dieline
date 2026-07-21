@@ -49,15 +49,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
 // T2 上傳管線落地後 headroom 僅 66B，覆蓋 T3 overlay＋T5 e2e hook/probes
 // （全 lazy chunk·main 118,000 不動）。
 // editor chunk 使 total bundle 預算調整為 315,000；main 預算維持 118,000 不變。
-// v1.3 rebudget（一次調整到位）：main 118,000→126,000——新增第三款核心盒型（插底盒·
-// reverse-tuck-top + snap-lock 底），與 RTE/telescope 同為啟動即註冊的 eager 盒型（盒型選單
-// listBoxes 須在啟動時列出全部·無法 lazy 化），幾何＋雙語 schema＋thickness 補償＋相依域
-// invariants 落主 bundle 約 +6KB gzip；shrink-only 精神不變（新功能一次性擴充·非放任漂移）·
-// total 315,000 不動（headroom 充足）。
+// v1.3 rebudget：main 118,000→130,000——新增兩款核心盒型（插底盒 boxes/tuck-top-snap-lock.ts
+// 與三角盒 boxes/triangular-tube.ts），皆為啟動即註冊的 eager 盒型（盒型選單 listBoxes 須在
+// 啟動時列出全部·無法 lazy 化），幾何＋雙語 schema＋補償與相依域 invariants 落主 bundle；
+// shrink-only 精神不變（新功能一次性擴充·非放任漂移）·total 315,000 不動（headroom 充足）。
 // 基準=正式 minified 產物：.gate-dist 是 --minify false 私有建置（G2 需求）、
 // gzip 數字失真——本 gate 自跑一次正式 `vite build`（dist/）再量。
 // GATE_SKIP_BUILD 時跳過（該 flag 僅配 GATE_ONLY 給純 source gate 的 probe 提速用）。
-const MAIN_BUNDLE_BUDGET = 126_000;
+const MAIN_BUNDLE_BUDGET = 130_000;
 const TOTAL_BUDGET = 315_000;
 
 export async function run({ root: gateRoot }) {

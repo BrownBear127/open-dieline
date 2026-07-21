@@ -87,6 +87,7 @@ import { listBoxes } from '@/core/registry';
 import '@/boxes/reverse-tuck-end';
 import '@/boxes/telescope';
 import '@/boxes/tuck-top-snap-lock';
+import '@/boxes/triangular-tube';
 import type { LocalizedText } from '@/core/types';
 import { initialLayersState } from '@/overlay/layers';
 import type { LayersState } from '@/overlay/layers';
