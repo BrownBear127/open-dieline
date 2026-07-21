@@ -112,11 +112,63 @@ describe('tuckTopSnapLock（插底盒）', () => {
     expect(si.check(params, result)).toMatchObject({ ok: true });
   });
 
-  it('邊界反例：L=55（固定 70mm 插舌超出 P3）觸發 top-tuck-fits-panel', () => {
+  it('邊界反例：P3 面板寬 ≤ 30.5mm（插舌尖端寬歸零）觸發 top-tuck-fits-panel', () => {
     const inv = tuckTopSnapLock.invariants.find((i) => i.id === 'top-tuck-fits-panel')!;
-    const params = resolveParams(tuckTopSnapLock, { thickness: 0, L: 55, W: 40, D: 20, tuckDepth: 4, dustFlapDepth: 5, lockFlapDepth: 25, lockReceiveWidth: 10, lockReceiveDepth: 5, lockTabWidth: 5, glueSize: 5 });
+    // L=28（P3 實寬 28 ≤ 30.5·插舌尖端寬退化為負）——插舌隨面板縮放後·退化下限落在此
+    const params = resolveParams(tuckTopSnapLock, { thickness: 0, L: 28, W: 40, D: 60 });
     const result = tuckTopSnapLock.generate(params);
     expect(inv.check(params, result)).toMatchObject({ ok: false });
+    // 對照：L=40（P3 寬 40 > 30.5）插舌隨面板縮放後合法·不再誤擋
+    const ok = resolveParams(tuckTopSnapLock, { thickness: 0, L: 40, W: 40, D: 60 });
+    expect(inv.check(ok, tuckTopSnapLock.generate(ok))).toMatchObject({ ok: true });
+  });
+
+  // ── 非預設 L/W 縮放：頂部插舌隨面板寬、蓋板兩側緣垂直、封底 lock 隨長寬 derived ──
+  it('非預設縮放 L=101/W=50：蓋板兩側緣垂直、fold=L−15、尖端=L−30.5、lock 四欄隨長寬', () => {
+    const L = 101;
+    const W = 50;
+    const r = gen({ L, W });
+    // 面板邊界（D tag 縱向線·排序取 x2/x3＝P3 兩側）
+    const xs = r.paths
+      .filter((p) => (p.type === 'cut' || p.type === 'crease') && p.tags?.includes('D'))
+      .flatMap((p) => p.segments)
+      .filter(isLine)
+      .filter((s) => Math.abs(s.x1 - s.x2) < 0.01)
+      .map((s) => s.x1)
+      .sort((a, b) => a - b);
+    const x2 = xs[2]!;
+    const x3 = xs[3]!;
+    // 蓋板兩側緣（cut 'W' 縱向）必須嚴格垂直且落在面板邊界 x2/x3（不得出現斜線·與盒身面板同寬）
+    const lidSides = segsOf(r, 'cut', 'W').filter(isLine);
+    expect(lidSides.length).toBeGreaterThanOrEqual(2);
+    for (const s of lidSides) expect(Math.abs(s.x1 - s.x2), '蓋板側邊必須垂直').toBeLessThan(1e-6);
+    const lidXs = lidSides.map((s) => s.x1).sort((a, b) => a - b);
+    expect(lidXs[0]).toBeCloseTo(x2, 2);
+    expect(lidXs[lidXs.length - 1]).toBeCloseTo(x3, 2);
+    // 頂部插舌摺線寬＝L−15、尖端平邊寬＝L−30.5
+    const foldCrease = horizontals(segsOf(r, 'crease', 'W'))
+      .filter((s) => s.y1 < -30)
+      .sort((a, b) => Math.abs(b.x2 - b.x1) - Math.abs(a.x2 - a.x1))[0]!;
+    expect(Math.abs(foldCrease.x2 - foldCrease.x1)).toBeCloseTo(L - 15, 1); // 86
+    const tuckTip = horizontals(segsOf(r, 'cut', 'tuckDepth')).reduce((a, b) => (b.y1 < a.y1 ? b : a));
+    expect(Math.abs(tuckTip.x2 - tuckTip.x1)).toBeCloseTo(L - 30.5, 1); // 70.5
+    // 封底 lock 四欄隨長寬 derived：F=0.7W、Rd=0.2W、Rw=(39.5/85)L、Tw=(31.5/85)L
+    const yBot = 125;
+    const allCut = r.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments).filter(isLine);
+    const deepest = Math.max(...allCut.flatMap((s) => [s.y1, s.y2]));
+    expect(deepest - yBot).toBeCloseTo(0.7 * W, 1); // F=35
+    const tabTip = horizontals(segsOf(r, 'cut', 'lockTabWidth')).reduce((a, b) => (b.y1 > a.y1 ? b : a));
+    expect(Math.abs(tabTip.x2 - tabTip.x1)).toBeCloseTo((31.5 / 85) * L, 1); // Tw≈37.43
+    const notch = horizontals(segsOf(r, 'cut', 'lockReceiveWidth')).find(
+      (s) => Math.abs(s.y1 - (yBot + 0.7 * W - 0.2 * W)) < 1, // y = yBot + F − Rd
+    )!;
+    expect(Math.abs(notch.x2 - notch.x1)).toBeCloseTo((39.5 / 85) * L, 1); // Rw≈46.94
+    expect(deepest - notch.y1).toBeCloseTo(0.2 * W, 1); // Rd=10
+    // 全 invariants 通過（縮放後合法·咬合恆過）
+    const params = resolveParams(tuckTopSnapLock, { thickness: 0, L, W });
+    for (const inv of tuckTopSnapLock.invariants) {
+      expect(inv.check(params, r), inv.id).toMatchObject({ ok: true });
+    }
   });
 
   // ── thickness 驅動盒身繼承 RTE girth 補償（真旋鈕·非假旋鈕）──────────
