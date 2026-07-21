@@ -511,6 +511,8 @@ describe('三角盒（triangularTube）參數邊界掃描', () => {
       { label: 'S3 剖面變體', overrides: { edgeA: 78.5, tubeLength: 150 } },
       { label: '大盒', overrides: { edgeA: 120, tubeLength: 300 } },
       { label: '小盒（合法下限附近）', overrides: { edgeA: 20, tubeLength: 60 } },
+      { label: '插舌寬/深 override（獨立調整·孔隨舌寬連動）', overrides: { tubeLength: 200, tabWidth: 100, tabDepth: 20 } },
+      { label: '插舌窄/淺 override', overrides: { edgeA: 40, tabWidth: 55, tabDepth: 30 } },
     ];
     for (const c of legal) {
       it(`${c.label}：全 invariants 通過`, () => {

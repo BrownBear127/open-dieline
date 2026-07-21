@@ -224,14 +224,95 @@ describe('triangularTube（三角盒）', () => {
   });
 
   // ── schema 契約（字面斷言·非讀 schema·抓 schema 漂移）+ 貼下限邊界 ────────
-  it('schema 契約字面：edgeA=58.5/20/250/1、tubeLength=135/30/500/1、僅此二欄暴露', () => {
+  it('schema 契約字面：edgeA/tubeLength/tabWidth/tabDepth 四欄，thickness/edgeB/edgeC 不暴露', () => {
     const p = (key: string) => triangularTube.params.find((x) => x.key === key)!;
     const edgeA = p('edgeA');
     expect([edgeA.default, edgeA.min, edgeA.max, edgeA.step], 'edgeA schema').toEqual([58.5, 20, 250, 1]);
     const tubeLength = p('tubeLength');
     expect([tubeLength.default, tubeLength.min, tubeLength.max, tubeLength.step], 'tubeLength schema').toEqual([135, 30, 500, 1]);
+    const tabWidth = p('tabWidth');
+    expect([tabWidth.default, tabWidth.min, tabWidth.max, tabWidth.step], 'tabWidth schema').toEqual([80, 30, 300, 0.5]);
+    const tabDepth = p('tabDepth');
+    expect([tabDepth.default, tabDepth.min, tabDepth.max, tabDepth.step], 'tabDepth schema').toEqual([15, 6, 60, 0.5]);
     // thickness/edgeB/edgeC 不暴露（鎖 0 / derived）
-    expect(triangularTube.params.map((x) => x.key)).toEqual(['edgeA', 'tubeLength']);
+    expect(triangularTube.params.map((x) => x.key)).toEqual(['edgeA', 'tubeLength', 'tabWidth', 'tabDepth']);
+  });
+
+  // ── 插舌寬/深 derived-default 可 override（舌為主·孔跟隨）─────────
+  it('derived-default：tabWidth 隨 edgeA 重算（孔跟隨）·tabDepth 固定 15（插入段·不隨 edgeA）', () => {
+    // 預設 edgeA=58.5：tabWidth 派生 80（=edgeC+19）；tabDepth 固定 15（肩 7+錐尖 8）
+    const def = resolveParams(triangularTube);
+    expect(def.tabWidth).toBeCloseTo(80, 6);
+    expect(def.tabDepth).toBe(15);
+    // edgeA=78.5：tabWidth 隨剖面重算 100；tabDepth 仍 15（插入段不隨剖面）
+    const s3 = resolveParams(triangularTube, { edgeA: 78.5 });
+    expect(s3.tabWidth).toBeCloseTo(100, 6);
+    expect(s3.tabDepth).toBe(15);
+    // override 生效
+    const ov = resolveParams(triangularTube, { tabWidth: 90, tabDepth: 20 });
+    expect(ov.tabWidth).toBe(90);
+    expect(ov.tabDepth).toBe(20);
+  });
+
+  // 修正 1：插舌孔隨舌寬連動（slotWidth = tabWidth − 16·abEndCrease/穿入比例全鏈隨動）
+  it('tabWidth override→孔+管身佈局連動：tabWidth=100 時 slotWidth=84、abEndCrease 隨動、穿入比例 0.84', () => {
+    const r = gen({ tabWidth: 100 });
+    // 插槽（插舌孔）寬＝tabWidth−16=84
+    const slot = horizontals(segsOf(r, 'cut', 'abSlot')).reduce((a, b) => (len(b) > len(a) ? b : a));
+    expect(len(slot)).toBeCloseTo(84, 1);
+    // 插舌基座寬（tab 根摺線兩端 x 距）＝100
+    const tabRootXs = segsOf(r, 'crease', 'tabRootCrease').filter(isLine).flatMap((s) => [s.x1, s.x2]);
+    expect(Math.max(...tabRootXs) - Math.min(...tabRootXs)).toBeCloseTo(100, 1);
+    // 每側 tab 根摺線＝(100−25)/2=37.5
+    for (const s of horizontals(segsOf(r, 'crease', 'tabRootCrease')).filter(isLine)) expect(len(s)).toBeCloseTo(37.5, 1);
+    // abEndCrease 隨 slotWidth 變：(135−84−15.998)/2=17.501（管身 A/B 佈局隨動）
+    for (const s of horizontals(segsOf(r, 'crease', 'abCrease'))) expect(len(s)).toBeCloseTo(17.501, 1);
+    // 穿入比例＝slot/tab=84/100=0.84·friction invariant 通過
+    const params = resolveParams(triangularTube, { tabWidth: 100 });
+    expect(triangularTube.invariants.find((i) => i.id === 'friction-lock-insertion')!.check(params, r)).toMatchObject({ ok: true });
+  });
+
+  // 修正 2：tabDepth 只動肩+錐尖插入段（基座/盒身不動）·按 7:8 分配
+  it('tabDepth override→只動肩錐段：tabDepth=20 時肩 9.33、錐尖 10.67、基座深不變(61.5)', () => {
+    const cdY = 58.5 + 60 + 61; // 179.5·C/D 邊界
+    const baseBotDefault = cdY + 61.5; // 基座深＝edgeC+0.5=61.5（不受 tabDepth 影響）
+    const r = gen({ tabDepth: 20 });
+    // 基座深不變：Zone D base 側邊縱向 cut 仍深 61.5（自 C/D）
+    const baseVert = segsOf(r, 'cut', 'zoneD').filter(isLine)
+      .filter((s) => Math.abs(s.x1 - s.x2) < 0.01 && Math.abs(Math.min(s.y1, s.y2) - cdY) < 0.5 && Math.abs(len(s) - 61.5) < 1);
+    expect(baseVert.length, '基座側邊 cut 仍深 61.5').toBeGreaterThanOrEqual(2);
+    // 肩段＝20×7/15=9.333：肩邊縱向 cut 自 base 底起深 9.333
+    const shoulderVert = segsOf(r, 'cut', 'zoneD').filter(isLine)
+      .filter((s) => Math.abs(s.x1 - s.x2) < 0.01 && Math.abs(Math.min(s.y1, s.y2) - baseBotDefault) < 0.5)
+      .filter((s) => Math.abs(len(s) - 20 * 7 / 15) < 0.1);
+    expect(shoulderVert.length, '肩段深 9.333').toBeGreaterThanOrEqual(2);
+    // 錐尖 apex：base 底 + 肩 9.333 + 錐尖 10.667 = tabDepth 20 自 base 底
+    const allCut = r.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments).filter(isLine);
+    const deepest = Math.max(...allCut.flatMap((s) => [s.y1, s.y2]));
+    expect(deepest - baseBotDefault).toBeCloseTo(20, 1); // 肩+錐尖=tabDepth
+    expect(deepest - cdY).toBeCloseTo(61.5 + 20, 1); // 基座 61.5 + 插入段 20
+  });
+
+  it('tab-base-geometry invariant：寬<27 / 寬>盒身寬 / 插入段深<6 皆擋下·合法 override 全 invariants 通過', () => {
+    const inv = triangularTube.invariants.find((i) => i.id === 'tab-base-geometry')!;
+    for (const ov of [{ tabWidth: 26 }, { tabWidth: 200 /* > tubeLength 135 */ }, { tabDepth: 5 }]) {
+      const params = resolveParams(triangularTube, ov);
+      expect(inv.check(params, triangularTube.generate(params)), JSON.stringify(ov)).toMatchObject({ ok: false });
+    }
+    // 合法 override（寬 100 深 20·tube 200）全 invariants 通過
+    const ok = resolveParams(triangularTube, { tubeLength: 200, tabWidth: 100, tabDepth: 20 });
+    const res = triangularTube.generate(ok);
+    for (const i of triangularTube.invariants) expect(i.check(ok, res), i.id).toMatchObject({ ok: true });
+  });
+
+  it('tube-length-valid 隨 slotWidth 動態升：tabWidth 大→孔大→下限升（寫死值失效）', () => {
+    const inv = triangularTube.invariants.find((i) => i.id === 'tube-length-valid')!;
+    // tabWidth=120→slotWidth=104→下限=104+18.998=122.998；tubeLength=120 過小→擋下
+    const tooShort = resolveParams(triangularTube, { tabWidth: 120, tubeLength: 120 });
+    expect(inv.check(tooShort, triangularTube.generate(tooShort))).toMatchObject({ ok: false });
+    // 同 tabWidth 但 tubeLength=130 ≥ 122.998→通過
+    const okLen = resolveParams(triangularTube, { tabWidth: 120, tubeLength: 130 });
+    expect(inv.check(okLen, triangularTube.generate(okLen))).toMatchObject({ ok: true });
   });
 
   it('合法貼下限邊界 (20,44.498) 與 (250,274.498)：全 invariants 通過', () => {
