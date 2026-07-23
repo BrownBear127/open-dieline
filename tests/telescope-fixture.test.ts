@@ -27,9 +27,11 @@ import { hasNaN, hasSelfIntersection, segmentsBounds } from '@/core/geometry';
 import type { DielinePath, GenerateResult, LineType } from '@/core/types';
 import { resolveParams } from '@/core/registry';
 import { telescope, MIN_TONGUE_PERP_HALF } from '@/boxes/telescope';
+import { bGussetFrame, generateTray } from '@/boxes/telescope/tray';
 import { deriveLinerFrame } from '@/boxes/telescope/liner';
 import { validatePieces } from '@/core/pieces';
 import fixtureRaw from './fixtures/telescope-reference.json';
+import productionDetailsRaw from './fixtures/telescope-production-details.json';
 import productionPRaw from './fixtures/telescope-production-P.json';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1440,6 +1442,39 @@ interface ProductionPFixture {
 }
 
 const productionPFixture = productionPRaw as ProductionPFixture;
+interface MeasuredLine {
+  gid: string;
+  p1_mm: number[];
+  p2_mm: number[];
+  length_mm: number;
+}
+
+type ProductionDetails = typeof productionDetailsRaw & {
+  base: {
+    cornerFlapCreases: { lines: Record<string, MeasuredLine> };
+  };
+  lid: {
+    gussetWebSplit: {
+      xWebs: Record<string, { inner: MeasuredLine; outer: MeasuredLine }>;
+      yWebsUnsplit: Record<string, MeasuredLine>;
+    };
+  };
+};
+const productionDetails = productionDetailsRaw as ProductionDetails;
+
+describe('telescope: B 款角撐骨架 x-web 拆點參數域', () => {
+  it('bGussetFrame 直接探測：production-P 的 p6.a 超過 height，且合法參數邊界皆維持可拆段', () => {
+    const productionP = bGussetFrame(45, 0.44);
+    expect(productionP.p6.a).toBeCloseTo(72.822, 3);
+    expect(productionP.p6.a).toBeGreaterThan(45);
+
+    for (const height of [10, 200]) {
+      for (const thickness of [0, 0.8]) {
+        expect(bGussetFrame(height, thickness).p6.a, `height=${height}, thickness=${thickness}`).toBeGreaterThan(height);
+      }
+    }
+  });
+});
 
 describe('telescope: F8 production-P 整合錨（Slice 5 Task 7，原檔驅動拓撲測試錨定收攏）', () => {
   const P = productionPFixture.params;
@@ -1455,6 +1490,221 @@ describe('telescope: F8 production-P 整合錨（Slice 5 Task 7，原檔驅動�
   const lidPaths = result.paths.filter((p) => lidPiece.pathIds.includes(p.id));
   const baseGeomOnly = basePaths.filter((p) => p.type !== 'dimension');
   const lidGeomOnly = lidPaths.filter((p) => p.type !== 'dimension');
+  const baseTray = generateTray({
+    panelL: P.baseWidth,
+    panelW: P.baseLength,
+    height: P.baseHeight,
+    platformWidth: P.basePlatformWidth,
+    thickness: P.thickness,
+    rootJog: P.rootJog,
+    innerWallReduction: P.innerWallReduction,
+    wallTopCompensation: P.wallTopCompensation,
+    idPrefix: 'base',
+    offsetX: 0,
+    offsetY: 0,
+  });
+  const lidTray = generateTray({
+    panelL: P.baseWidth + 2 * P.lidMarginX,
+    panelW: P.baseLength + 2 * P.lidMarginY,
+    height: P.lidHeight,
+    platformWidth: P.lidPlatformWidth,
+    thickness: P.thickness,
+    rootJog: P.rootJog,
+    innerWallReduction: P.innerWallReduction,
+    wallTopCompensation: 0,
+    idPrefix: 'lid',
+    offsetX: 0,
+    offsetY: 0,
+  });
+  const sideByCorner: Record<string, string> = {
+    topLeft: 'left-front',
+    bottomLeft: 'left-back',
+    topRight: 'right-front',
+    bottomRight: 'right-back',
+  };
+
+  it('2D 角翼量測 fixture：base 四條 cornerFlap crease 與 lid 四組 x-web 內外段／四條 y-web 均完整入庫', () => {
+    const baseFixture = productionDetails.base.cornerFlapCreases;
+    const lidFixture = productionDetails.lid.gussetWebSplit;
+
+    expect(baseFixture, 'base.cornerFlapCreases').toBeDefined();
+    expect(lidFixture, 'lid.gussetWebSplit').toBeDefined();
+    expect(Object.values(baseFixture.lines).map((line) => line.gid)).toEqual(['LINE224', 'LINE223', 'LINE198', 'LINE199']);
+    expect(Object.values(lidFixture.xWebs).flatMap((web) => [web.inner.gid, web.outer.gid])).toEqual([
+      'LINE244',
+      'LINE243',
+      'LINE232',
+      'LINE231',
+      'LINE238',
+      'LINE237',
+      'LINE248',
+      'LINE247',
+    ]);
+    expect(Object.values(lidFixture.yWebsUnsplit).map((line) => line.gid)).toEqual(['LINE240', 'LINE227', 'LINE234', 'LINE245']);
+  });
+
+  it('base.cornerFlapCreases 逐點對算：production-P 四角 crease 端點與生產 fixture 相符', () => {
+    const baseFixture = productionDetails.base.cornerFlapCreases;
+    const panelCorners = productionDetails.base.panel.corners_mm;
+    const panelCenter = {
+      x: (panelCorners.topLeft[0]! + panelCorners.bottomRight[0]!) / 2,
+      y: (panelCorners.topLeft[1]! + panelCorners.bottomRight[1]!) / 2,
+    };
+
+    for (const [corner, measured] of Object.entries(baseFixture.lines)) {
+      const folds = findTagged(baseTray.paths, 'cornerFlapFold', sideByCorner[corner]!, 'crease');
+      expect(folds, corner).toHaveLength(1);
+      expect(folds[0]!.segments, `${corner} 應恰一段`).toHaveLength(1);
+      const segment = folds[0]!.segments[0];
+      expect(segment?.kind, corner).toBe('line');
+      if (segment?.kind !== 'line') continue;
+
+      const expected = [
+        { x: measured.p1_mm[0]! - panelCenter.x, y: measured.p1_mm[1]! - panelCenter.y },
+        { x: measured.p2_mm[0]! - panelCenter.x, y: measured.p2_mm[1]! - panelCenter.y },
+      ];
+      const actual = [
+        { x: segment.x1, y: segment.y1 },
+        { x: segment.x2, y: segment.y2 },
+      ];
+      for (const point of expected) {
+        expect(
+          actual.some((candidate) => Math.abs(candidate.x - point.x) <= TOL.detail && Math.abs(candidate.y - point.y) <= TOL.detail),
+          `${corner} fixture point (${point.x},${point.y})`,
+        ).toBe(true);
+      }
+      expect(Math.abs(Math.hypot(segment.x2 - segment.x1, segment.y2 - segment.y1) - measured.length_mm), `${corner} length`).toBeLessThanOrEqual(TOL.detail);
+    }
+  });
+
+  it('cornerFlapFold 接縫不變式：四角每條 crease 的兩端都精確落在同角 aGussetPeriphery 鏈頂點', () => {
+    const EPS = 1e-7;
+    for (const side of ['left-front', 'left-back', 'right-front', 'right-back']) {
+      const folds = findTagged(baseTray.paths, 'cornerFlapFold', side, 'crease');
+      const chain = findTagged(baseTray.paths, 'aGussetPeriphery', side, 'cut');
+      expect(folds, `${side} cornerFlapFold`).toHaveLength(1);
+      expect(chain, `${side} aGussetPeriphery`).toHaveLength(1);
+
+      const vertices = chain[0]!.segments.flatMap((segment) =>
+        segment.kind === 'line'
+          ? [
+              { x: segment.x1, y: segment.y1 },
+              { x: segment.x2, y: segment.y2 },
+            ]
+          : [],
+      );
+      const fold = folds[0]!.segments[0];
+      expect(fold?.kind, side).toBe('line');
+      if (fold?.kind !== 'line') continue;
+      for (const endpoint of [
+        { x: fold.x1, y: fold.y1 },
+        { x: fold.x2, y: fold.y2 },
+      ]) {
+        expect(
+          vertices.some((vertex) => Math.abs(vertex.x - endpoint.x) <= EPS && Math.abs(vertex.y - endpoint.y) <= EPS),
+          `${side} endpoint (${endpoint.x},${endpoint.y})`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('cornerFlapFold 是 tray 級特性：平台款式套到 lid 且鏈可容納時同樣輸出四條', () => {
+    const params = resolveParams(telescope, { ...P, basePlatformWidth: 0, lidPlatformWidth: 5, lidHeight: 60 });
+    const generated = telescope.generate(params);
+    const base = generated.pieces!.find((piece) => piece.id === 'base')!;
+    const lid = generated.pieces!.find((piece) => piece.id === 'lid')!;
+    const cornerFlaps = (pathIds: string[]) =>
+      generated.paths.filter((path) => pathIds.includes(path.id) && path.type === 'crease' && path.tags?.includes('cornerFlapFold'));
+
+    expect(cornerFlaps(base.pathIds), 'B 款 base').toHaveLength(0);
+    expect(cornerFlaps(lid.pathIds), 'A 款 lid').toHaveLength(4);
+  });
+
+  it('gusset-relief-omitted 降級域：production-P 有四條 cornerFlapFold；S2 省略全部且 warning 集合維持既有值', () => {
+    expect(basePaths.filter((path) => path.tags?.includes('cornerFlapFold')), 'production-P control').toHaveLength(4);
+
+    const degradedParams = resolveParams(telescope, { ...P, baseLength: 60, baseWidth: 40 });
+    const degraded = telescope.generate(degradedParams);
+    expect(degraded.paths.filter((path) => path.tags?.includes('cornerFlapFold')), 'S2 cornerFlapFold').toHaveLength(0);
+    const warnings = new Set(telescope.invariants.filter((invariant) => !invariant.check(degradedParams, degraded).ok).map((invariant) => invariant.id));
+    expect(warnings).toEqual(new Set(['notch-reduced', 'tongue-crease-shrunk', 'gusset-relief-omitted']));
+  });
+
+  it('lid.gussetWebSplit 逐點對算：四角 x-web 在 height 拆段，y-web 維持單段，鏈端 0.877mm 殘差明確保留', () => {
+    const lidFixture = productionDetails.lid.gussetWebSplit;
+    const panelCorners = productionDetails.lid.panel.corners_mm;
+    const panelCenter = {
+      x: (panelCorners.topLeft[0]! + panelCorners.bottomRight[0]!) / 2,
+      y: (panelCorners.topLeft[1]! + panelCorners.bottomRight[1]!) / 2,
+    };
+    const local = (point: readonly number[]) => ({ x: point[0]! - panelCenter.x, y: point[1]! - panelCenter.y });
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }, tol: number) => Math.abs(a.x - b.x) <= tol && Math.abs(a.y - b.y) <= tol;
+
+    for (const [corner, measured] of Object.entries(lidFixture.xWebs)) {
+      const folds = findTagged(lidTray.paths, 'gussetFold', sideByCorner[corner]!, 'crease');
+      expect(folds, corner).toHaveLength(1);
+      const segments = folds[0]!.segments;
+      expect(segments, `${corner} 段序＝x 內、x 外、y`).toHaveLength(3);
+      expect(segments.every((segment) => segment.kind === 'line'), corner).toBe(true);
+      const inner = segments[0] as LineSeg;
+      const outer = segments[1] as LineSeg;
+      const yWeb = segments[2] as LineSeg;
+
+      expect(near({ x: inner.x1, y: inner.y1 }, local(measured.inner.p1_mm), TOL.detail), `${corner} x 內段起點`).toBe(true);
+      expect(near({ x: inner.x2, y: inner.y2 }, local(measured.inner.p2_mm), TOL.detail), `${corner} x 內段終點`).toBe(true);
+      expect(near({ x: outer.x1, y: outer.y1 }, local(measured.outer.p1_mm), TOL.detail), `${corner} x 外段起點`).toBe(true);
+
+      const measuredOuterEnd = local(measured.outer.p2_mm);
+      const generatorOuterEnd = { x: outer.x2, y: outer.y2 };
+      expect(Math.abs(Math.hypot(generatorOuterEnd.x - inner.x1, generatorOuterEnd.y - inner.y1) - lidFixture.generator_reach_mm), `${corner} generator reach`).toBeLessThanOrEqual(TOL.detail);
+      expect(
+        Math.abs(Math.hypot(measuredOuterEnd.x - inner.x1, measuredOuterEnd.y - inner.y1) - Math.hypot(generatorOuterEnd.x - inner.x1, generatorOuterEnd.y - inner.y1) - lidFixture.generator_shortfall_mm),
+        `${corner} 已裁鏈端殘差`,
+      ).toBeLessThanOrEqual(TOL.detail);
+
+      const measuredY = lidFixture.yWebsUnsplit[corner]!;
+      expect(near({ x: yWeb.x1, y: yWeb.y1 }, local(measuredY.p1_mm), TOL.structural), `${corner} y-web 起點`).toBe(true);
+      expect(near({ x: yWeb.x2, y: yWeb.y2 }, local(measuredY.p2_mm), TOL.structural), `${corner} y-web 終點`).toBe(true);
+    }
+  });
+
+  it('lid gussetFold 拆段契約：production-P 段序與長度固定；p6.a 未超過 height 時維持單段 x-web', () => {
+    const frame = bGussetFrame(P.lidHeight, P.thickness);
+    for (const side of ['left-front', 'left-back', 'right-front', 'right-back']) {
+      const folds = findTagged(lidTray.paths, 'gussetFold', side, 'crease');
+      expect(folds, side).toHaveLength(1);
+      expect(folds[0]!.segments, `${side} [x 內, x 外, y]`).toHaveLength(3);
+      const inner = folds[0]!.segments[0] as LineSeg;
+      const outer = folds[0]!.segments[1] as LineSeg;
+      const yWeb = folds[0]!.segments[2] as LineSeg;
+      expect(Math.hypot(inner.x2 - inner.x1, inner.y2 - inner.y1), `${side} x 內段`).toBeCloseTo(P.lidHeight, 9);
+      expect(Math.hypot(outer.x2 - outer.x1, outer.y2 - outer.y1), `${side} x 外段`).toBeCloseTo(frame.p6.a - P.lidHeight, 9);
+      expect(Math.hypot(yWeb.x2 - yWeb.x1, yWeb.y2 - yWeb.y1), `${side} y-web`).toBeCloseTo(P.lidHeight, 9);
+      expect(outer.x1, `${side} x 接縫 x`).toBe(inner.x2);
+      expect(outer.y1, `${side} x 接縫 y`).toBe(inner.y2);
+    }
+
+    const lowFrame = bGussetFrame(1, 0.8);
+    expect(lowFrame.p6.a).toBeLessThanOrEqual(1);
+    const guarded = generateTray({
+      panelL: 40,
+      panelW: 40,
+      height: 1,
+      platformWidth: 0,
+      thickness: 0.8,
+      rootJog: 0.5,
+      innerWallReduction: 0.8,
+      wallTopCompensation: 0,
+      idPrefix: 'guarded',
+      offsetX: 0,
+      offsetY: 0,
+    });
+    for (const side of ['left-front', 'left-back', 'right-front', 'right-back']) {
+      const folds = findTagged(guarded.paths, 'gussetFold', side, 'crease');
+      expect(folds, side).toHaveLength(1);
+      expect(folds[0]!.segments, `${side} 守衛後維持 [x, y]`).toHaveLength(2);
+    }
+  });
 
   it('整合層健康檢查：pieces 完整性、無 NaN、base/lid cut 無自撞、無同線型共線區間重疊（production-P 完整參數，含 thickness=0.44）', () => {
     expect(validatePieces(result)).toEqual({ ok: true });

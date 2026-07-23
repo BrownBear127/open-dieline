@@ -70,6 +70,8 @@ const GUSSET_B_RELIEF_RADIUS = 5.0;
  * 推導（生產檔孤值），依 spec「與壁高聯動」以 H 比例參數化。
  */
 const GUSSET_B_EXIT_RATIO = 16.298 / 45;
+/** B 款 x-web 拆段的浮點守衛；量級與幾何交叉判定 CROSS_EPS 一致。 */
+const GUSSET_WEB_SPLIT_EPS = 1e-7;
 
 // ─────────────────────────────────────────────────────────────────────────
 // A 款細節常數（Slice 5 F4／F6-A：U-notch＋halfcut 分段＋平台角撐周邊複合 relief 鏈）
@@ -221,6 +223,22 @@ const A_GUSSET_INNER_WALL_APPROACH_TR: ABLine[] = [
  *  resolveAGussetChainPoints／snapALongAnchor／LongWallAnchors，見該處。 */
 const A_GUSSET_CHAIN_TL: ABLine[] = [...A_GUSSET_OUTER_TL, ...A_GUSSET_PLATFORM_RELIEF_TL, ...A_GUSSET_INNER_WALL_APPROACH_TL];
 const A_GUSSET_CHAIN_TR: ABLine[] = [...A_GUSSET_OUTER_TR, ...A_GUSSET_PLATFORM_RELIEF_TR, ...A_GUSSET_INNER_WALL_APPROACH_TR];
+
+/**
+ * A 款四角角翼摺線：兩端直接取同手性 aGussetPeriphery 模板的既有頂點。
+ * 64.4984 會經 snapALongAnchor 對齊現場 platformEnd；103.699 保留既有鏈的固定 nominal，
+ * 確保新增 crease 與 cut 鏈精確接合而不改動既有 cut 幾何。
+ */
+const A_CORNER_FLAP_CREASE_TL: ABLine = {
+  p1: { a: 64.4984, b: -4.5014 },
+  p2: { a: 103.699, b: -4.5014 },
+  type: 'crease',
+};
+const A_CORNER_FLAP_CREASE_TR: ABLine = {
+  p1: { a: 64.4984, b: -4.5014 },
+  p2: { a: 103.699, b: -4.5014 },
+  type: 'crease',
+};
 
 // ─────────────────────────────────────────────────────────────────────────
 // 內部型別
@@ -840,7 +858,7 @@ function buildGussetA(
 }
 
 /** 薄壁角撐的骨架點（(a,b) 離角座標）；純數學，供 buildGussetB 映射與測試對照。 */
-interface BGussetFrame {
+export interface BGussetFrame {
   mid: AB;
   tip: AB;
   p1: AB;
@@ -863,7 +881,7 @@ interface BGussetFrame {
  *   與外腿以 R5 圓角相接（轉角 125°，切點 p3/p4 由切線長 R·tan(轉角/2) 推出）；
  *   在 b＝EXIT_RATIO×H 處轉垂直 cut（p5→p6）落到牆根線。
  */
-function bGussetFrame(height: number, thickness: number): BGussetFrame {
+export function bGussetFrame(height: number, thickness: number): BGussetFrame {
   const reach = height - thickness;
   const r15 = GUSSET_B_TIP_RADIUS;
   const r5 = GUSSET_B_RELIEF_RADIUS;
@@ -921,9 +939,17 @@ function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, heig
   const p6 = m(f.p6);
   const yEnd = m(f.yEnd);
 
-  const folds = new PathBuilder()
-    .moveTo(cornerX, cornerY)
-    .lineTo(p6.x, p6.y) // x 軸 web 摺線：角落→p6（出口垂直 cut 落點）
+  const foldsBuilder = new PathBuilder().moveTo(cornerX, cornerY);
+  if (f.p6.a > height + GUSSET_WEB_SPLIT_EPS) {
+    const wallTop = { x: cornerX + sx * height, y: cornerY };
+    foldsBuilder
+      .lineTo(wallTop.x, wallTop.y) // x 軸 web 內段：角落→壁高線
+      .moveTo(wallTop.x, wallTop.y)
+      .lineTo(p6.x, p6.y); // x 軸 web 外段：壁高線→出口垂直 cut 落點
+  } else {
+    foldsBuilder.lineTo(p6.x, p6.y); // 不足以形成正長外段時維持單段
+  }
+  const folds = foldsBuilder
     .moveTo(cornerX, cornerY)
     .lineTo(yEnd.x, yEnd.y) // y 軸 web 摺線：角落→H
     .segments();
@@ -1030,6 +1056,23 @@ function buildAGussetChain(cornerX: number, cornerY: number, sx: Sign, sy: Sign,
     byType.set(type, segs);
   }
   return [...byType.entries()].map(([type, segments]) => ({ type, tags: ['aGussetPeriphery', side], segments }));
+}
+
+function buildACornerFlapCrease(
+  cornerX: number,
+  cornerY: number,
+  sx: Sign,
+  sy: Sign,
+  anchors: LongWallAnchors,
+  template: ABLine,
+  side: string,
+): PathDescriptor {
+  const { p1, p2 } = resolveAGussetChainPoints(cornerX, cornerY, sx, sy, anchors, [template])[0]!;
+  return {
+    type: 'crease',
+    tags: ['cornerFlapFold', side],
+    segments: new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).segments(),
+  };
 }
 
 /**
@@ -1259,6 +1302,7 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
   // 會生成的 notch 中心列，供 aGussetChainFits 判斷放不放得下；不可容納時整鏈省略＋
   // index.ts 對應 warning（同一門檻獨立重算，見該檔 gussetChainFits）。
   const chainFits = useThickStyle ? aGussetChainFits(panelW, longWallNotchPlan(panelW).centers, longAnchors) : true;
+  const cornerFlapCreases: PathDescriptor[] = [];
 
   for (const { sx, sy, label } of CORNERS) {
     const cornerX = sx * halfL;
@@ -1277,6 +1321,8 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
       if (chainFits) {
         const template = sx === sy ? A_GUSSET_CHAIN_TL : A_GUSSET_CHAIN_TR;
         descriptors.push(...buildAGussetChain(cornerX, cornerY, sx, sy, longAnchors, template, label));
+        const creaseTemplate = sx === sy ? A_CORNER_FLAP_CREASE_TL : A_CORNER_FLAP_CREASE_TR;
+        cornerFlapCreases.push(buildACornerFlapCrease(cornerX, cornerY, sx, sy, longAnchors, creaseTemplate, label));
       }
       descriptors.push(buildAPlatformCornerRelief(cornerX, cornerY, sx, sy, platformWidth, shortDistOuter, shortDistPlatformEnd, label));
     } else {
@@ -1288,6 +1334,8 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
       descriptors.push(buildBGussetPeriphery(cornerX, cornerY, sx, sy, longAnchors.distTongueFold, halfW, innerWallReduction, label));
     }
   }
+  // 既有 path id 順序不因新增角翼摺線而位移；新 descriptor 統一附加在尾端。
+  descriptors.push(...cornerFlapCreases);
 
   const paths: DielinePath[] = descriptors
     .filter((d) => d.segments.length > 0)

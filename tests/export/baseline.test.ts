@@ -23,6 +23,7 @@ const WRITE = process.env.BASELINE_WRITE === '1';
 const ALLOWED_GENERATED_AT_COMMITS = [
   'cd2dbb72cf2478963d03f476a6c3a1e7767ed7b4',
   '9b9944eda07b958c162b24ef1fb5126c991e79d7',
+  'ab2be166971d2889196afc282bb18514a529c851',
 ] as const;
 
 if (WRITE && process.env.CI) {

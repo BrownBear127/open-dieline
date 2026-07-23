@@ -47,6 +47,10 @@
     <path d="M510.31,343.99 L485.02,369.28" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
     <path d="M535.60,139.70 L476.10,139.70 M535.60,139.20 L535.60,80.20" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
     <path d="M510.31,114.41 L485.02,89.12" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
+    <path d="M724.10,314.20 L763.30,314.20" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
+    <path d="M724.10,144.20 L763.30,144.20" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
+    <path d="M471.10,314.20 L431.90,314.20" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
+    <path d="M471.10,144.20 L431.90,144.20" stroke="#00FF00" stroke-width="0.4" stroke-dasharray="4 2" fill="none" />
   </g>
   <g id="HALFCUT" data-name="半刀">
     <path d="M412.40,161.20 L412.40,184.86 M412.40,214.86 L412.40,243.54 M412.40,273.54 L412.40,297.20" stroke="#FFFF00" stroke-width="0.4" stroke-dasharray="1 1" fill="none" />

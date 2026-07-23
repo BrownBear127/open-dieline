@@ -393,7 +393,7 @@ describe('generateTray', () => {
         expect(types.has('crease'), `${opts.idPrefix} 角撐 ${label} 應有 crease`).toBe(true);
         const folds = findTagged(result.paths, 'gussetFold', label, 'crease');
         expect(folds, `${opts.idPrefix} 角撐 ${label} 應有 web 摺線`).toHaveLength(1);
-        expect(folds[0]!.segments, 'web 摺線兩條（沿兩軸）').toHaveLength(2);
+        expect(folds[0]!.segments, 'A 款為兩軸各一段；B 款 x 軸依壁高拆兩段、y 軸一段').toHaveLength(opts.platformWidth > 0 ? 2 : 3);
       }
     }
   });
@@ -599,7 +599,8 @@ describe('gusset 幾何（座標級迴歸）', () => {
     // 出口線 a+b=2reach、出口轉角 b=16.298/45×45（獨立手算，離角座標＋角落 (75.5,103)）
     const T = 1e-4;
 
-    expectLine(folds, 75.5, 103, 148.402, 103, T, 'B web 摺線（x 軸→p6）');
+    expectLine(folds, 75.5, 103, 120.5, 103, T, 'B web 摺線 x 內段（角落→壁高線）');
+    expectLine(folds, 120.5, 103, 148.402, 103, T, 'B web 摺線 x 外段（壁高線→p6）');
     expectLine(folds, 75.5, 103, 75.5, 148, T, 'B web 摺線（y 軸→H）');
 
     expectLine(cuts, 75.5, 103, 93.92232, 121.42232, T, 'B 對角 cut 半段');
