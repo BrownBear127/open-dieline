@@ -3,6 +3,28 @@
 All notable changes to Open Dieline are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-07-23
+
+### Fixed
+
+- **Fold preview accuracy** — the triangular tube's lock-seam strip now pre-curls
+  progressively through the fold instead of swinging in as a rigid plate, and its
+  end closures settle flush inside the folded silhouette: protruding friction-fit
+  corners ease into the box outline, and edge-on flap corners bend slightly
+  inward, the way paper actually tucks. These behaviours are guarded by physical
+  gates — no self-intersection, no reverse folds, bounded angular rate, bounded
+  easing displacement — asserted all the way down to the rendered mesh geometry.
+- **Editor and template guides** — guide lines are drawn from the source 2D
+  dieline paths again, restoring complete crease and slot lines that were
+  previously reconstructed and truncated.
+
+### Added
+
+- **Upload alignment guard-rail** — SVG artwork is anchored by its page frame
+  when one is present, and flagged with a warning (box mismatch, stale template,
+  or aspect anomaly) instead of silently mis-aligning; warnings re-evaluate live
+  as you switch boxes or change parameters.
+
 ## [1.2.0] — 2026-07-20
 
 ### Added
@@ -41,6 +63,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   Telescope boxes, drawn to real production conventions, with SVG and DXF export.
   Free for noncommercial use.
 
+[1.3.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.3.0
 [1.2.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.2.0
 [1.1.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.1.0
 [1.0.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.0.0
