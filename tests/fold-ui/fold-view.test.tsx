@@ -1,8 +1,12 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedParams } from '@/core/types';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { triangularTube } from '@/boxes/triangular-tube';
+import { tuckTopSnapLock } from '@/boxes/tuck-top-snap-lock';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
 import { App } from '@/ui/App';
@@ -12,6 +16,14 @@ import type { FoldSceneHandle, FoldSceneOptions, createFoldScene } from '@/ui/fo
 
 const RTE_VALUES = Object.fromEntries(
   reverseTuckEnd.params.map((param) => [param.key, param.default]),
+) as ResolvedParams;
+
+const TTSL_VALUES = Object.fromEntries(
+  tuckTopSnapLock.params.map((param) => [param.key, param.default]),
+) as ResolvedParams;
+
+const TTB_VALUES = Object.fromEntries(
+  triangularTube.params.map((param) => [param.key, param.default]),
 ) as ResolvedParams;
 
 interface FakeScene {
@@ -210,6 +222,28 @@ describe('FoldView scene lifecycle', () => {
     expect(fake.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
   });
 
+  it('creates a 3D fold scene for the registered ttsl box style (registry smoke)', async () => {
+    const fake = createFakeScene();
+    const { container } = render(
+      <FoldView boxId="ttsl" values={TTSL_VALUES} createScene={fake.createScene} />,
+    );
+
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    expect(screen.queryByText(t('fold.unsupported'))).not.toBeInTheDocument();
+    expect(container.querySelector('canvas')).toBeInTheDocument();
+  });
+
+  it('creates a 3D fold scene for the registered ttb box style (registry smoke)', async () => {
+    const fake = createFakeScene();
+    const { container } = render(
+      <FoldView boxId="ttb" values={TTB_VALUES} createScene={fake.createScene} />,
+    );
+
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    expect(screen.queryByText(t('fold.unsupported'))).not.toBeInTheDocument();
+    expect(container.querySelector('canvas')).toBeInTheDocument();
+  });
+
   it('uses the DEV hook once to initialize the next scene without a prior non-zero pose', async () => {
     const setInitialFoldProgress = (
       window as unknown as Record<string, unknown>
@@ -368,9 +402,10 @@ describe('FoldView visible failure states', () => {
 
     expect(await screen.findByText(t('fold.unsupported'))).toBeInTheDocument();
     await waitFor(() => expect(consoleError).toHaveBeenCalledOnce());
-    expect(consoleError.mock.calls[0]![0]).toEqual(
-      expect.arrayContaining([expect.stringContaining('coordinates must be finite')]),
-    );
+    expect(consoleError.mock.calls[0]![0]).toEqual(expect.objectContaining({
+      name: 'InvalidBoxParamsError',
+      invariantId: 'lid-equals-w',
+    }));
     expect(container.querySelector('canvas')).not.toBeInTheDocument();
     expect(fake.createScene).not.toHaveBeenCalled();
   });
@@ -444,5 +479,46 @@ describe('FoldView visible failure states', () => {
 
     await waitFor(() => expect(loadScene).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(reloadPage).toHaveBeenCalledOnce());
+  });
+});
+
+describe('FoldView editor gate (registry driven)', () => {
+  it.each([
+    ['ttsl', TTSL_VALUES],
+    ['ttb', TTB_VALUES],
+  ] as const)('enables EDIT and enters editor state for the registered %s box', async (boxId, values) => {
+    const fake = createFakeScene();
+    const { container } = render(
+      <FoldView boxId={boxId} values={values} createScene={fake.createScene} />,
+    );
+
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const editButton = await screen.findByRole('button', { name: t('fold.art.edit') });
+    expect(editButton).not.toBeDisabled();
+
+    const canvas = container.querySelector('.fold-canvas');
+    expect(canvas).not.toHaveAttribute('hidden');
+
+    fireEvent.click(editButton);
+
+    await waitFor(() => expect(canvas).toHaveAttribute('hidden'));
+  });
+
+  it('keeps EDIT enabled for the rte box', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} />);
+
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    const editButton = await screen.findByRole('button', { name: t('fold.art.edit') });
+    expect(editButton).not.toBeDisabled();
+  });
+
+  it('keeps EDIT disabled for a box with no registered model builder (gate is registry-driven, not fully open)', async () => {
+    const fake = createFakeScene();
+    render(<FoldView boxId="telescope" values={{}} createScene={fake.createScene} />);
+
+    const editButton = await screen.findByRole('button', { name: t('fold.art.edit') });
+    expect(editButton).toBeDisabled();
+    expect(fake.createScene).not.toHaveBeenCalled();
   });
 });

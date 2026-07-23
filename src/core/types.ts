@@ -23,6 +23,8 @@ export interface DielinePath {
   type: LineType;
   segments: Segment[];
   tags?: string[];
+  /** 不參與切板、縫線與幾何不變式的 segment 索引。 */
+  inactiveSegments?: number[];
 }
 
 /** 畫布/匯出顯示的文字標註（如尺寸標註數字）。 */
@@ -93,6 +95,8 @@ export interface BoxParamDef {
 /** 幾何不變式：測試（CI）與 UI runtime 警告共用同一份 check 邏輯。 */
 export interface BoxInvariant {
   id: string;
+  /** 缺省為 error；warning 只供 UI 示警，不阻擋 fold model 建立。 */
+  severity?: 'error' | 'warning';
   description: MaintainerText;
   check: (
     params: ResolvedParams,

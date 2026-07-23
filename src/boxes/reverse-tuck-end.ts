@@ -239,9 +239,26 @@ const params: BoxParamDef[] = [
 // 生成
 // ─────────────────────────────────────────────────────────────────────────
 
-function addPath(paths: DielinePath[], type: LineType, tag: string | undefined, segments: Segment[]): void {
+function addPath(
+  paths: DielinePath[],
+  type: LineType,
+  tags: string | string[] | undefined,
+  segments: Segment[],
+  inactiveSegments?: number[],
+): void {
   if (segments.length === 0) return;
-  paths.push({ id: `p-${paths.length}`, type, segments, tags: tag ? [tag] : undefined });
+  const tagList = typeof tags === 'string' ? [tags] : tags;
+  paths.push({
+    id: `p-${paths.length}`,
+    type,
+    segments,
+    tags: tagList?.length ? tagList : undefined,
+    inactiveSegments: inactiveSegments?.length ? inactiveSegments : undefined,
+  });
+}
+
+function segmentIndexes(segments: Segment[]): number[] {
+  return segments.map((_, index) => index);
 }
 
 /**
@@ -322,17 +339,23 @@ function generate(p: ResolvedParams): GenerateResult {
 
   const paths: DielinePath[] = [];
   const texts: DielineText[] = [];
-  const push = (type: LineType, tag: string | undefined, segments: Segment[]) => addPath(paths, type, tag, segments);
+  const push = (
+    type: LineType,
+    tags: string | string[] | undefined,
+    segments: Segment[],
+    inactiveSegments?: number[],
+  ) => addPath(paths, type, tags, segments, inactiveSegments);
 
   // --- 1. Main Body Creases（前身 87-102 行）---
-  for (const x of [x1, x2, x3]) {
-    push('crease', 'D', new PathBuilder().moveTo(x, yTop).lineTo(x, yBot).segments());
+  const bodyFoldTags = ['fold:P1>P2', 'fold:P2>P3', 'fold:P3>P4'];
+  for (const [index, x] of [x1, x2, x3].entries()) {
+    push('crease', ['D', bodyFoldTags[index]!], new PathBuilder().moveTo(x, yTop).lineTo(x, yBot).segments());
   }
   if (glueOnRight) {
     push('cut', 'D', new PathBuilder().moveTo(x0, yTop).lineTo(x0, yBot).segments());
-    push('crease', 'D', new PathBuilder().moveTo(x4, yTop).lineTo(x4, yBot).segments());
+    push('crease', ['D', 'fold:P4>glue'], new PathBuilder().moveTo(x4, yTop).lineTo(x4, yBot).segments());
   } else {
-    push('crease', 'D', new PathBuilder().moveTo(x0, yTop).lineTo(x0, yBot).segments());
+    push('crease', ['D', 'fold:P1>glue'], new PathBuilder().moveTo(x0, yTop).lineTo(x0, yBot).segments());
     push('cut', 'D', new PathBuilder().moveTo(x4, yTop).lineTo(x4, yBot).segments());
   }
 
@@ -354,10 +377,18 @@ function generate(p: ResolvedParams): GenerateResult {
   }
 
   // --- 3. 摩擦扣（改呼叫 T5 primitives.frictionLock）---
-  const drawLock = (xStart: number, xEnd: number, y: number, dir: 'up' | 'down') => {
+  const drawLock = (
+    xStart: number,
+    xEnd: number,
+    y: number,
+    dir: 'up' | 'down',
+    roleTag: string,
+    tuckActive: boolean,
+    lockActive: boolean,
+  ) => {
     const { creases, cut } = frictionLock(xStart, xEnd, y, dir, tuckLock);
-    push('crease', 'W', creases); // 前身註解：「Associated with Width usually (Lid)」
-    push('cut', 'tuckLock', cut);
+    push('crease', tuckActive ? ['W', roleTag] : 'W', creases, tuckActive ? undefined : segmentIndexes(creases));
+    push('cut', 'tuckLock', cut, lockActive ? undefined : segmentIndexes(cut));
   };
 
   // --- 4. J-Hook 避讓槽（改呼叫 T5 primitives.reliefSlot）---
@@ -416,17 +447,26 @@ function generate(p: ResolvedParams): GenerateResult {
         .lineTo(x2, edgeY);
       push('cut', 'dustFlapDepth', b.segments());
     }
-    push('crease', 'dustFlapDepth', new PathBuilder().moveTo(x1, edgeY).lineTo(x2, edgeY).segments());
+    const dustP2Crease = new PathBuilder().moveTo(x1, edgeY).lineTo(x2, edgeY).segments();
+    push(
+      'crease',
+      hDust > 0 ? ['dustFlapDepth', `fold:P2>${side}DustP2`] : 'dustFlapDepth',
+      dustP2Crease,
+      hDust > 0 ? undefined : segmentIndexes(dustP2Crease),
+    );
 
     // 蓋板面板：側邊 cut + 摩擦扣 + 插舌 cut + 底邊 crease（可乾淨參數化的部分）
     const yFold = edgeY + ySign * hLid;
     push('cut', 'W', new PathBuilder().moveTo(lid.start, edgeY).lineTo(lid.start, yFold).segments());
     push('cut', 'W', new PathBuilder().moveTo(lid.end, edgeY).lineTo(lid.end, yFold).segments());
-    drawLock(lid.start, lid.end, yFold, lockDir);
-
     const yTuck = yFold + ySign * hTuck;
     const xt1 = lid.start + tInset;
     const xt2 = lid.end - tInset;
+    const tuckActive = hTuck > 0 && xt2 > xt1;
+    const lockActive = tuckActive && xt2 - xt1 >= tuckLock;
+    const lidId = side === 'top' ? 'topLid' : 'bottomLid';
+    const tuckId = side === 'top' ? 'topTuck' : 'bottomTuck';
+    drawLock(lid.start, lid.end, yFold, lockDir, `fold:${lidId}>${tuckId}`, tuckActive, lockActive);
     // 插舌圓角鉗制（T9 樣張 gate 第二輪驗收反饋，修復 1）——前身既有 bug，等價移植照搬：
     // 垂直邊畫到 `yTuck - ySign*r`，r > hTuck 時這個點會越過摺線 yFold 翻到另一側（例如
     // top 側 ySign=-1 時算出 yTuck+r，r=14>hTuck=10 會得到 yFold 上方的 -51，超出
@@ -448,8 +488,12 @@ function generate(p: ResolvedParams): GenerateResult {
       tongue.lineTo(xt1, yTuck).lineTo(xt2, yTuck).lineTo(xt2, yFold);
     }
     tongue.lineTo(lid.end, yFold);
-    push('cut', 'tuckDepth', tongue.segments());
-    push('crease', 'L', new PathBuilder().moveTo(lid.start, edgeY).lineTo(lid.end, edgeY).segments());
+    const tongueSegments = tongue.segments();
+    const inactiveTongueSegments = xt2 <= xt1 ? [1, 2, 3] : hTuck <= 0 ? [1, 3] : undefined;
+    push('cut', 'tuckDepth', tongueSegments, inactiveTongueSegments);
+    const lidCrease = new PathBuilder().moveTo(lid.start, edgeY).lineTo(lid.end, edgeY).segments();
+    const lidParent = side === 'top' ? 'P3' : 'P1';
+    push('crease', ['L', `fold:${lidParent}>${lidId}`], lidCrease);
 
     // P4 防塵翼（x3–x4）—— 只有 top 才緊鄰蓋板，才有 relief
     if (side === 'top') {
@@ -471,7 +515,13 @@ function generate(p: ResolvedParams): GenerateResult {
         .lineTo(x4, edgeY);
       push('cut', 'dustFlapDepth', b.segments());
     }
-    push('crease', 'dustFlapDepth', new PathBuilder().moveTo(x3, edgeY).lineTo(x4, edgeY).segments());
+    const dustP4Crease = new PathBuilder().moveTo(x3, edgeY).lineTo(x4, edgeY).segments();
+    push(
+      'crease',
+      hDust > 0 ? ['dustFlapDepth', `fold:P4>${side}DustP4`] : 'dustFlapDepth',
+      dustP4Crease,
+      hDust > 0 ? undefined : segmentIndexes(dustP4Crease),
+    );
   };
 
   perimeter('top');
@@ -541,6 +591,7 @@ function compensatedLidWidth(L: number, thickness: number, glueOnRight: boolean)
 const invariants: BoxInvariant[] = [
   {
     id: 'unfold-width',
+    severity: 'error',
     description: {
       zh: '展開總寬必須等於四片主面板加糊邊（L+W+L+W+glueSize），再加 girth 補償總量 4×紙厚（面板序遞增係數 [0,1,1,2] 加總＝4，glueOnRight 只改變分配順序、不改變總和），外加左右各 20mm 的畫布邊距——這是驗證整條 X 座標鏈沒有算錯的最直接方式。',
     },
@@ -566,6 +617,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'lid-equals-w',
+    severity: 'error',
     description: {
       zh: '上蓋／下蓋沿摺線方向的高度必須等於盒寬 W——蓋板需要完全覆蓋開口，而開口的深度就是 W，蓋板矮了會露餡、高了會多餘的材料浪費。上蓋、下蓋各自的兩側邊都要驗到，缺一側也算不通過。',
     },
@@ -600,6 +652,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tuck-lock-fits',
+    severity: 'error',
     description: {
       zh: '摩擦扣寬度必須能放進蓋板所在面板的可用寬度內、且不能窄到讓卡榫梯形反折自撞——寬度失控時刀模會切出面板外或產生無法摺疊的自交幾何。',
     },
@@ -647,6 +700,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-nan',
+    severity: 'error',
     description: { zh: '所有幾何座標必須是有效數字；任何 NaN 代表參數鏈某處算式除零或讀到未定義值，畫布/匯出會整個崩潰。' },
     check(_params, result) {
       const allSegs = result.paths.flatMap((p) => p.segments);
@@ -658,6 +712,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-bleed',
+    severity: 'error',
     description: { zh: 'v1 尚不支援出血線（bleed）——盒型不得產生 bleed 線型的路徑，避免下游畫布/匯出誤判成尚未支援的線型。' },
     check(_params, result) {
       if (result.paths.some((p) => p.type === 'bleed')) {
@@ -671,6 +726,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'bounds-cover',
+    severity: 'error',
     description: { zh: '回傳的 bounds 必須完整涵蓋所有路徑的實際範圍，否則畫布視窗或匯出裁切框會裁掉部分幾何。' },
     check(_params, result) {
       const allSegs = result.paths.flatMap((p) => p.segments);
@@ -692,6 +748,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tuck-radius-clamped',
+    severity: 'warning',
     description: {
       zh: '插舌圓角半徑不能超過插舌深度、也不能超過插舌開口的半寬，否則轉角垂直邊會在摺線兩側反向翻出、頂邊方向反轉造成自撞（見 generate() 的 effectiveR 鉗制）。generate() 已鉗制實際繪製半徑，幾何永遠合法；這條不變式純粹示警「tuckRadius 設定值沒有如實生效」，讓使用者知道畫出來的圓角比他設的小。',
     },
@@ -726,11 +783,14 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-cut-self-intersection',
+    severity: 'error',
     description: {
       zh: '所有 cut 類路徑的線段兩兩之間不得真交叉（內部交點；共享端點的正常轉角銜接不算）——真交叉代表幾何已退化成自撞的翻折形狀（例如插舌圓角鉗制前，r 過大時垂直邊反向翻出貫穿圓弧），刀模無法沿這種路徑正確裁切。dimension/annotation 不參與這條檢查。',
     },
     check(_params, result) {
-      const cutSegments = result.paths.filter((p) => p.type === 'cut').flatMap((p) => p.segments);
+      const cutSegments = result.paths
+        .filter((p) => p.type === 'cut')
+        .flatMap((p) => p.segments.filter((_, index) => !p.inactiveSegments?.includes(index)));
       if (hasSelfIntersection(cutSegments)) {
         return {
           ok: false,

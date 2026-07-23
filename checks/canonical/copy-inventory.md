@@ -294,6 +294,13 @@ Vendor date: 2026-07-17
 | editor.color.crease | CREASE | 摺藍 | | label |
 | editor.color.brass | BRASS | 黃銅 | | label |
 
+### A13 上傳對位 guard-rail
+
+| key | EN | zh | lock | 聲部 |
+|-----|-----|-----|------|------|
+| fold.art.warning.boxMismatch | This template was made for a different box style. Alignment may be off. | 此模板屬於其他盒型，對位可能不準確。 | | status |
+| fold.art.warning.aspect | This artwork isn’t square. Download the template to check the expected size. | 此圖檔比例並非正方形，對位可能不準確，建議下載模板核對尺寸。 | | status |
+
 ## §B Tier B——長文（**逐 key 明細=`inventory-expansion.md` 節 1·規範性**；下為家族總覽）
 
 §A 補漏 4 key（`param.reset.glyph` ↺·lock／`overlay.unit.pt/mm/px` lock 規格值／

@@ -448,7 +448,7 @@ describe('FoldView editor transition matrix', () => {
     const uploadedEditable = editable(400, 200, 11);
     const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
       options.onCommit(uploadedSource, uploadedEditable);
-      return 'committed';
+      return { status: 'committed', warnings: [] };
     });
     const view = render(<Harness loadArtwork={loadArtwork} />);
     await screen.findByRole('button', { name: t('fold.art.upload') });
@@ -467,7 +467,7 @@ describe('FoldView editor transition matrix', () => {
     const uploadedEditable = editable(100, 200, 12);
     const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
       options.onCommit(uploadedSource, uploadedEditable);
-      return 'committed';
+      return { status: 'committed', warnings: [] };
     });
     const session = sessionWithText();
     const view = render(<Harness initialSession={session} loadArtwork={loadArtwork} />);

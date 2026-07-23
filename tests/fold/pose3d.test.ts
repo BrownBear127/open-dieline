@@ -40,6 +40,7 @@ function singleChildModel(options?: {
       },
     ],
     steps: [{ panelIds: ['child'], t0: 0, t1: 1, ease: 'linear' }],
+    dieline: [],
   };
 }
 
@@ -66,6 +67,7 @@ function twoLevelModel(): FoldModel {
       { panelIds: ['A'], t0: 0, t1: 0.5, ease: 'linear' },
       { panelIds: ['B'], t0: 0.5, t1: 1, ease: 'linear' },
     ],
+    dieline: [],
   };
 }
 

@@ -1,3 +1,5 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { resolveParams } from '@/core/registry';
@@ -10,9 +12,11 @@ import {
   createFoldScene,
   type CustomArtworkSource,
 } from '@/ui/fold-scene';
+import { earClipIndices } from '@/ui/triangulate';
 
 function expectedPanelUvs(
   polygon: ReadonlyArray<{ x: number; y: number }>,
+  indices: readonly number[],
   frame: FlatDielineUvFrame,
   thickness: number,
 ): number[] {
@@ -22,17 +26,13 @@ function expectedPanelUvs(
     values.push(points[index]!.u, points[index]!.v);
   };
 
-  for (let index = 1; index < points.length - 1; index += 1) {
-    write(0);
-    write(index);
-    write(index + 1);
-  }
+  for (const index of indices) write(index);
   if (!(thickness > 0)) return values;
 
-  for (let index = 1; index < points.length - 1; index += 1) {
-    write(0);
-    write(index + 1);
-    write(index);
+  for (let index = 0; index < indices.length; index += 3) {
+    write(indices[index]!);
+    write(indices[index + 2]!);
+    write(indices[index + 1]!);
   }
   for (let index = 0; index < points.length; index += 1) {
     const nextIndex = (index + 1) % points.length;
@@ -250,8 +250,14 @@ describe('production panel UV wiring consumes ArtworkLayout (F1)', () => {
     expect([...production.uvs.keys()]).toEqual(expectedLayout.panels.map(({ id }) => id));
 
     for (const panel of expectedLayout.panels) {
+      const indices = earClipIndices(panel.polygon);
       expect(production.uvs.get(panel.id)).toEqual(new Float32Array(
-        expectedPanelUvs(panel.polygon, expectedLayout.frame, values.thickness as number),
+        expectedPanelUvs(
+          panel.polygon,
+          indices,
+          expectedLayout.frame,
+          values.thickness as number,
+        ),
       ));
 
       const xs = panel.polygon.map(({ x }) => x);

@@ -1,3 +1,4 @@
+import { hasSelfIntersection } from '@/core/geometry';
 import type { FoldModel } from './types';
 
 type FoldPanel = FoldModel['panels'][number];
@@ -78,6 +79,13 @@ function signedPolygonArea(polygon: Pt[]): number {
   }, 0) / 2;
 }
 
+function polygonHasSelfIntersection(polygon: Pt[]): boolean {
+  return hasSelfIntersection(polygon.map((start, index) => {
+    const end = polygon[(index + 1) % polygon.length]!;
+    return { kind: 'line', x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+  }));
+}
+
 function validateParentChain(
   panel: FoldPanel,
   rootId: string | undefined,
@@ -121,6 +129,7 @@ function validateParentChain(
 export function validateFoldModel(model: FoldModel): string[] {
   const errors: string[] = [];
   const panelsById = new Map<string, FoldPanel>();
+  const validatesPanelSimplicity = model.seams !== undefined;
 
   for (const panel of model.panels) {
     if (panelsById.has(panel.id)) {
@@ -129,6 +138,20 @@ export function validateFoldModel(model: FoldModel): string[] {
       panelsById.set(panel.id, panel);
     }
   }
+
+  model.seams?.forEach((seam, seamIndex) => {
+    if (!panelsById.has(seam.ownerPanelId)) {
+      errors.push(`Seam ${seamIndex} references missing owner panel "${seam.ownerPanelId}".`);
+    }
+    if (seam.points.length < 2) {
+      errors.push(`Seam ${seamIndex} must have at least 2 points.`);
+    }
+    seam.points.forEach((point, pointIndex) => {
+      if (!isFinitePoint(point)) {
+        errors.push(`Seam ${seamIndex} point ${pointIndex} coordinates must be finite.`);
+      }
+    });
+  });
 
   const roots = model.panels.filter((panel) => panel.parent === null);
   if (roots.length !== 1) {
@@ -145,6 +168,8 @@ export function validateFoldModel(model: FoldModel): string[] {
   );
 
   for (const panel of model.panels) {
+    const polygonIsFinite = panel.polygon.every(isFinitePoint);
+
     if (!Number.isFinite(panel.foldAngle)) {
       errors.push(`Panel "${panel.id}" foldAngle must be finite.`);
     }
@@ -168,8 +193,16 @@ export function validateFoldModel(model: FoldModel): string[] {
     });
     if (panel.polygon.length < 3) {
       errors.push(`Panel "${panel.id}" polygon must have at least 3 vertices.`);
-    } else if (panel.polygon.every(isFinitePoint) && signedPolygonArea(panel.polygon) <= 0) {
+    } else if (polygonIsFinite && signedPolygonArea(panel.polygon) <= 0) {
       errors.push(`Panel "${panel.id}" polygon must have positive area.`);
+    }
+    if (
+      validatesPanelSimplicity
+      && panel.polygon.length >= 3
+      && polygonIsFinite
+      && polygonHasSelfIntersection(panel.polygon)
+    ) {
+      errors.push(`Panel "${panel.id}" polygon must not self-intersect.`);
     }
 
     if (panel.parent !== null) {
@@ -182,6 +215,10 @@ export function validateFoldModel(model: FoldModel): string[] {
       if (panel.hingeLine === undefined) {
         errors.push(`Panel "${panel.id}" must have a hingeLine because it is not a root.`);
       }
+    }
+
+    if (panel.hingeSourceCreaseIds !== undefined && panel.hingeSourceCreaseIds.length === 0) {
+      errors.push(`Panel "${panel.id}" hingeSourceCreaseIds must be non-empty when present.`);
     }
 
     if (panel.hingeLine !== undefined) {

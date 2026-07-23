@@ -10,6 +10,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from 'react';
+import { dimensionKeys } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
@@ -18,10 +19,12 @@ import {
   P3_TEST_HOOKS_ENABLED,
   peekInitialFoldProgress,
 } from '@/ui/fold-hooks';
-import type { ArtworkLoadResult, EditableArtworkAsset } from '@/ui/artwork-source';
+import type { ArtworkLoadResult, ArtworkWarning, EditableArtworkAsset } from '@/ui/artwork-source';
+import { evaluateArtworkWarnings, primaryArtworkWarning } from '@/ui/artwork-source';
 import {
   artworkLayoutSignature,
   deriveArtworkLayout,
+  hashArtworkLayoutSignature,
 } from '@/ui/artwork-layout';
 import type { EditorViewProps } from '@/ui/editor/EditorView';
 import { composeArtwork } from '@/ui/editor/editor-compose';
@@ -60,7 +63,9 @@ function buildArtworkFilename(boxId: string, values: ResolvedParams): string {
     const value = values[key];
     return value === undefined ? '?' : String(value);
   };
-  return `open-dieline-artwork-${boxId}-${dim('L')}x${dim('W')}x${dim('D')}.png`;
+  const keys = dimensionKeys(boxId);
+  const dims = keys.length > 0 ? keys.map(dim).join('x') : '?x?x?';
+  return `open-dieline-artwork-${boxId}-${dims}.png`;
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -118,6 +123,8 @@ export interface FoldViewProps {
 export type EditorViewLoader = () => Promise<{ default: ComponentType<EditorViewProps> }>;
 
 export interface ArtworkFileLoadOptions {
+  /** 上傳對位 guard-rail：目前作用中的盒型，供 box-mismatch 警示比對。 */
+  boxId: string;
   signature: string;
   signal?: AbortSignal;
   onCommit: (source: CustomArtworkSource, editableAsset?: EditableArtworkAsset) => void;
@@ -132,11 +139,23 @@ type UploadStatus = 'idle' | 'loading' | 'fold.art.invalidFile' | 'fold.art.inva
 type EditorStatusKey = 'editor.limit.objects' | 'editor.error.compose';
 export type FoldViewMode = 'preview' | 'editor';
 
+function isCommittedResult(result: ArtworkLoadResult): result is { status: 'committed'; warnings: ArtworkWarning[] } {
+  return typeof result === 'object' && result !== null && 'status' in result;
+}
+
 function uploadStatusForResult(result: ArtworkLoadResult): UploadStatus {
-  if (result === 'committed' || result === 'cancelled') return 'idle';
+  if (result === 'cancelled' || isCommittedResult(result)) return 'idle';
   return result.code === 'external' || result.code === 'parse'
     ? 'fold.art.invalidSvg'
     : 'fold.art.invalidFile';
+}
+
+/** 上傳對位警示文案：box-mismatch／aspect 各自使用獨立文案；stale-template 借用既有
+ *  `fold.art.staleTemplate`（同語意的「參數已變更」提示，不重複定義第二份文字）。 */
+function artworkWarningKey(warning: ArtworkWarning): 'fold.art.staleTemplate' | 'fold.art.warning.boxMismatch' | 'fold.art.warning.aspect' {
+  if (warning === 'box-mismatch') return 'fold.art.warning.boxMismatch';
+  if (warning === 'stale-template') return 'fold.art.staleTemplate';
+  return 'fold.art.warning.aspect';
 }
 
 function FoldEmpty({
@@ -191,12 +210,12 @@ class EditorChunkBoundary extends Component<{
 function FoldArtworkStatus({
   uploadStatus,
   editorStatusKey,
-  staleTemplate,
+  artworkWarning,
   staleEditor,
 }: {
   uploadStatus: UploadStatus;
   editorStatusKey: EditorStatusKey | null;
-  staleTemplate: boolean;
+  artworkWarning: ArtworkWarning | null;
   staleEditor: boolean;
 }) {
   if (uploadStatus === 'fold.art.invalidFile' || uploadStatus === 'fold.art.invalidSvg') {
@@ -205,8 +224,12 @@ function FoldArtworkStatus({
   if (editorStatusKey !== null) {
     return <p className="fold-status mono" role="status">{t(editorStatusKey)}</p>;
   }
-  if (staleTemplate) {
-    return <p className="fold-status mono" role="status">{t('fold.art.staleTemplate')}</p>;
+  // artworkWarning 已把既有「事後改參數」sticky 偵測併入同一份優先序判定
+  // （見 derivedArtworkWarning／combinedWarnings，FoldView 本體），故這裡不再
+  // 需要獨立的 staleTemplate tier——sticky 觸發時會透過 'stale-template' 這個
+  // warning 碼走同一支分支顯示同一句文案，不會漏顯示。
+  if (artworkWarning !== null) {
+    return <p className="fold-status mono" role="status">{t(artworkWarningKey(artworkWarning))}</p>;
   }
   if (staleEditor) {
     return <p className="fold-status mono" role="status">{t('editor.stale')}</p>;
@@ -265,7 +288,7 @@ export function FoldView({
   editorSessionRef.current = currentEditorSession;
   editableArtworkRef.current = currentEditableArtwork;
   onCustomSourceChangeRef.current = onCustomSourceChange;
-  // 自轉預設關閉（2026-07-17 E2E 驗收裁決）：進場靜止，由使用者主動開啟。
+  // 自轉預設關閉：進場靜止，由使用者主動開啟。
   const autoRotateRef = useRef(false);
   const [foldProgress, setFoldProgress] = useState(initialFoldProgress);
   const [playing, setPlaying] = useState(false);
@@ -285,7 +308,18 @@ export function FoldView({
   const [previewLoadAttempt, setPreviewLoadAttempt] = useState(0);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
   const builder = modelRuntime?.builders[boxId];
-  const model = useMemo<FoldModel | undefined>(() => builder?.(values), [boxId, values, builder]);
+  // 圖稿編輯器 gate 由 registry 驅動：有 builder 才放行（兩處共用同一布林值·避免漂移）。
+  const editorSupported = builder !== undefined;
+  const modelBuild = useMemo<{ model: FoldModel | undefined; failed: boolean }>(() => {
+    if (builder === undefined) return { model: undefined, failed: false };
+    try {
+      return { model: builder(values), failed: false };
+    } catch (error) {
+      console.error(error);
+      return { model: undefined, failed: true };
+    }
+  }, [boxId, values, builder]);
+  const model = modelBuild.model;
   const artworkSignature = useMemo(
     () => model === undefined ? null : artworkLayoutSignature(model),
     [model],
@@ -302,6 +336,31 @@ export function FoldView({
   const staleEditor = currentEditorSession !== null
     && artworkSignature !== null
     && currentEditorSession.alignedLayoutSignature !== artworkSignature;
+  // 警示不是上傳當下凍結的快照——metadata
+  // 原樣掛在 customSourceRef.current 上（隨同一個物件被 controlled-prop 提升機制
+  // 持久化，DESIGN↔FOLD 卸載重掛載後仍在），每次 render 都拿「當下」boxId／
+  // layout signature 重新求值＋套優先序，跟既有 staleEditor（上面這行）的算法
+  // 精神一致：不存衍生結論，只存事實、隨 render 重算。只在目前顯示的是自訂圖稿
+  // （artwork==='custom'）時才有意義；customSourceRef 的 mutation 一律伴隨
+  // setState（activateCustomSource／selectArtwork），保證下一次 render 讀到新值。
+  const activeAlignmentMetadata = artwork === 'custom'
+    ? customSourceRef.current?.alignmentMetadata ?? null
+    : null;
+  const currentLayoutHash = artworkSignature !== null ? hashArtworkLayoutSignature(artworkSignature) : null;
+  const metadataWarnings = activeAlignmentMetadata !== null
+    ? evaluateArtworkWarnings(activeAlignmentMetadata, boxId, currentLayoutHash)
+    : [];
+  // 既有「事後改參數」sticky 偵測（下面 staleTemplate
+  // state）與 metadata-based 警示曾各自佔 FoldArtworkStatus 的獨立一層、互相蓋壓——
+  // aspect（metadata 來源）永遠贏過 staleTemplate（sticky 來源），即使 sticky 是
+  // 「後來才觸發」的事件也一樣，不符合 box-mismatch > stale-template > aspect
+  // 優先序（sticky 情境下 stale-template 理應贏過 aspect）。因此 sticky 布林併入
+  // 同一份 warnings 陣列（等同一個 'stale-template' 訊號來源），跟 metadata 抽出的
+  // 警示一起走同一次 primaryArtworkWarning 判定，不再分兩層各自蓋壓。
+  const combinedWarnings: ArtworkWarning[] = staleTemplate && !metadataWarnings.includes('stale-template')
+    ? [...metadataWarnings, 'stale-template']
+    : metadataWarnings;
+  const derivedArtworkWarning = primaryArtworkWarning(combinedWarnings);
   const artworkLayoutRef = useRef(artworkLayout);
   const artworkSignatureRef = useRef(artworkSignature);
   artworkLayoutRef.current = artworkLayout;
@@ -451,8 +510,8 @@ export function FoldView({
     }
   };
 
-  // P3 M3 T1——重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（J1 C7b：main
-  // 只收接線）。model 已在本元件算好（TEMPLATE 鈕只在 canCreateScene 為真時渲染，此時
+  // 重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（main bundle 只做接線，
+  // 分包原則）。model 已在本元件算好（TEMPLATE 鈕只在 canCreateScene 為真時渲染，此時
   // model 必已定義），連同 boxId/values 一併傳給 builder；lang 由 downloadTemplate 內部
   // 讀 getLang()，不需在此額外傳遞。
   const handleTemplateDownload = (): void => {
@@ -489,6 +548,7 @@ export function FoldView({
       const loader = loadArtwork ?? (await import('./artwork-source')).loadArtworkFile;
       if (controller.signal.aborted) return;
       const result = await loader(file, {
+        boxId,
         signature: artworkSignature ?? '',
         signal: controller.signal,
         onCommit: (source, nextEditableArtwork) => {
@@ -523,6 +583,10 @@ export function FoldView({
       if (uploadAbortRef.current !== controller) return;
       uploadAbortRef.current = null;
       setUploadStatus(uploadStatusForResult(result));
+      // 不再由這裡把警示「凍結」進 state。
+      // metadata 已經隨 onCommit 傳入的 source 一起掛在 customSourceRef.current 上；
+      // 顯示端（render body 的 derivedArtworkWarning）會在下一次 re-render 自己讀出
+      // 最新的 metadata，天然反映「當下」boxId／signature，不需要在這裡另存一份。
     };
 
     void startUpload().catch((error: unknown) => {
@@ -536,7 +600,7 @@ export function FoldView({
   const enterEditor = (): void => {
     const layout = artworkLayoutRef.current;
     const signature = artworkSignatureRef.current;
-    if (layout === null || signature === null || boxId !== 'rte') return;
+    if (layout === null || signature === null || !editorSupported) return;
 
     let session = editorSessionRef.current;
     if (session === null) {
@@ -729,7 +793,7 @@ export function FoldView({
           if (!cancelled) setContextLost(false);
         },
         // 拖轉即停自轉（fold-scene 已自行關 controls.autoRotate）——FoldView state 跟上，
-        // 按鈕不再謊報開啟（final review F3）；使用者可用按鈕重新開啟。
+        // 按鈕狀態與自轉狀態保持一致；使用者可用按鈕重新開啟。
         onUserInteract: () => {
           if (!cancelled) {
             autoRotateRef.current = false;
@@ -808,7 +872,7 @@ export function FoldView({
     );
   }
 
-  if (modelRuntime !== null && validationErrors.length > 0) {
+  if (modelRuntime !== null && (modelBuild.failed || validationErrors.length > 0)) {
     return <FoldEmpty copy={t('fold.unsupported')} />;
   }
 
@@ -820,7 +884,7 @@ export function FoldView({
     <FoldArtworkStatus
       uploadStatus={uploadStatus}
       editorStatusKey={editorStatusKey}
-      staleTemplate={staleTemplate}
+      artworkWarning={derivedArtworkWarning}
       staleEditor={staleEditor}
     />
   );
@@ -880,7 +944,7 @@ export function FoldView({
           <button
             type="button"
             className="btn label"
-            disabled={boxId !== 'rte'}
+            disabled={!editorSupported}
             onClick={enterEditor}
           >
             {t('fold.art.edit')}

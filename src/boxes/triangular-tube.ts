@@ -300,13 +300,13 @@ function generate(p: ResolvedParams): GenerateResult {
   const push = (type: LineType, tags: string[], segments: Segment[]) => addPath(paths, type, tags, segments);
 
   // ── 全長摺線 B/C、C/D（貫穿全長水平線：y 位置隨 edgeA、長度隨 tubeLength·雙掛）──
-  push('crease', ['edgeA', 'tubeLength', 'bcCrease'], new PathBuilder().moveTo(0, yBC).lineTo(tubeLength, yBC).segments());
-  push('crease', ['edgeA', 'tubeLength', 'cdCrease'], new PathBuilder().moveTo(0, yCD).lineTo(tubeLength, yCD).segments());
+  push('crease', ['edgeA', 'tubeLength', 'bcCrease', 'fold:faceB>faceC'], new PathBuilder().moveTo(0, yBC).lineTo(tubeLength, yBC).segments());
+  push('crease', ['edgeA', 'tubeLength', 'cdCrease', 'fold:faceC>zoneDBase'], new PathBuilder().moveTo(0, yCD).lineTo(tubeLength, yCD).segments());
 
   // ── A/B 邊界複合結構（兩端 crease + 橋接 + 斜坡 + 中央插槽 cut）────────
   // A/B crease 兩端（y 位置隨 edgeA、長度/位置隨 tubeLength·雙掛）
-  push('crease', ['edgeA', 'tubeLength', 'abCrease'], new PathBuilder().moveTo(0, yAB).lineTo(d.abEndCrease, yAB).segments());
-  push('crease', ['edgeA', 'tubeLength', 'abCrease'], new PathBuilder().moveTo(tubeLength - d.abEndCrease, yAB).lineTo(tubeLength, yAB).segments());
+  push('crease', ['edgeA', 'tubeLength', 'abCrease', 'fold:faceA>faceB'], new PathBuilder().moveTo(0, yAB).lineTo(d.abEndCrease, yAB).segments());
+  push('crease', ['edgeA', 'tubeLength', 'abCrease', 'fold:faceA>faceB'], new PathBuilder().moveTo(tubeLength - d.abEndCrease, yAB).lineTo(tubeLength, yAB).segments());
   // 中央插槽複合 cut（左 relief → 橋接 → 斜坡 → 插槽 → 斜坡 → 橋接 → 右 relief·單一連續路徑·兩端 relief 末端 degree-1）
   const bridgeL = d.abEndCrease;
   const bridgeR = tubeLength - d.abEndCrease;
@@ -329,13 +329,13 @@ function generate(p: ResolvedParams): GenerateResult {
   );
 
   // ── 端封（左右）：三角 crease + 上下外翼 + hinge relief ────────────────
-  for (const [hingeX, sgn] of [[tubeLength, 1 as const], [0, -1 as const]] as const) {
+  for (const [hingeX, sgn, side] of [[tubeLength, 1 as const, 'End'], [0, -1 as const, 'Start']] as const) {
     const ef = buildEndFlap(d, hingeX, sgn);
     // 端封內三角兩邊 crease（apex→corner1·apex→corner2）
-    push('crease', ['edgeA', 'endTriangle'], new PathBuilder().moveTo(ef.apex[0], ef.apex[1]).lineTo(ef.corner1[0], ef.corner1[1]).segments());
-    push('crease', ['edgeA', 'endTriangle'], new PathBuilder().moveTo(ef.apex[0], ef.apex[1]).lineTo(ef.corner2[0], ef.corner2[1]).segments());
+    push('crease', ['edgeA', 'endTriangle', `fold:end${side}Main>end${side}WingTop`], new PathBuilder().moveTo(ef.apex[0], ef.apex[1]).lineTo(ef.corner1[0], ef.corner1[1]).segments());
+    push('crease', ['edgeA', 'endTriangle', `fold:end${side}Main>end${side}WingBottom`], new PathBuilder().moveTo(ef.apex[0], ef.apex[1]).lineTo(ef.corner2[0], ef.corner2[1]).segments());
     // 主 hinge 摺線（H→Hb·長 flapMainHingeLen=edgeB−1）
-    push('crease', ['edgeA', 'hingeCrease'], new PathBuilder().moveTo(ef.H[0], ef.H[1]).lineTo(ef.Hb[0], ef.Hb[1]).segments());
+    push('crease', ['edgeA', 'hingeCrease', `fold:faceB>end${side}Main`], new PathBuilder().moveTo(ef.H[0], ef.H[1]).lineTo(ef.Hb[0], ef.Hb[1]).segments());
     // 外翼 cut（上/下）＋ hinge relief（接進外框）
     push('cut', ['edgeA', 'endWing'], ef.upperWing);
     push('cut', ['edgeA', 'endWing'], ef.lowerWing);
@@ -359,8 +359,8 @@ function generate(p: ResolvedParams): GenerateResult {
   push('cut', ['edgeA', 'zoneD'], new PathBuilder().moveTo(0, yZoneBaseBot).lineTo(tabRootStart, yZoneBaseBot).segments());
   push('cut', ['edgeA', 'zoneD'], new PathBuilder().moveTo(tabRootEnd, yZoneBaseBot).lineTo(tubeLength, yZoneBaseBot).segments());
   // tab root crease（notch 兩側·長 tabRootCreaseLen）
-  push('crease', ['edgeA', 'tabRootCrease'], new PathBuilder().moveTo(tabRootStart, yZoneBaseBot).lineTo(notchStart, yZoneBaseBot).segments());
-  push('crease', ['edgeA', 'tabRootCrease'], new PathBuilder().moveTo(notchEnd, yZoneBaseBot).lineTo(tabRootEnd, yZoneBaseBot).segments());
+  push('crease', ['edgeA', 'tabRootCrease', 'fold:zoneDBase>zoneDTab'], new PathBuilder().moveTo(tabRootStart, yZoneBaseBot).lineTo(notchStart, yZoneBaseBot).segments());
+  push('crease', ['edgeA', 'tabRootCrease', 'fold:zoneDBase>zoneDTab'], new PathBuilder().moveTo(notchEnd, yZoneBaseBot).lineTo(tabRootEnd, yZoneBaseBot).segments());
   // notch（U 形 relief·兩 jog 頂 degree-1）
   push(
     'cut',
@@ -421,6 +421,7 @@ function generate(p: ResolvedParams): GenerateResult {
 const invariants: BoxInvariant[] = [
   {
     id: 'friction-lock-insertion',
+    severity: 'error',
     description: {
       zh: '尖端插舌穿中央插槽的鎖定：插槽寬與插舌寬之比介於 [0.30, 0.95]——太小鎖不住、太大插舌整段穿過會鬆。插槽寬隨插舌寬改變（slotWidth = tabWidth − 16），比例＝(tabWidth−16)/tabWidth·只由插舌寬決定。',
     },
@@ -441,6 +442,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tab-base-geometry',
+    severity: 'error',
     description: {
       zh: '插舌寬須容得下中央缺口（≥ 缺口寬 25mm + 兩側根摺線）且不超過盒身寬（否則基座切出盒身、base 底摺線自撞）；插舌深（收窄段+尖端的插入段）須 ≥ 6mm（小於此鎖扣失效）。',
     },
@@ -464,6 +466,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tube-length-valid',
+    severity: 'error',
     description: {
       zh: '盒身長度須 ≥ slotWidth + 18.998——數學下限 slotWidth+15.998 保 A/B 端摺線 abEndCrease≥0，額外 3.0 安全餘量保 abEndCrease≥1.5。slotWidth 隨插舌寬改變（=tabWidth−16），下限隨之計算，插舌寬變大時同步提高。',
     },
@@ -485,6 +488,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'cross-section-non-degenerate',
+    severity: 'error',
     description: {
       zh: 'edgeA 必須 > 1.5mm——近等邊三角形不等式代數解（edgeA+(edgeA+1.5) > (edgeA+2.5)+0.5，得 edgeA>1.5），低於此端封等邊三角形退化。UI min 20 已遠高於此下限。',
     },
@@ -505,6 +509,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'all-finite',
+    severity: 'error',
     description: { zh: '所有幾何座標與 bounds 必須是有限數（Number.isFinite）——NaN 或 Infinity 都代表參數鏈超出範圍/除零，畫布與匯出會崩潰或裁切失效。' },
     check(_params, result) {
       const coords: number[] = [];
@@ -527,6 +532,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-bleed',
+    severity: 'error',
     description: { zh: 'v1 尚不支援出血線（bleed）——盒型不得產生 bleed 線型的路徑，避免下游畫布/匯出誤判成尚未支援的線型。' },
     check(_params, result) {
       if (result.paths.some((pp) => pp.type === 'bleed')) {
@@ -540,6 +546,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'bounds-cover',
+    severity: 'error',
     description: { zh: '回傳的 bounds 必須完整涵蓋所有路徑的實際範圍，否則畫布視窗或匯出裁切框會裁掉部分幾何。' },
     check(_params, result) {
       const allSegs = result.paths.flatMap((pp) => pp.segments);
@@ -558,11 +565,14 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-cut-self-intersection',
+    severity: 'error',
     description: {
       zh: '所有 cut 類路徑的線段兩兩之間不得真交叉（內部交點；共享端點的正常轉角銜接不算）——真交叉代表幾何已退化成自撞的翻折形狀，刀模無法沿這種路徑正確裁切。dimension/annotation 不參與這條檢查。',
     },
     check(_params, result) {
-      const cutSegments = result.paths.filter((pp) => pp.type === 'cut').flatMap((pp) => pp.segments);
+      const cutSegments = result.paths
+        .filter((pp) => pp.type === 'cut')
+        .flatMap((pp) => pp.segments.filter((_, index) => !pp.inactiveSegments?.includes(index)));
       if (hasSelfIntersection(cutSegments)) {
         return {
           ok: false,

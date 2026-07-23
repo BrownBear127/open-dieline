@@ -1,7 +1,12 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { triangularTube } from '@/boxes/triangular-tube';
+import { resolveParams } from '@/core/registry';
 import { LINE_STYLES } from '@/core/styles';
+import { buildTtbFoldModel } from '@/fold/models/triangular-tube';
 import { readFileSync } from 'node:fs';
-import type { ArtworkLayout, FlatDielineUvFrame } from '@/ui/artwork-layout';
+import { deriveArtworkLayout, type ArtworkLayout, type FlatDielineUvFrame } from '@/ui/artwork-layout';
 import type { AssetRegistry } from '@/ui/editor/editor-assets';
 import {
   composeArtwork,
@@ -13,7 +18,7 @@ import {
 import type { EditorState, TextObject } from '@/ui/editor/editor-state';
 
 type RecordedCall = { name: string; args: unknown[] };
-type Segment = [number, number, number, number];
+type DrawnLine = [number, number, number, number];
 
 class RecordingContext {
   readonly calls: RecordedCall[] = [];
@@ -58,6 +63,19 @@ class RecordingContext {
   closePath(): void { this.record('closePath'); }
   moveTo(x: number, y: number): void { this.record('moveTo', x, y); }
   lineTo(x: number, y: number): void { this.record('lineTo', x, y); }
+  arc(
+    x: number,
+    y: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    counterclockwise?: boolean,
+  ): void {
+    this.record('arc', x, y, radius, startAngle, endAngle, counterclockwise);
+  }
+  bezierCurveTo(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): void {
+    this.record('bezierCurveTo', c1x, c1y, c2x, c2y, x, y);
+  }
   fill(): void { this.record('fill'); }
   clip(): void { this.record('clip'); }
   stroke(): void { this.record('stroke'); }
@@ -90,6 +108,19 @@ const frame: FlatDielineUvFrame = {
 };
 
 const layout: ArtworkLayout = {
+  seams: [],
+  dieline: [
+    {
+      id: 'cut-guide',
+      type: 'cut',
+      segments: [{ kind: 'line', x1: 10, y1: 20, x2: 110, y2: 20 }],
+    },
+    {
+      id: 'crease-guide',
+      type: 'crease',
+      segments: [{ kind: 'line', x1: 10, y1: 45, x2: 110, y2: 45 }],
+    },
+  ],
   frame,
   panels: [{
     id: 'P1',
@@ -146,8 +177,8 @@ function composeAt(sizePx: number, guides = false, artworkLayout = layout): {
   return { canvas, context };
 }
 
-function pathSegments(calls: RecordedCall[]): Segment[] {
-  const segments: Segment[] = [];
+function pathSegments(calls: RecordedCall[]): DrawnLine[] {
+  const segments: DrawnLine[] = [];
   let start: [number, number] | undefined;
   let current: [number, number] | undefined;
 
@@ -374,6 +405,19 @@ describe('composeArtwork', () => {
 
   it('draws a shared panel edge only as a crease guide', () => {
     const adjacentLayout: ArtworkLayout = {
+      seams: [],
+      dieline: [
+        {
+          id: 'outer-cut',
+          type: 'cut',
+          segments: [{ kind: 'line', x1: 0, y1: 0, x2: 0, y2: 10 }],
+        },
+        {
+          id: 'shared-crease',
+          type: 'crease',
+          segments: [{ kind: 'line', x1: 10, y1: 0, x2: 10, y2: 10 }],
+        },
+      ],
       frame: { minX: 0, minY: 0, span: 20, offsetX: 0, offsetY: 0 },
       panels: [
         {
@@ -409,5 +453,131 @@ describe('composeArtwork', () => {
     expect(cutSegments).not.toContainEqual([10, 0, 10, 10]);
     expect(cutSegments).not.toContainEqual([10, 10, 10, 0]);
     expect(creaseSegments).toContainEqual([10, 0, 10, 10]);
+  });
+
+  it('omits virtual hinges from editor guides while retaining real crease guides', () => {
+    const virtualHingeLayout: ArtworkLayout = {
+      seams: [],
+      dieline: [
+        {
+          id: 'physical-cut',
+          type: 'cut',
+          segments: [{ kind: 'line', x1: 0, y1: 0, x2: 0, y2: 10 }],
+        },
+        {
+          id: 'physical-crease',
+          type: 'crease',
+          segments: [{ kind: 'line', x1: 10, y1: 0, x2: 10, y2: 10 }],
+        },
+      ],
+      frame: { minX: 0, minY: 0, span: 30, offsetX: 0, offsetY: 10 },
+      panels: [
+        {
+          id: 'left',
+          polygon: [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 10, y: 10 },
+            { x: 0, y: 10 },
+          ],
+        },
+        {
+          id: 'middle',
+          polygon: [
+            { x: 10, y: 0 },
+            { x: 20, y: 0 },
+            { x: 20, y: 10 },
+            { x: 10, y: 10 },
+          ],
+          hinge: { a: { x: 10, y: 0 }, b: { x: 10, y: 10 } },
+        },
+        {
+          id: 'lip',
+          polygon: [
+            { x: 20, y: 0 },
+            { x: 30, y: 0 },
+            { x: 30, y: 10 },
+            { x: 20, y: 10 },
+          ],
+          hinge: { a: { x: 20, y: 0 }, b: { x: 20, y: 10 }, virtual: true },
+        },
+      ],
+    };
+    const { context } = composeAt(30, true, virtualHingeLayout);
+    const strokeIndices = context.calls.flatMap((call, index) => (
+      call.name === 'stroke' ? [index] : []
+    ));
+    const creaseSegments = pathSegments(
+      context.calls.slice(strokeIndices[0]! + 1, strokeIndices[1]),
+    );
+
+    expect(creaseSegments).toContainEqual([10, 10, 10, 20]);
+    expect(creaseSegments).not.toContainEqual([20, 10, 20, 20]);
+  });
+
+  it('draws the TTB internal slot cut from the dieline source', () => {
+    const params = resolveParams(triangularTube);
+    const generated = triangularTube.generate(params);
+    const realLayout = deriveArtworkLayout(buildTtbFoldModel(params));
+    const slotPath = generated.paths.find((path) => path.tags?.includes('abSlot'))!;
+    const slotSegment = slotPath.segments.find((segment) =>
+      segment.kind === 'line'
+      && segment.y1 === segment.y2
+      && Math.abs(segment.y1 - (params.edgeA as number)) > 1e-6)!;
+    expect(slotSegment.kind).toBe('line');
+
+    const { context } = composeAt(realLayout.frame.span, true, realLayout);
+    const firstStroke = context.calls.findIndex(({ name }) => name === 'stroke');
+    const cutSegments = pathSegments(context.calls.slice(0, firstStroke));
+    if (slotSegment.kind !== 'line') throw new Error('expected line slot segment');
+    const start = toCanvas({ x: slotSegment.x1, y: slotSegment.y1 }, realLayout.frame, realLayout.frame.span);
+    const end = toCanvas({ x: slotSegment.x2, y: slotSegment.y2 }, realLayout.frame, realLayout.frame.span);
+
+    expect(cutSegments).toContainEqual([start.x, start.y, end.x, end.y]);
+  });
+
+  it('traces line, arc and bezier guide segments without flattening', () => {
+    const curvedLayout: ArtworkLayout = {
+      panels: layout.panels,
+      seams: [],
+      frame: { minX: 0, minY: 0, span: 100, offsetX: 0, offsetY: 0 },
+      dieline: [
+        {
+          id: 'mixed-cut',
+          type: 'cut',
+          segments: [
+            { kind: 'line', x1: 1, y1: 2, x2: 3, y2: 4 },
+            { kind: 'arc', cx: 10, cy: 20, r: 5, startAngle: 0, endAngle: Math.PI / 2, ccw: true },
+            {
+              kind: 'bezier',
+              x1: 30,
+              y1: 40,
+              c1x: 41,
+              c1y: 42,
+              c2x: 43,
+              c2y: 44,
+              x2: 45,
+              y2: 46,
+            },
+          ],
+        },
+        {
+          id: 'crease',
+          type: 'crease',
+          segments: [{ kind: 'line', x1: 50, y1: 60, x2: 70, y2: 80 }],
+        },
+      ],
+    };
+
+    const { context } = composeAt(200, true, curvedLayout);
+
+    expect(context.calls).toContainEqual({
+      name: 'arc',
+      args: [20, 40, 10, 0, Math.PI / 2, true],
+    });
+    expect(context.calls).toContainEqual({
+      name: 'bezierCurveTo',
+      args: [82, 84, 86, 88, 90, 92],
+    });
   });
 });

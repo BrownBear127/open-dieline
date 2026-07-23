@@ -1,5 +1,6 @@
 /** P3 M3 upload validation and raster transaction. Kept behind FoldView's lazy boundary. */
-import type { CustomArtworkSource } from './fold-scene';
+import { hashArtworkLayoutSignature } from './artwork-layout';
+import type { ArtworkAlignmentMetadata, CustomArtworkSource } from './fold-scene';
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_RASTER_EDGE = 8192;
@@ -31,10 +32,29 @@ export interface ArtworkRejection {
 
 export type ArtworkValidationResult = ArtworkRejection | null;
 
+/**
+ * 上傳對位 guard-rail 警示碼。warn-and-apply：出現任一個都不阻擋 commit，
+ * 只是提示使用者對位可能有問題。多個同時成立時顯示端取最高優先的一條
+ * （見 `primaryArtworkWarning`）。
+ */
+export type ArtworkWarning = 'box-mismatch' | 'stale-template' | 'aspect';
+
+export interface ArtworkCommitResult {
+  status: 'committed';
+  warnings: ArtworkWarning[];
+}
+
 export type ArtworkLoadResult =
-  | 'committed'
+  | ArtworkCommitResult
   | 'cancelled'
   | ArtworkRejection;
+
+const WARNING_PRIORITY: readonly ArtworkWarning[] = ['box-mismatch', 'stale-template', 'aspect'];
+
+/** box-mismatch > stale-template > aspect——同時成立時只顯示最高優先的一條。 */
+export function primaryArtworkWarning(warnings: readonly ArtworkWarning[]): ArtworkWarning | null {
+  return WARNING_PRIORITY.find((warning) => warnings.includes(warning)) ?? null;
+}
 
 export interface EditableArtworkAsset {
   bitmap: ImageBitmap;
@@ -44,6 +64,8 @@ export interface EditableArtworkAsset {
 }
 
 export interface ArtworkLoadOptions {
+  /** 目前作用中的盒型（用於 box-mismatch 警示——模板來自哪個盒型）。 */
+  boxId: string;
   signature: string;
   signal?: AbortSignal;
   onCommit: (source: CustomArtworkSource, editableAsset?: EditableArtworkAsset) => void;
@@ -277,6 +299,192 @@ function parseSvgViewBox(root: Element): RasterSize | null {
   return { width: viewBox[2]!, height: viewBox[3]! };
 }
 
+// 上傳對位 guard-rail：頁框錨定＋警示。改寫只在 validateArtworkFile 通過
+// 之後才發生（見 loadArtworkFile），不影響、不繞過上方既有的安全掃描。
+
+/** viewBox 長寬比偏離正方形的相對容差——我們自己產生的模板 frame 恆為 span×span
+ *  （逐位元方形）；一般繪圖軟體匯出的方形 canvas 通常準到浮點誤差內。2% 足夠吸收
+ *  正常捨入雜訊，同時能抓到「明顯不是方形頁面」的案例（如 Letter ~0.77、A4 ~0.71）。 */
+const ASPECT_TOLERANCE = 0.02;
+
+interface PageFrameRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+// 嚴格純數字：不接受單位字尾（mm/px/%等）、指數記法以外的任何非數字字元、純空白。
+// 根因＝`Number.parseFloat('3mm')` 會靜默吃掉字尾
+// 回傳 3——第三方編輯器重新匯出的座標系不一定跟我們的 mm 假設一致，錨錯比不錨更糟。
+const STRICT_NUMBER_PATTERN = /^-?(?:\d+\.?\d*|\.\d+)$/;
+
+/** width/height：屬性必須存在且嚴格純數字，否則視為異常（sentinel null）。 */
+function requiredStrictNumberAttr(element: Element, name: string): number | null {
+  const raw = element.getAttribute(name);
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  return STRICT_NUMBER_PATTERN.test(trimmed) ? Number(trimmed) : null;
+}
+
+/** x/y：SVG 規格允許缺席時預設為 0（缺席≠異常）；若屬性*存在*但非嚴格純數字
+ *  （單位字尾／百分比／空字串／非數字文字）才視為異常。 */
+function optionalStrictNumberAttr(element: Element, name: string, fallback: number): number | null {
+  const raw = element.getAttribute(name);
+  if (raw === null) return fallback;
+  const trimmed = raw.trim();
+  return STRICT_NUMBER_PATTERN.test(trimmed) ? Number(trimmed) : null;
+}
+
+/** rect 自身或任一祖先（含 root）帶 transform 屬性──Illustrator 常在群組包
+ *  transform matrix，這裡刻意不做座標變換數學，沿用 rect 的原始
+ *  屬性值當作對位基準就會錨錯；錨錯比不錨更糟，故一律放棄。 */
+function hasTransformInAncestry(element: Element): boolean {
+  let node: Element | null = element;
+  while (node !== null) {
+    if (node.hasAttribute('transform')) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function isInsideDefs(element: Element): boolean {
+  let node: Element | null = element.parentElement;
+  while (node !== null) {
+    if (node.localName.toLowerCase() === 'defs') return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
+/** 用 querySelectorAll('*')（非屬性選擇器）掃全樹、逐一過濾 data-role 屬性——同
+ *  `hasExternalDomResource` 既有慣例，避免依賴 jsdom 對 SVG/XML document 的屬性
+ *  CSS 選擇器支援。全樹掃描不管祖先的 `display:none` style（那是 layout/render
+ *  階段的事，不是 DOM tree walk 的事），天然滿足「含 display:none 群組內」的要求。
+ *
+ *  Fail-safe：只接受「恰好一個」候選、且該候選必須是 SVG 命名空間下的
+ *  `<rect>`、不在 `<defs>` 內、自身與祖先鏈都沒有 transform、x/y/width/height
+ *  皆嚴格純數字（x/y 缺席視為 0）。任一條件不成立就整體放棄錨定（frame=null），
+ *  不做座標變換數學——回退原檔行為，交由 aspect 警示規則接手（inspectSvgMetadata
+ *  只在 frame===null 時才檢查 aspect，兩者天然銜接，不需要額外分支）。 */
+function findPageFrameRect(documentNode: Document): PageFrameRect | null {
+  const candidates = Array.from(documentNode.querySelectorAll('*')).filter(
+    (element) => element.getAttribute('data-role') === 'page-frame',
+  );
+  if (candidates.length !== 1) return null;
+
+  const rect = candidates[0]!;
+  if (
+    rect.localName !== 'rect'
+    || rect.namespaceURI !== SVG_NAMESPACE
+    || isInsideDefs(rect)
+    || hasTransformInAncestry(rect)
+  ) {
+    return null;
+  }
+
+  const x = optionalStrictNumberAttr(rect, 'x', 0);
+  const y = optionalStrictNumberAttr(rect, 'y', 0);
+  const width = requiredStrictNumberAttr(rect, 'width');
+  const height = requiredStrictNumberAttr(rect, 'height');
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { x, y, width, height };
+}
+
+function isNonSquareAspect({ width, height }: RasterSize): boolean {
+  return Math.abs(width / height - 1) > ASPECT_TOLERANCE;
+}
+
+interface SvgMetadataInspection {
+  metadata: ArtworkAlignmentMetadata;
+  frame: PageFrameRect | null;
+}
+
+/**
+ * 純粹的「讀取事實」——不跟任何「當下」狀態比較（box-mismatch／
+ * stale-template 的判斷改移到 `evaluateArtworkWarnings`，這裡只負責把上傳檔本身
+ * 宣告的原始字面值(data-box-id／data-layout-hash)與 aspect 這個固定事實抽出來）。
+ * aspect 只在找不到頁框時才檢查（頁框本身就是對位基準，長寬比是否偏離無關）；
+ * data-box-id／data-layout-hash 的抽取與頁框是否存在無關——即使頁框對位正確，
+ * 模板仍可能屬於錯的盒型或帶著舊參數的 hash。
+ */
+function inspectSvgMetadata(documentNode: Document): SvgMetadataInspection {
+  const root = documentNode.documentElement;
+  const frame = findPageFrameRect(documentNode);
+  let aspectMismatch = false;
+  if (frame === null) {
+    const size = parseSvgViewBox(root);
+    aspectMismatch = size !== null && isNonSquareAspect(size);
+  }
+
+  return {
+    frame,
+    metadata: {
+      boxId: root.getAttribute('data-box-id'),
+      layoutHash: root.getAttribute('data-layout-hash'),
+      aspectMismatch,
+    },
+  };
+}
+
+/**
+ * 警示不再於上傳當下「凍結」。這是唯一負責
+ * 「拿 metadata 事實跟當下狀態比對」的純函式——上傳時（loadArtworkFile）與之後
+ * 任何時間點（FoldView 顯示層，boxId／參數改變後重新 render）都呼叫同一顆函式，
+ * 保證兩處算法逐字一致，不會各自維護一份比對邏輯而漂移。
+ */
+export function evaluateArtworkWarnings(
+  metadata: ArtworkAlignmentMetadata,
+  currentBoxId: string,
+  currentLayoutHash: string | null,
+): ArtworkWarning[] {
+  const warnings: ArtworkWarning[] = [];
+  if (metadata.boxId !== null && metadata.boxId !== currentBoxId) warnings.push('box-mismatch');
+  if (
+    metadata.layoutHash !== null
+    && currentLayoutHash !== null
+    && metadata.layoutHash !== currentLayoutHash
+  ) {
+    warnings.push('stale-template');
+  }
+  if (metadata.aspectMismatch) warnings.push('aspect');
+  return warnings;
+}
+
+/** viewBox 改寫為頁框矩形，width/height 同步覆寫為頁框數值（無單位字尾，與新
+ *  viewBox 的四個數字同座標系）——確保 intrinsic aspect ratio 與新 viewBox 逐位元
+ *  一致，杜絕 preserveAspectRatio 在瀏覽器預設 sizing 演算法下可能產生的 letterbox
+ *  （letterbox 偏移的根因）。 */
+function rewriteSvgViewBoxToFrame(markup: string, frame: PageFrameRect): string {
+  const documentNode = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  const root = documentNode.documentElement;
+  root.setAttribute('viewBox', `${frame.x} ${frame.y} ${frame.width} ${frame.height}`);
+  root.setAttribute('width', String(frame.width));
+  root.setAttribute('height', String(frame.height));
+  return new XMLSerializer().serializeToString(documentNode);
+}
+
+/** 單一攔截點：偵測到頁框就改寫 viewBox，sidecar／source 兩條
+ *  rasterize 路徑吃同一份改寫後的檔案、下游零改動。找不到頁框時原樣回傳 `file`
+ *  （不做「恆改寫」，只在必要時動手）。只抽取原始 metadata，不跟任何「當下」比較
+ *  （比較的職責移到 `evaluateArtworkWarnings`，由呼叫端在需要的時間點求值）。 */
+async function anchorSvgToPageFrame(
+  file: File,
+): Promise<{ file: File; metadata: ArtworkAlignmentMetadata }> {
+  const markup = await file.text();
+  const documentNode = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  const { metadata, frame } = inspectSvgMetadata(documentNode);
+  if (frame === null) return { file, metadata };
+
+  const rewritten = rewriteSvgViewBoxToFrame(markup, frame);
+  return { file: new File([rewritten], file.name, { type: file.type }), metadata };
+}
+
 async function validateSvg(file: File): Promise<ArtworkValidationResult> {
   const markup = await file.text();
   if (hasExternalSvgResource(markup)) return reject('external');
@@ -418,7 +626,19 @@ export async function loadArtworkFile(
   if (!isCurrent()) return 'cancelled';
   if (validation !== null) return validation;
 
-  const editableAsset = await createEditableArtworkAsset(file, requestId, options.signal);
+  // 頁框錨定＋metadata 抽取只對 SVG 生效（PNG/JPEG 沒有 viewBox／data-* metadata
+  // 可讀；非 SVG 路徑完全不變）。改寫在 validateArtworkFile 通過之後才
+  // 進行，不影響、不繞過上方的安全掃描。
+  let effectiveFile = file;
+  let alignmentMetadata: ArtworkAlignmentMetadata | undefined;
+  if (file.type === 'image/svg+xml') {
+    const anchored = await anchorSvgToPageFrame(file);
+    effectiveFile = anchored.file;
+    alignmentMetadata = anchored.metadata;
+  }
+  if (!isCurrent()) return 'cancelled';
+
+  const editableAsset = await createEditableArtworkAsset(effectiveFile, requestId, options.signal);
   if ('code' in editableAsset) return isCurrent() ? editableAsset : 'cancelled';
   if (!isCurrent()) {
     editableAsset.bitmap.close();
@@ -427,7 +647,7 @@ export async function loadArtworkFile(
 
   let source: CustomArtworkSource;
   try {
-    source = await rasterizeToSource(file, options.signature, options.signal);
+    source = await rasterizeToSource(effectiveFile, options.signature, options.signal);
   } catch {
     editableAsset.bitmap.close();
     return isCurrent() ? { code: 'decode' } : 'cancelled';
@@ -439,6 +659,14 @@ export async function loadArtworkFile(
     return 'cancelled';
   }
 
+  // metadata 原樣掛在 source 上交給呼叫端（隨 CustomArtworkSource 一起被
+  // FoldView 的 controlled-prop 提升機制持久化，顯示層可在任何之後的時間點重新
+  // 求值）。回傳值的 `warnings` 用同一顆 evaluateArtworkWarnings 算「上傳當下」
+  // 的結果，供不需要反應性的呼叫端／既有測試直接使用，兩處算法保證一致。
+  if (alignmentMetadata !== undefined) source.alignmentMetadata = alignmentMetadata;
   options.onCommit(source, editableAsset);
-  return 'committed';
+  const warnings = alignmentMetadata === undefined
+    ? []
+    : evaluateArtworkWarnings(alignmentMetadata, options.boxId, hashArtworkLayoutSignature(options.signature));
+  return { status: 'committed', warnings };
 }

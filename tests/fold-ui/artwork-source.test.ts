@@ -1,7 +1,10 @@
 import { deflateSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hashArtworkLayoutSignature } from '@/ui/artwork-layout';
 import {
+  evaluateArtworkWarnings,
   loadArtworkFile,
+  primaryArtworkWarning,
   rasterizeToSource,
   validateArtworkFile,
 } from '@/ui/artwork-source';
@@ -525,12 +528,12 @@ describe('loadArtworkFile transaction', () => {
     const commits = vi.fn();
     const promise = loadArtworkFile(
       new File(['art'], 'art.png', { type: 'image/png' }),
-      { signature: 'layout-a', onCommit: commits },
+      { boxId: 'rte', signature: 'layout-a', onCommit: commits },
     );
     await waitForImages(1);
 
     DeferredImage.instances[0]!.resolve();
-    await expect(promise).resolves.toBe('committed');
+    await expect(promise).resolves.toEqual({ status: 'committed', warnings: [] });
 
     expect(commits).toHaveBeenCalledOnce();
     expect(commits.mock.calls[0]![0]).toMatchObject({ signature: 'layout-a' });
@@ -561,14 +564,16 @@ describe('loadArtworkFile transaction', () => {
       new File([
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"></svg>',
       ], 'art.svg', { type: 'image/svg+xml' }),
-      { signature: 'layout-a', onCommit: commits },
+      { boxId: 'rte', signature: 'layout-a', onCommit: commits },
     );
     await waitForImages(1);
 
     DeferredImage.instances[0]!.resolve();
     await waitForImages(2);
     DeferredImage.instances[1]!.resolve();
-    await expect(promise).resolves.toBe('committed');
+    // 400×200＝2:1，無 page-frame——aspect 警示如實觸發（本測試焦點是
+    // sidecar 依非方形 viewBox 比例縮放，不是「必為方形」；警示與縮放正確性正交）。
+    await expect(promise).resolves.toEqual({ status: 'committed', warnings: ['aspect'] });
 
     expect(drawImage).toHaveBeenNthCalledWith(
       1, DeferredImage.instances[0], 0, 0, 4096, 2048,
@@ -592,7 +597,7 @@ describe('loadArtworkFile transaction', () => {
       new File([
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8193 100"></svg>',
       ], 'oversized.svg', { type: 'image/svg+xml' }),
-      { signature: 'layout-a', onCommit: commits },
+      { boxId: 'rte', signature: 'layout-a', onCommit: commits },
     );
     await waitForImages(1);
 
@@ -608,17 +613,17 @@ describe('loadArtworkFile transaction', () => {
     const commits = vi.fn();
     const first = loadArtworkFile(
       new File(['a'], 'a.png', { type: 'image/png' }),
-      { signature: 'A', onCommit: commits },
+      { boxId: 'rte', signature: 'A', onCommit: commits },
     );
     await waitForImages(1);
     const second = loadArtworkFile(
       new File(['b'], 'b.png', { type: 'image/png' }),
-      { signature: 'B', onCommit: commits },
+      { boxId: 'rte', signature: 'B', onCommit: commits },
     );
     await waitForImages(2);
 
     DeferredImage.instances[1]!.resolve();
-    await expect(second).resolves.toBe('committed');
+    await expect(second).resolves.toEqual({ status: 'committed', warnings: [] });
     DeferredImage.instances[0]!.resolve();
     await expect(first).resolves.toBe('cancelled');
 
@@ -632,7 +637,7 @@ describe('loadArtworkFile transaction', () => {
     const commits = vi.fn();
     const promise = loadArtworkFile(
       new File(['a'], 'a.png', { type: 'image/png' }),
-      { signature: 'A', signal: controller.signal, onCommit: commits },
+      { boxId: 'rte', signature: 'A', signal: controller.signal, onCommit: commits },
     );
     await waitForImages(1);
 
@@ -649,7 +654,7 @@ describe('loadArtworkFile transaction', () => {
     const commits = vi.fn();
     const promise = loadArtworkFile(
       new File(['a'], 'a.png', { type: 'image/png' }),
-      { signature: 'A', signal: owner.signal, onCommit: commits },
+      { boxId: 'rte', signature: 'A', signal: owner.signal, onCommit: commits },
     );
     await waitForImages(1);
 
@@ -658,5 +663,437 @@ describe('loadArtworkFile transaction', () => {
     await expect(promise).resolves.toBe('cancelled');
     expect(commits).not.toHaveBeenCalled();
     expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:a.png');
+  });
+});
+
+// 上傳對位 guard-rail：頁框錨定＋警示。frame 座標刻意跟 mangled 外層 viewBox
+// 差很多（不對稱、不同數量級），這樣「改寫生效」與「改寫沒生效（假綠）」在斷言上
+// 會有清楚可辨的差異，不是容差邊緣的巧合通過。
+const TRUE_FRAME = { x: 3, y: 5, width: 120, height: 120 } as const;
+
+function mangledSvgWithPageFrame(options?: {
+  wrapGuidesInDisplayNone?: boolean;
+  boxId?: string;
+  layoutHash?: string;
+  includeWidthHeight?: boolean;
+}): string {
+  const attrs = [
+    options?.boxId !== undefined ? `data-box-id="${options.boxId}"` : '',
+    options?.layoutHash !== undefined ? `data-layout-hash="${options.layoutHash}"` : '',
+  ].filter((entry) => entry !== '').join(' ');
+  const pageFrameRect = `<rect data-role="page-frame" x="${TRUE_FRAME.x}" y="${TRUE_FRAME.y}" `
+    + `width="${TRUE_FRAME.width}" height="${TRUE_FRAME.height}" fill="none"/>`;
+  const guides = options?.wrapGuidesInDisplayNone === true
+    ? `<g id="TEMPLATE_GUIDES" style="display:none">${pageFrameRect}</g>`
+    : `<g id="TEMPLATE_GUIDES">${pageFrameRect}</g>`;
+  const widthHeight = options?.includeWidthHeight === false ? '' : ' width="850.39pt" height="611.02pt"';
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${attrs} viewBox="0 0 850.39 611.02"${widthHeight}>`
+    + `${guides}<g id="ARTWORK"><rect x="10" y="10" width="5" height="5" fill="#ff0000"/></g></svg>`;
+}
+
+function nonSquareSvg(width: number, height: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">`
+    + `<rect width="${width}" height="${height}" fill="#2255cc"/></svg>`;
+}
+
+async function objectUrlBlobText(index: number): Promise<string> {
+  const [blob] = vi.mocked(URL.createObjectURL).mock.calls[index]!;
+  return (blob as File).text();
+}
+
+/** 送出一份 SVG 上傳並把兩個 rasterize 路徑（sidecar／source）的 DeferredImage 都 resolve 完。 */
+async function uploadSvg(
+  markup: string,
+  options: { boxId: string; signature: string; onCommit?: (...args: unknown[]) => void },
+): ReturnType<typeof loadArtworkFile> {
+  const promise = loadArtworkFile(
+    new File([markup], 'artwork.svg', { type: 'image/svg+xml' }),
+    { boxId: options.boxId, signature: options.signature, onCommit: options.onCommit ?? vi.fn() },
+  );
+  await waitForImages(1);
+  DeferredImage.instances[0]!.resolve();
+  await waitForImages(2);
+  DeferredImage.instances[1]!.resolve();
+  return promise;
+}
+
+describe('loadArtworkFile — 頁框錨定（改寫 viewBox 為頁框矩形＋覆寫 width/height）', () => {
+  it('偵測到 [data-role="page-frame"]（含 display:none 群組內）時，改寫 viewBox／width／height 為頁框矩形，兩條 rasterize 路徑都吃到改寫後的檔案', async () => {
+    const commits = vi.fn();
+    const markup = mangledSvgWithPageFrame({ wrapGuidesInDisplayNone: true });
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a', onCommit: commits });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+    expect(commits).toHaveBeenCalledOnce();
+    // metadata 隨 CustomArtworkSource 一起交出
+    // （原樣存放，不是預先烤好的 warnings 陣列）——顯示層才能拿「當下」boxId/hash 重算。
+    expect(commits.mock.calls[0]![0].alignmentMetadata).toEqual({
+      boxId: null,
+      layoutHash: null,
+      aspectMismatch: false,
+    });
+
+    const expectedViewBox = `viewBox="${TRUE_FRAME.x} ${TRUE_FRAME.y} ${TRUE_FRAME.width} ${TRUE_FRAME.height}"`;
+    for (const index of [0, 1]) {
+      const markupText = await objectUrlBlobText(index);
+      expect(markupText, `rasterize path #${index}`).toContain(expectedViewBox);
+      expect(markupText, `rasterize path #${index}`).toContain(`width="${TRUE_FRAME.width}"`);
+      expect(markupText, `rasterize path #${index}`).toContain(`height="${TRUE_FRAME.height}"`);
+      expect(markupText, `rasterize path #${index}`).not.toContain('850.39');
+      expect(markupText, `rasterize path #${index}`).not.toContain('611.02');
+    }
+  });
+
+  it('root 原有 width/height 與 viewBox 比例嚴重不一致（letterbox 成因）→ 改寫後 width/height 精確等於頁框尺寸，不殘留原數值', async () => {
+    const frame = { x: 0, y: 0, width: 130, height: 130 };
+    const markup = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="5000" height="10">`
+      + `<rect data-role="page-frame" x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}"/>`
+      + `<g id="ARTWORK"/></svg>`;
+    await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    const sourceMarkup = await objectUrlBlobText(1);
+    expect(sourceMarkup).toContain(`width="${frame.width}"`);
+    expect(sourceMarkup).toContain(`height="${frame.height}"`);
+    expect(sourceMarkup).not.toContain('width="5000"');
+    expect(sourceMarkup).not.toContain('height="10"');
+  });
+
+  it('無頁框時完全不改寫檔案內容（原樣傳遞進兩條 rasterize 路徑，非「恆改寫」）', async () => {
+    const markup = nonSquareSvg(100, 100);
+    await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(await objectUrlBlobText(0)).toBe(markup);
+    expect(await objectUrlBlobText(1)).toBe(markup);
+  });
+
+  it('含 page-frame 但也含外部資源引用的 SVG 仍在既有驗證階段被拒絕——改寫不會繞過任何既有安全掃描', async () => {
+    const malicious = mangledSvgWithPageFrame().replace('<g id="ARTWORK">', '<script>alert(1)</script><g id="ARTWORK">');
+    const commits = vi.fn();
+
+    const result = await loadArtworkFile(
+      new File([malicious], 'evil.svg', { type: 'image/svg+xml' }),
+      { boxId: 'rte', signature: 'layout-a', onCommit: commits },
+    );
+
+    expect(result).toEqual({ code: 'external' });
+    expect(commits).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+});
+
+// findPageFrameRect 對「合法極端輸入」必須嚴格
+// （單位字尾／transform／多候選／defs／非 SVG namespace）——這些情況下錨錯比不錨更
+// 糟（Illustrator 常在群組包 transform matrix）。不做座標變換數學，做 fail-safe：
+// 偵測到任一異常就放棄錨定（frame=null，回退原檔行為＋併入 aspect 警示規則）。
+// 每支 fixture 的外層 viewBox 刻意非正方形（850.39×611.02）——放棄錨定後應觸發
+// aspect 警示，直接驗證「併入 aspect 規則」的行為，而不只是「沒被改寫」。
+describe('loadArtworkFile — findPageFrameRect fail-safe（異常輸入放棄錨定）', () => {
+  async function expectBailOut(markup: string): Promise<void> {
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+    expect(result).toEqual({ status: 'committed', warnings: ['aspect'] });
+    expect(await objectUrlBlobText(0)).toBe(markup);
+    expect(await objectUrlBlobText(1)).toBe(markup);
+  }
+
+  it.each([
+    ['x 帶 mm 單位字尾', 'x="3mm" y="5" width="120" height="120"'],
+    ['width 帶 px 單位字尾', 'x="3" y="5" width="120px" height="120"'],
+    ['height 帶百分比', 'x="3" y="5" width="120" height="100%"'],
+    ['y 為空字串', 'x="3" y="" width="120" height="120"'],
+    ['width 為非數字字串', 'x="3" y="5" width="wide" height="120"'],
+  ])('頁框 rect 屬性非嚴格純數字（%s）→ 視為異常，放棄錨定（不做單位換算）', async (_label, attrs) => {
+    await expectBailOut(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">`
+      + `<rect data-role="page-frame" ${attrs}/>`
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('頁框 rect 自身帶 transform → 視為異常，放棄錨定', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<rect data-role="page-frame" x="3" y="5" width="120" height="120" transform="translate(1,1)"/>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('頁框 rect 的祖先群組帶 transform → 視為異常，放棄錨定（Illustrator 常見群組 matrix）', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<g transform="matrix(1,0,0,1,2,3)"><rect data-role="page-frame" x="3" y="5" width="120" height="120"/></g>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('祖先鏈更深層（曾孫層級）帶 transform 也視為異常（非只查直接父層）', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<g transform="scale(1.01)"><g><g><rect data-role="page-frame" x="3" y="5" width="120" height="120"/></g></g></g>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('多個 data-role="page-frame" 候選 → 視為異常，放棄錨定（無法判斷哪個才是真頁框）', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<rect data-role="page-frame" x="3" y="5" width="120" height="120"/>'
+      + '<rect data-role="page-frame" x="0" y="0" width="100" height="100"/>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('頁框 rect 位於 <defs> 內 → 視為異常，放棄錨定（defs 內容不直接渲染）', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<defs><rect data-role="page-frame" x="3" y="5" width="120" height="120"/></defs>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('data-role="page-frame" 落在非 SVG namespace 的元素上 → 視為異常，放棄錨定', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<rect xmlns="urn:example:not-svg" data-role="page-frame" x="3" y="5" width="120" height="120"/>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('data-role="page-frame" 落在非 rect 元素上（如 circle）→ 視為異常，放棄錨定', async () => {
+    await expectBailOut(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<circle data-role="page-frame" cx="60" cy="60" r="60"/>'
+      + '<g id="ARTWORK"/></svg>',
+    );
+  });
+
+  it('頁框 rect 缺省 x/y（依 SVG 規格預設為 0）仍視為合法頁框，非異常（不要求座標必須顯式寫出）', async () => {
+    const markup = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850.39 611.02">'
+      + '<rect data-role="page-frame" width="120" height="120"/>'
+      + '<g id="ARTWORK"/></svg>';
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+    expect(await objectUrlBlobText(1)).toContain('viewBox="0 0 120 120"');
+  });
+});
+
+describe('loadArtworkFile — PNG／JPEG 不受影響（non-goal：不做頁框錨定）', () => {
+  it('PNG 上傳完全不做頁框掃描或警示計算，commit 結果 warnings 恆為空陣列', async () => {
+    vi.mocked(createImageBitmap).mockResolvedValue(bitmap(640, 320));
+    const commits = vi.fn();
+    const promise = loadArtworkFile(
+      new File(['art'], 'art.png', { type: 'image/png' }),
+      { boxId: 'rte', signature: 'layout-a', onCommit: commits },
+    );
+    await waitForImages(1);
+    DeferredImage.instances[0]!.resolve();
+
+    await expect(promise).resolves.toEqual({ status: 'committed', warnings: [] });
+    expect(commits).toHaveBeenCalledOnce();
+  });
+});
+
+describe('loadArtworkFile — 警示契約（box-mismatch / stale-template / aspect）', () => {
+  it('data-box-id 存在且與目前 boxId 不同 → box-mismatch 警示，仍照常 commit（warn-and-apply）', async () => {
+    const commits = vi.fn();
+    const markup = mangledSvgWithPageFrame({ boxId: 'ttb' });
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a', onCommit: commits });
+
+    expect(result).toEqual({ status: 'committed', warnings: ['box-mismatch'] });
+    expect(commits).toHaveBeenCalledOnce();
+  });
+
+  it('data-box-id 與目前 boxId 相同 → 不警示', async () => {
+    const markup = mangledSvgWithPageFrame({ boxId: 'rte' });
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+  });
+
+  it('data-layout-hash 存在且與目前 signature 的 hash 不同 → stale-template 警示', async () => {
+    const markup = mangledSvgWithPageFrame({ layoutHash: 'deadbeef' });
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: ['stale-template'] });
+  });
+
+  it('data-layout-hash 與目前 signature 的 hash 相同 → 不警示 stale', async () => {
+    const matchingHash = hashArtworkLayoutSignature('layout-a');
+    const markup = mangledSvgWithPageFrame({ layoutHash: matchingHash });
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+  });
+
+  it('metadata 缺失（無 data-box-id、無 data-layout-hash）→ 不警示 box-mismatch／stale-template', async () => {
+    const markup = mangledSvgWithPageFrame();
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+  });
+
+  it('box-mismatch 與 stale-template 同時成立時，warnings 陣列同時帶出兩者', async () => {
+    const markup = mangledSvgWithPageFrame({ boxId: 'ttb', layoutHash: 'deadbeef' });
+    const result = await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toMatchObject({
+      status: 'committed',
+      warnings: expect.arrayContaining(['box-mismatch', 'stale-template']),
+    });
+  });
+
+  it('無頁框且 viewBox 長寬比偏離正方形超過容差 → aspect 警示（仍照常 commit）', async () => {
+    const result = await uploadSvg(nonSquareSvg(800, 400), { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: ['aspect'] });
+  });
+
+  it('無頁框但 viewBox 為正方形（容差內）→ 不警示、行為不變（正常檔案分支）', async () => {
+    const result = await uploadSvg(nonSquareSvg(100, 100), { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+  });
+
+  it('找到頁框時不做 aspect 檢查，即使外層 viewBox 非方形（頁框本身已是對位基準）', async () => {
+    const result = await uploadSvg(mangledSvgWithPageFrame(), { boxId: 'rte', signature: 'layout-a' });
+
+    expect(result).toEqual({ status: 'committed', warnings: [] });
+  });
+});
+
+describe('primaryArtworkWarning（box-mismatch > stale-template > aspect）', () => {
+  it('空陣列 → null', () => {
+    expect(primaryArtworkWarning([])).toBeNull();
+  });
+
+  it.each([
+    [['aspect'], 'aspect'],
+    [['stale-template'], 'stale-template'],
+    [['stale-template', 'aspect'], 'stale-template'],
+    [['box-mismatch', 'stale-template', 'aspect'], 'box-mismatch'],
+    [['aspect', 'box-mismatch'], 'box-mismatch'],
+    [['box-mismatch'], 'box-mismatch'],
+  ] as const)('%s → %s', (warnings, expected) => {
+    expect(primaryArtworkWarning(warnings)).toBe(expected);
+  });
+});
+
+// 警示不再於上傳當下「凍結」——loadArtworkFile
+// 只負責把上傳檔的原始 metadata（data-box-id／data-layout-hash／aspectMismatch）交出，
+// 「跟目前 boxId／目前 layout signature 比對」這件事抽成純函式 evaluateArtworkWarnings，
+// 顯示層（FoldView）每次 render 都能拿「當下」的值重新求值——盒型或參數之後再變，
+// 警示會跟著動態重算，不會卡在上傳那一刻的舊答案。
+describe('evaluateArtworkWarnings（純函式：metadata × 當下 boxId／當下 hash → warnings[]）', () => {
+  const HASH_A = hashArtworkLayoutSignature('layout-a');
+  const HASH_B = hashArtworkLayoutSignature('layout-b');
+
+  it('metadata.boxId 與當下 boxId 不同 → box-mismatch', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: 'ttb', layoutHash: null, aspectMismatch: false },
+      'rte',
+      null,
+    );
+    expect(warnings).toEqual(['box-mismatch']);
+  });
+
+  it('metadata.boxId 與當下 boxId 相同 → 不警示（同一份 metadata，只是當下 boxId 換了才會變）', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: 'rte', layoutHash: null, aspectMismatch: false },
+      'rte',
+      null,
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('metadata.layoutHash 與當下 hash 不同 → stale-template', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: null, layoutHash: HASH_A, aspectMismatch: false },
+      'rte',
+      HASH_B,
+    );
+    expect(warnings).toEqual(['stale-template']);
+  });
+
+  it('metadata.layoutHash 與當下 hash 相同 → 不警示（同一份 metadata，換一個「當下 hash」結果就不同）', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: null, layoutHash: HASH_A, aspectMismatch: false },
+      'rte',
+      HASH_A,
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('metadata.layoutHash 存在但當下 hash 為 null（尚無可用 model）→ 不警示 stale（無從比較）', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: null, layoutHash: HASH_A, aspectMismatch: false },
+      'rte',
+      null,
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('aspectMismatch=true → aspect（與當下 boxId／hash 無關，恆定事實）', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: null, layoutHash: null, aspectMismatch: true },
+      'rte',
+      HASH_A,
+    );
+    expect(warnings).toEqual(['aspect']);
+  });
+
+  it('三者同時成立時，回傳全部（優先序由 primaryArtworkWarning 另外處理，非本函式職責）', () => {
+    const warnings = evaluateArtworkWarnings(
+      { boxId: 'ttb', layoutHash: HASH_A, aspectMismatch: true },
+      'rte',
+      HASH_B,
+    );
+    expect(warnings).toEqual(expect.arrayContaining(['box-mismatch', 'stale-template', 'aspect']));
+    expect(warnings).toHaveLength(3);
+  });
+
+  it('同一份 metadata 對「不同的當下 boxId」重新求值會得到不同結果（動態重算的核心證明）', () => {
+    const metadata = { boxId: 'rte', layoutHash: null, aspectMismatch: false };
+    expect(evaluateArtworkWarnings(metadata, 'rte', null)).toEqual([]);
+    expect(evaluateArtworkWarnings(metadata, 'ttb', null)).toEqual(['box-mismatch']);
+    expect(evaluateArtworkWarnings(metadata, 'rte', null)).toEqual([]);
+  });
+});
+
+describe('loadArtworkFile — alignmentMetadata 傳遞（原始事實，非預烤警示）', () => {
+  it('box-mismatch/stale-template 案例：alignmentMetadata 帶出原始 data-box-id／data-layout-hash 字面值', async () => {
+    const commits = vi.fn();
+    const markup = mangledSvgWithPageFrame({ boxId: 'ttb', layoutHash: 'deadbeef' });
+    await uploadSvg(markup, { boxId: 'rte', signature: 'layout-a', onCommit: commits });
+
+    expect(commits.mock.calls[0]![0].alignmentMetadata).toEqual({
+      boxId: 'ttb',
+      layoutHash: 'deadbeef',
+      aspectMismatch: false,
+    });
+  });
+
+  it('aspect 案例（無頁框、非正方形）：alignmentMetadata.aspectMismatch=true，boxId/layoutHash 皆 null', async () => {
+    const commits = vi.fn();
+    await uploadSvg(nonSquareSvg(800, 400), { boxId: 'rte', signature: 'layout-a', onCommit: commits });
+
+    expect(commits.mock.calls[0]![0].alignmentMetadata).toEqual({
+      boxId: null,
+      layoutHash: null,
+      aspectMismatch: true,
+    });
+  });
+
+  it('PNG 上傳：alignmentMetadata 為 undefined（非 SVG，無從判斷）', async () => {
+    vi.mocked(createImageBitmap).mockResolvedValue(bitmap(640, 320));
+    const commits = vi.fn();
+    const promise = loadArtworkFile(
+      new File(['art'], 'art.png', { type: 'image/png' }),
+      { boxId: 'rte', signature: 'layout-a', onCommit: commits },
+    );
+    await waitForImages(1);
+    DeferredImage.instances[0]!.resolve();
+    await promise;
+
+    expect(commits.mock.calls[0]![0].alignmentMetadata).toBeUndefined();
   });
 });

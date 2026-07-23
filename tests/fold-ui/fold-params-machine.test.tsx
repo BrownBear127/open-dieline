@@ -1,3 +1,5 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,7 +69,7 @@ interface ParamCase {
 
 const PARAM_CASES: ParamCase[] = [
   { key: 'L', value: 65, dimension: 'P1 width', project: (model) => panelWidth(model, 'P1') },
-  { key: 'W', value: 65, dimension: 'P2 width and lid height', project: (model) => [panelWidth(model, 'P2'), panelHeight(model, 'topLidC')] },
+  { key: 'W', value: 65, dimension: 'P2 width and lid height', project: (model) => [panelWidth(model, 'P2'), panelHeight(model, 'topLid')] },
   { key: 'D', value: 127, dimension: 'P1 height', project: (model) => panelHeight(model, 'P1') },
   { key: 'thickness', value: 0.6, dimension: 'renderer thickness', project: (_model, options) => options?.thickness },
   { key: 'tuckDepth', value: 0, dimension: 'tuck panel count and active steps', project: (model) => [model.panels.map(({ id }) => id), model.steps] },
@@ -76,12 +78,10 @@ const PARAM_CASES: ParamCase[] = [
   {
     key: 'tuckLock',
     value: 12,
-    dimension: 'lid-slice hinge spans and friction-lock vertices',
+    dimension: 'single-lid friction-lock vertices',
     project: (model) => [
-      panel(model, 'topLidL').hingeLine,
-      panel(model, 'topLidL').polygon,
-      panel(model, 'bottomLidR').hingeLine,
-      panel(model, 'bottomLidR').polygon,
+      panel(model, 'topLid').polygon,
+      panel(model, 'bottomLid').polygon,
     ],
   },
   { key: 'dustFlapDepth', value: 0, dimension: 'dust panel count and active steps', project: (model) => [model.panels.map(({ id }) => id), model.steps] },

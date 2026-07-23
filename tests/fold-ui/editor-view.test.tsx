@@ -1,3 +1,5 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { readFileSync } from 'node:fs';
@@ -31,6 +33,8 @@ vi.mock('@/ui/editor/editor-compose', () => composeModule);
 vi.mock('@/ui/editor/editor-snap', () => snapModule);
 
 const layout: ArtworkLayout = {
+  seams: [],
+  dieline: [],
   frame: { minX: 0, minY: 0, span: 100, offsetX: 0, offsetY: 0 },
   panels: [{
     id: 'panel',

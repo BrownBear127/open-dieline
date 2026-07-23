@@ -1,6 +1,6 @@
 import { LINE_STYLES } from '@/core/styles';
+import type { Segment } from '@/core/geometry';
 import type { ArtworkLayout, FlatDielineUvFrame } from '../artwork-layout';
-import { dedupCutEdges } from '../fold-template';
 import type { AssetRegistry } from './editor-assets';
 import type { AABB } from './editor-snap';
 import {
@@ -160,29 +160,49 @@ function drawGuides(
   sizePx: number,
 ): void {
   const scale = sizePx / layout.frame.span;
-  setLineStyle(context, { ...LINE_STYLES.cut, stroke: INK_COLORS.cut }, scale);
-  context.beginPath();
-  for (const edge of dedupCutEdges(layout.panels)) {
-    const start = toCanvas(edge.a, layout.frame, sizePx);
-    const end = toCanvas(edge.b, layout.frame, sizePx);
+  const traceSegment = (segment: Segment): void => {
+    if (segment.kind === 'line') {
+      const start = toCanvas({ x: segment.x1, y: segment.y1 }, layout.frame, sizePx);
+      const end = toCanvas({ x: segment.x2, y: segment.y2 }, layout.frame, sizePx);
+      context.moveTo(start.x, start.y);
+      context.lineTo(end.x, end.y);
+      return;
+    }
+    if (segment.kind === 'bezier') {
+      const start = toCanvas({ x: segment.x1, y: segment.y1 }, layout.frame, sizePx);
+      const control1 = toCanvas({ x: segment.c1x, y: segment.c1y }, layout.frame, sizePx);
+      const control2 = toCanvas({ x: segment.c2x, y: segment.c2y }, layout.frame, sizePx);
+      const end = toCanvas({ x: segment.x2, y: segment.y2 }, layout.frame, sizePx);
+      context.moveTo(start.x, start.y);
+      context.bezierCurveTo(control1.x, control1.y, control2.x, control2.y, end.x, end.y);
+      return;
+    }
+    const center = toCanvas({ x: segment.cx, y: segment.cy }, layout.frame, sizePx);
+    const start = toCanvas({
+      x: segment.cx + segment.r * Math.cos(segment.startAngle),
+      y: segment.cy + segment.r * Math.sin(segment.startAngle),
+    }, layout.frame, sizePx);
     context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-  }
-  context.stroke();
+    context.arc(
+      center.x,
+      center.y,
+      segment.r * scale,
+      segment.startAngle,
+      segment.endAngle,
+      segment.ccw,
+    );
+  };
 
-  const hingedPanels = layout.panels.filter((panel) => panel.hinge !== undefined);
-  if (hingedPanels.length === 0) return;
-
-  setLineStyle(context, { ...LINE_STYLES.crease, stroke: INK_COLORS.crease }, scale);
-  context.beginPath();
-  for (const panel of hingedPanels) {
-    const hinge = panel.hinge!;
-    const start = toCanvas(hinge.a, layout.frame, sizePx);
-    const end = toCanvas(hinge.b, layout.frame, sizePx);
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
+  for (const type of ['cut', 'crease'] as const) {
+    const segments = layout.dieline
+      .filter((path) => path.type === type)
+      .flatMap((path) => path.segments);
+    if (segments.length === 0) continue;
+    setLineStyle(context, { ...LINE_STYLES[type], stroke: INK_COLORS[type] }, scale);
+    context.beginPath();
+    for (const segment of segments) traceSegment(segment);
+    context.stroke();
   }
-  context.stroke();
 }
 
 function tracePanelUnion(

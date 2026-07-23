@@ -355,9 +355,10 @@ export function checkSnapLockClosure(params: {
 // 生成
 // ─────────────────────────────────────────────────────────────────────────
 
-function addPath(paths: DielinePath[], type: LineType, tag: string | undefined, segments: Segment[]): void {
+function addPath(paths: DielinePath[], type: LineType, tags: string | string[] | undefined, segments: Segment[]): void {
   if (segments.length === 0) return;
-  paths.push({ id: `p-${paths.length}`, type, segments, tags: tag ? [tag] : undefined });
+  const tagList = typeof tags === 'string' ? [tags] : tags;
+  paths.push({ id: `p-${paths.length}`, type, segments, tags: tagList?.length ? tagList : undefined });
 }
 
 /** 沿目前畫筆位置畫一段收圓角的 bezier 到 (bx,by)，轉角 K=(kx,ky)（四分圓 kappa 近似）。 */
@@ -429,13 +430,14 @@ function generate(p: ResolvedParams): GenerateResult {
 
   const paths: DielinePath[] = [];
   const texts: DielineText[] = [];
-  const push = (type: LineType, tag: string | undefined, segments: Segment[]) => addPath(paths, type, tag, segments);
+  const push = (type: LineType, tags: string | string[] | undefined, segments: Segment[]) => addPath(paths, type, tags, segments);
 
   // ── 盒身：主摺線 + 糊邊 ────────────────────────────────────────────────
-  for (const x of [x1, x2, x3]) {
-    push('crease', 'D', new PathBuilder().moveTo(x, yTop).lineTo(x, yBot).segments());
+  const bodyFoldTags = ['fold:P1>P2', 'fold:P2>P3', 'fold:P3>P4'];
+  for (const [index, x] of [x1, x2, x3].entries()) {
+    push('crease', ['D', bodyFoldTags[index]!], new PathBuilder().moveTo(x, yTop).lineTo(x, yBot).segments());
   }
-  push('crease', 'D', new PathBuilder().moveTo(x0, yTop).lineTo(x0, yBot).segments()); // 糊邊摺線
+  push('crease', ['D', 'fold:P1>glue'], new PathBuilder().moveTo(x0, yTop).lineTo(x0, yBot).segments()); // 糊邊摺線
   push('cut', 'D', new PathBuilder().moveTo(x4, yTop).lineTo(x4, yBot).segments()); // 自由邊
   push(
     'cut',
@@ -455,7 +457,7 @@ function generate(p: ResolvedParams): GenerateResult {
   push('cut', 'L', new PathBuilder().moveTo(x0, yTop).lineTo(x1 + DF_FOLD_INSET_SLANT, yTop).segments());
 
   // P2/P4 防塵翼（mirror=true 時斜切在自由邊側·直邊回摺線由 boundaryBump 連到蓋板）
-  const dustFlap = (xL: number, xR: number, mirror: boolean, slantInset: number): void => {
+  const dustFlap = (xL: number, xR: number, mirror: boolean, slantInset: number, roleTag: string): void => {
     const mx = (x: number): number => (mirror ? xL + xR - x : x);
     const yTip = -dustFlapDepth;
     const foldSlant = mx(xL + slantInset);
@@ -473,10 +475,10 @@ function generate(p: ResolvedParams): GenerateResult {
       .lineTo(straight, yTip)
       .lineTo(straight, -CONNECTOR_DROP);
     push('cut', 'dustFlapDepth', b.segments());
-    push('crease', 'dustFlapDepth', new PathBuilder().moveTo(foldSlant, yTop).lineTo(straight, yTop).segments());
+    push('crease', ['dustFlapDepth', roleTag], new PathBuilder().moveTo(foldSlant, yTop).lineTo(straight, yTop).segments());
   };
-  dustFlap(x1, x2, false, DF_FOLD_INSET_SLANT); // P2：斜切靠 P1（內縮 0.6）
-  dustFlap(x3, x4, true, 0); // P4：斜切靠自由邊（無內縮·與自由邊重合）
+  dustFlap(x1, x2, false, DF_FOLD_INSET_SLANT, 'fold:P2>topDustP2'); // P2：斜切靠 P1（內縮 0.6）
+  dustFlap(x3, x4, true, 0, 'fold:P4>topDustP4'); // P4：斜切靠自由邊（無內縮·與自由邊重合）
 
   // 交界讓位凸口（P2 直邊 x2−3 ↔ 蓋板左側 x2；蓋板右側 x3 ↔ P4 直邊 x3+3）
   push('cut', 'dustFlapDepth', boundaryBump(x2 - DF_STRAIGHT_INSET, x2, CONNECTOR_DROP));
@@ -500,8 +502,8 @@ function generate(p: ResolvedParams): GenerateResult {
     push('cut', 'W', new PathBuilder().moveTo(x2, -CONNECTOR_DROP).lineTo(x2, yLidBot).segments());
     push('cut', 'W', new PathBuilder().moveTo(x3, -CONNECTOR_DROP).lineTo(x3, yLidBot).segments());
     // 蓋板開口摺線 + 插舌摺線
-    push('crease', 'L', new PathBuilder().moveTo(x2, yTop).lineTo(x3, yTop).segments());
-    push('crease', 'W', new PathBuilder().moveTo(foldL, yFF).lineTo(foldR, yFF).segments());
+    push('crease', ['L', 'fold:P3>topLid'], new PathBuilder().moveTo(x2, yTop).lineTo(x3, yTop).segments());
+    push('crease', ['W', 'fold:topLid>topTuck'], new PathBuilder().moveTo(foldL, yFF).lineTo(foldR, yFF).segments());
     // 插舌外框輪廓：蓋板底左角 → 收窄弧根 → 收窄弧 → 尖端平邊 → 收窄弧 → 收窄弧根 → 蓋板底右角
     const b = new PathBuilder()
       .moveTo(x2, yLidBot)
@@ -521,10 +523,10 @@ function generate(p: ResolvedParams): GenerateResult {
 
   // 底摺線（原刀模 各片獨立·y=yBot+0.003·端點內縮·自由邊側齊 x4）
   const cY = yBot + 0.003;
-  push('crease', 'D', new PathBuilder().moveTo(x0 + 0.751, cY).lineTo(x1 - 0.75, cY).segments());
-  push('crease', 'D', new PathBuilder().moveTo(x1 + 0.75, cY).lineTo(x2 - 0.748, cY).segments());
-  push('crease', 'D', new PathBuilder().moveTo(x2 + 0.751, cY).lineTo(x3 - 0.75, cY).segments());
-  push('crease', 'D', new PathBuilder().moveTo(x3 + 0.75, cY).lineTo(x4, cY).segments());
+  push('crease', ['D', 'fold:P1>bottomLockP1'], new PathBuilder().moveTo(x0 + 0.751, cY).lineTo(x1 - 0.75, cY).segments());
+  push('crease', ['D', 'fold:P2>bottomWebP2'], new PathBuilder().moveTo(x1 + 0.75, cY).lineTo(x2 - 0.748, cY).segments());
+  push('crease', ['D', 'fold:P3>bottomReceiveP3'], new PathBuilder().moveTo(x2 + 0.751, cY).lineTo(x3 - 0.75, cY).segments());
+  push('crease', ['D', 'fold:P4>bottomWebP4'], new PathBuilder().moveTo(x3 + 0.75, cY).lineTo(x4, cY).segments());
 
   // 交界讓位連接段（原刀模對應相對座標序列 逐字·雙 cubic bezier·各交界獨立照抄非共用模板）。
   // pts = [start, c1a, c2a, mid, c1b, c2b, end]，每點為 (相對 anchorX 的 dx, 相對 yBot 的 dy)。
@@ -653,6 +655,7 @@ function generate(p: ResolvedParams): GenerateResult {
 const invariants: BoxInvariant[] = [
   {
     id: 'snap-lock-closure',
+    severity: 'error',
     description: {
       zh: 'P1 梯形尖端必須真正插入 P3 接收缺口（摺後 2D 咬合重疊深度 > 0），且尖端寬必須小於缺口寬並留足插入餘隙、底片深度不超過盒寬、P2/P4 窄翼不對撞——任一必要條件失敗代表底封幾何無法鎖定。',
     },
@@ -684,6 +687,7 @@ const invariants: BoxInvariant[] = [
     // 通道示警（沿 RTE tuck-radius-clamped 慣例——本 codebase 以 not-ok invariant 當 UI 警告條），
     // 讓「插進去了但咬合可能不足」不被 pass 吞掉。overlap≤0 由 snap-lock-closure hard 擋，此條僅示警。
     id: 'snap-lock-engagement-firm',
+    severity: 'warning',
     description: {
       zh: 'P1 尖端插入 P3 缺口的咬合重疊深度建議 ≥ 4mm——低於此仍有重疊，但實體樣品可能鬆動，建議打樣驗證。',
     },
@@ -711,6 +715,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tuck-depth-within-body',
+    severity: 'error',
     description: {
       zh: '頂部插舌深度必須為正且不超過盒身高度 D——插舌深度為零代表沒有插舌無法反插固定，超過盒身高度則插舌會頂到盒底。',
     },
@@ -734,6 +739,7 @@ const invariants: BoxInvariant[] = [
     // 頂部插舌隨面板寬縮放（尖端寬＝P3 寬 − 2×TUCK_TIP_MARGIN）；P3 寬小於退化下限時尖端寬歸零、
     // 兩側收窄弧相交自撞。相依下限＝2×TUCK_TIP_MARGIN（用補償後 P3 實寬判定·不誤擋合法紙厚輸入）。
     id: 'top-tuck-fits-panel',
+    severity: 'error',
     description: {
       zh: '頂部插舌尖端平邊寬＝P3 面板寬減兩側固定內縮；P3 面板寬須大於退化下限，否則尖端寬歸零、兩側收窄弧相交自撞。',
     },
@@ -756,6 +762,7 @@ const invariants: BoxInvariant[] = [
   {
     // 邊界情形：固定 3.5mm 缺口圓角在 lockReceiveDepth 小於它時倒折（generate 已鉗制幾何·此條示警）。
     id: 'receive-depth-vs-corner',
+    severity: 'warning',
     description: {
       zh: '接收缺口內縮深度必須 ≥ 缺口轉角圓角半徑（3.5mm），否則圓角超過缺口內緣、缺口輪廓反折自撞（幾何已鉗制圓角以免崩潰，此條示警設定值退化）。',
     },
@@ -777,6 +784,7 @@ const invariants: BoxInvariant[] = [
   {
     // 相依合法域：缺口 + 兩外翼（含圓角與避讓）必須容於 P3 面板寬 L。
     id: 'notch-fits-panel',
+    severity: 'error',
     description: {
       zh: 'P3 接收缺口寬加上兩側外翼（含圓角與避讓內縮）必須容於面板長度 L，否則外翼寬度退化為負、缺口切出面板外。',
     },
@@ -802,6 +810,7 @@ const invariants: BoxInvariant[] = [
   {
     // 相依合法域：固定折點/斜切的防塵翼需最小盒寬 W 才不退化。
     id: 'dust-flap-fits-panel',
+    severity: 'error',
     description: {
       zh: '防塵翼的固定折點與斜切段（2mm 折點 + 斜切位移 + 直邊內縮）需要最小盒寬 W；W 太小時斜切尖端會超過直邊、防塵翼輪廓退化。',
     },
@@ -824,6 +833,7 @@ const invariants: BoxInvariant[] = [
   {
     // 所有數值必須 Number.isFinite——不只擋 NaN，也擋 Infinity（否則 bounds 超出範圍）。
     id: 'all-finite',
+    severity: 'error',
     description: { zh: '所有幾何座標與 bounds 必須是有限數（Number.isFinite）——NaN 或 Infinity 都代表參數鏈超出範圍/除零，畫布與匯出會崩潰或裁切失效。' },
     check(_params, result) {
       const coords: number[] = [];
@@ -846,6 +856,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-bleed',
+    severity: 'error',
     description: { zh: 'v1 尚不支援出血線（bleed）——盒型不得產生 bleed 線型的路徑，避免下游畫布/匯出誤判成尚未支援的線型。' },
     check(_params, result) {
       if (result.paths.some((pp) => pp.type === 'bleed')) {
@@ -859,6 +870,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'bounds-cover',
+    severity: 'error',
     description: { zh: '回傳的 bounds 必須完整涵蓋所有路徑的實際範圍，否則畫布視窗或匯出裁切框會裁掉部分幾何。' },
     check(_params, result) {
       const allSegs = result.paths.flatMap((pp) => pp.segments);
@@ -877,11 +889,14 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'no-cut-self-intersection',
+    severity: 'error',
     description: {
       zh: '所有 cut 類路徑的線段兩兩之間不得真交叉（內部交點；共享端點的正常轉角銜接不算）——真交叉代表幾何已退化成自撞的翻折形狀，刀模無法沿這種路徑正確裁切。dimension/annotation 不參與這條檢查。',
     },
     check(_params, result) {
-      const cutSegments = result.paths.filter((pp) => pp.type === 'cut').flatMap((pp) => pp.segments);
+      const cutSegments = result.paths
+        .filter((pp) => pp.type === 'cut')
+        .flatMap((pp) => pp.segments.filter((_, index) => !pp.inactiveSegments?.includes(index)));
       if (hasSelfIntersection(cutSegments)) {
         return {
           ok: false,

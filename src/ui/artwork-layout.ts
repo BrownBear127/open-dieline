@@ -1,31 +1,11 @@
 /**
- * P3 M3 F1.0 對位唯一真相源——TEMPLATE（`fold-template.ts`）與 3D UV
- * （`fold-scene.ts`）共同消費本檔輸出，禁止把 2D 補償座標的 `GenerateResult`
- * 刀線拼進來（Spec-M3 v2 §3 F1.0：兩座標系有逐面板累積的紙厚補償差，見
- * `tests/fold/rte-reconcile.test.ts:200-214`）。
- *
- * `flatDielineUvFrame`／`FlatDielineUvFrame` 原本定義在 `fold-scene.ts`——T1 從那裡
- * 搬遷到本檔；`fold-scene.ts` 改為 `import` 本檔再 `export` 回同名稱（既有測試
- * `import { flatDielineUvFrame } from '@/ui/fold-scene'` 零改動、且是同一顆函式
- * reference，不是各自維護一份公式）。
- *
- * `deriveArtworkLayout`：自 `worldGeometry(model, foldPose(0, model))` 取名義攤平
- * 幾何——與 `fold-scene.ts` 現行 UV／SAMPLE 方形貼圖同款呼叫。t=0 時
- * FoldModel 的 pose 對每個非 root 面板角度皆為 0，`hingeRotation(hinge, 0)` 化簡為
- * identity transform（`Math.cos(0)=1`、`Math.sin(0)=0` 為精確值，無浮點誤差），
- * 因此 `worldGeometry` 在 t=0 回傳的每個 panel 頂點與該 panel 宣告時的
- * `polygon`／`hingeLine` 座標逐 bit 相同——這正是全模型共用單一「名義攤平座標系」
- * 的基礎（`validateFoldModel` 的 `isPointOnPolygonEdge`／`polygonEdgeContainsSegment`
- * 也直接對 `panel.polygon` 與 `panel.hingeLine` 做比對、不經任何變換，同一假設）。
- * 因此本檔的 per-panel hinge 線段直接取用 `FoldModel` 原始 `hingeLine`，不需要另外
- * 對 hinge 端點做一次 `worldGeometry` 變換。
- *
- * 純 TS 模組，不 import React／three；`src/fold/` 零變更（只讀既有 export）。
+ * TEMPLATE、3D UV 與編輯器共同消費的攤平版面。面板、摺線及縫線皆沿用
+ * `FoldModel` 從 2D generator 導出的補償後真刀模座標。
  */
 import type { Vec3 } from '../fold/pose3d';
 import { worldGeometry } from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
-import type { FoldModel, Pt } from '../fold/types';
+import type { FoldDielinePath, FoldHingeLine, FoldModel, Pt } from '../fold/types';
 
 export interface FlatDielineUvFrame {
   minX: number;
@@ -36,8 +16,7 @@ export interface FlatDielineUvFrame {
 }
 
 /**
- * 名義攤平幾何的方形 UV 頁框：span=max(width, height)，短軸置中留白
- * （offsetX/offsetY）。TEMPLATE viewBox 與 3D UV 映射共用同一份輸出（F1.0）。
+ * 攤平幾何的方形 UV 頁框：span=max(width, height)，短軸置中留白。
  */
 export function flatDielineUvFrame(
   flatGeometry: Map<string, Vec3[]>,
@@ -68,23 +47,23 @@ export function flatDielineUvFrame(
 
 export interface ArtworkLayoutPanel {
   id: string;
-  /** 名義攤平座標系（t=0）下的面板外緣，逐點對齊 `worldGeometry` 輸出。 */
+  /** 補償後真刀模座標系（t=0）下的面板外緣。 */
   polygon: Pt[];
-  /**
-   * 摺線線段（模板 crease 用）；root 面板（`parent === null`，本模型即 P1）沒有
-   * hinge。座標與 `polygon` 同一份名義攤平座標系——見本檔頂部 docblock 的
-   * identity-transform 說明。
-   */
-  hinge?: { a: Pt; b: Pt };
+  /** 模板 crease 使用的摺線；root 面板沒有 hinge。 */
+  hinge?: FoldHingeLine;
 }
 
 export interface ArtworkLayout {
   panels: ArtworkLayoutPanel[];
+  /** 2D Canvas/SVG export 同源的完整 cut/crease 繪製集。 */
+  dieline: FoldDielinePath[];
+  /** 補償後真刀模座標系下的內部刀線。 */
+  seams: Array<{ points: Pt[] }>;
   /** square UV frame——TEMPLATE viewBox 與 3D UV 映射共用同一份。 */
   frame: FlatDielineUvFrame;
 }
 
-/** F1.0 對位唯一真相：TEMPLATE builder 與 3D UV 生成皆消費本函式輸出。 */
+/** TEMPLATE builder、編輯器與 3D UV 生成共用的攤平版面。 */
 export function deriveArtworkLayout(model: FoldModel): ArtworkLayout {
   const flatGeometry = worldGeometry(model, foldPose(0, model));
   const panels: ArtworkLayoutPanel[] = model.panels.map((panel) => {
@@ -99,15 +78,30 @@ export function deriveArtworkLayout(model: FoldModel): ArtworkLayout {
     return layoutPanel;
   });
 
-  return { panels, frame: flatDielineUvFrame(flatGeometry) };
+  const seams = (model.seams ?? []).map(({ points }) => ({
+    points: points.map(({ x, y }) => ({ x, y })),
+  }));
+  const dieline = model.dieline.map((path) => ({
+    ...path,
+    segments: path.segments.map((segment) => ({ ...segment })),
+  }));
+
+  return { panels, dieline, seams, frame: flatDielineUvFrame(flatGeometry) };
 }
 
 /**
  * Stable identity for the coordinates that an uploaded square artwork is aligned to.
  * Fold-only metadata such as paper thickness and pose is intentionally absent.
+ *
+ * 純字串計算抽成 `artworkLayoutSignatureFromLayout`：TEMPLATE builder（已握有算好的
+ * `ArtworkLayout`）與本函式共用同一份公式，不各自複製一份、不必為了嵌 hash 重跑
+ * `deriveArtworkLayout`／`worldGeometry`。
  */
 export function artworkLayoutSignature(model: FoldModel): string {
-  const layout = deriveArtworkLayout(model);
+  return artworkLayoutSignatureFromLayout(deriveArtworkLayout(model));
+}
+
+export function artworkLayoutSignatureFromLayout(layout: ArtworkLayout): string {
   return JSON.stringify([
     [
       layout.frame.minX,
@@ -121,4 +115,33 @@ export function artworkLayoutSignature(model: FoldModel): string {
       polygon.map(({ x, y }) => [x, y]),
     ]),
   ]);
+}
+
+/** FNV-1a 32-bit——`reverse` 走訪方向與 `offsetBasis` 皆可調，供組出兩個結構不同、
+ *  非同一次計算重複輸出的獨立變體（見 `hashArtworkLayoutSignature`）。 */
+function fnv1a32(text: string, offsetBasis: number, reverse: boolean): number {
+  let hash = offsetBasis;
+  const step = reverse ? -1 : 1;
+  const start = reverse ? text.length - 1 : 0;
+  const end = reverse ? -1 : text.length;
+  for (let index = start; index !== end; index += step) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x0100_0193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * 64-bit 指紋（16 hex 字元）＝兩個獨立 32-bit FNV-1a 變體拼接——同步、無依賴、
+ * Node/瀏覽器逐位元相同（純 bitwise 算術）。用途是上傳
+ * 對位的 UX 提示訊號（模板是否在下載後又改了參數），不是安全邊界，不需要密碼學
+ * 等級的碰撞抵抗；雙 seed 收斂單一 32-bit 版的碰撞機率
+ * （方向良性——碰撞只會漏掉 stale-template 警示，不會誤報——但仍值得從
+ * 1-in-4-billion 收斂到 1-in-1.8×10^19）。
+ * 兩變體刻意用不同走訪方向＋不同 offset basis，非同一次計算的複製品。
+ */
+export function hashArtworkLayoutSignature(signature: string): string {
+  const forward = fnv1a32(signature, 0x811c_9dc5, false);
+  const reversed = fnv1a32(signature, 0x9e37_79b9, true);
+  return forward.toString(16).padStart(8, '0') + reversed.toString(16).padStart(8, '0');
 }

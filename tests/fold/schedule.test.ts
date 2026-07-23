@@ -15,6 +15,7 @@ const model: FoldModel = {
     { panelIds: ['side-a'], t0: 0.2, t1: 0.6, ease: 'linear' },
     { panelIds: ['side-b'], t0: 0.6, t1: 1, ease: 'powerInOut' },
   ],
+  dieline: [],
 };
 
 describe('foldPose', () => {

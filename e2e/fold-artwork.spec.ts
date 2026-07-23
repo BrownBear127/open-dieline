@@ -7,7 +7,7 @@ import { buildRteFoldModel } from '../src/fold/models/reverse-tuck-end';
 import { worldGeometry } from '../src/fold/pose3d';
 import { foldPose } from '../src/fold/schedule';
 import { dict } from '../src/i18n/dict';
-import { deriveArtworkLayout } from '../src/ui/artwork-layout';
+import { artworkLayoutSignature, deriveArtworkLayout, hashArtworkLayoutSignature } from '../src/ui/artwork-layout';
 import { gotoReady } from './helpers';
 
 interface UploadFixture {
@@ -199,6 +199,200 @@ function alignmentSvgFixture(): UploadFixture {
     ...panels,
     '</svg>',
   ].join(''), 'panel-alignment.svg');
+}
+
+const CURRENT_LAYOUT_HASH = hashArtworkLayoutSignature(artworkLayoutSignature(DEFAULT_MODEL));
+const FRAME_X = DEFAULT_LAYOUT.frame.minX - DEFAULT_LAYOUT.frame.offsetX;
+const FRAME_Y = DEFAULT_LAYOUT.frame.minY - DEFAULT_LAYOUT.frame.offsetY;
+const FRAME_SPAN = DEFAULT_LAYOUT.frame.span;
+const ALIGNMENT_ERROR_TOLERANCE_MM = 0.5;
+
+// 40% 色塊中心取樣的容忍帶有數 mm 寬，只能證明
+// 「有改寫」不能證明「< 0.5mm」。改用已知 mm 座標的窄定位記號＋二分搜尋量出記號邊緣
+// 的實際 mm 位置，直接跟真值比對——這才是 sub-mm 對位誤差的像素級證據。
+const MARK_SIZE_MM = 1;
+const MARK_INSET_MM = 5;
+
+interface CornerMark {
+  cx: number;
+  cy: number;
+}
+
+/** 頁框四角、各往內縮 MARK_INSET_MM 的記號中心點（真實 mm 座標，非 viewBox 座標）。 */
+function cornerMarks(frameX: number, frameY: number, span: number): CornerMark[] {
+  const near = frameX + MARK_INSET_MM;
+  const far = frameX + span - MARK_INSET_MM;
+  const nearY = frameY + MARK_INSET_MM;
+  const farY = frameY + span - MARK_INSET_MM;
+  return [
+    { cx: near, cy: nearY },
+    { cx: far, cy: nearY },
+    { cx: near, cy: farY },
+    { cx: far, cy: farY },
+  ];
+}
+
+function cornerMarksSvg(marks: readonly CornerMark[]): string {
+  const half = MARK_SIZE_MM / 2;
+  return marks
+    .map(({ cx, cy }) => `<rect x="${cx - half}" y="${cy - half}" width="${MARK_SIZE_MM}" `
+      + `height="${MARK_SIZE_MM}" fill="#000000"/>`)
+    .join('');
+}
+
+/**
+ * 對每個定位記號的左邊／上邊做二分搜尋（在 source canvas 上找白底→黑記號的交界
+ * 像素，換算回頁框 mm 座標），回傳每一次量測跟記號已知真實 mm 座標的絕對誤差。
+ * 全部在單一 page.evaluate 內完成（迴圈呼叫既有 `__p3ReadArtworkPixel` hook，
+ * 每次 hook 呼叫都是同一頁面內的同步呼叫，不是個別 round trip）。
+ */
+async function measureCornerMarkErrorsMm(
+  page: Page,
+  frameX: number,
+  frameY: number,
+  span: number,
+  marks: readonly CornerMark[],
+): Promise<number[]> {
+  const half = MARK_SIZE_MM / 2;
+  return page.evaluate(({ frameX, frameY, span, half, marks, searchMargin }) => {
+    const hook = (window as unknown as Record<string, unknown>).__p3ReadArtworkPixel as
+      ((u: number, v: number) => number[] | null) | undefined;
+    if (typeof hook !== 'function') throw new Error('__p3ReadArtworkPixel unavailable');
+
+    const isDark = (x: number, y: number): boolean => {
+      const u = (x - frameX) / span;
+      const v = 1 - (y - frameY) / span;
+      const pixel = hook(u, v);
+      return pixel !== null && pixel[0] < 128;
+    };
+
+    // 二分搜尋：low 恆落在白底背景（false），high 恆落在記號內部（true）——這是個
+    // *假設*，過去從未驗證過。記號整個缺席／被搬走時兩端點都會讀白，二分搜尋仍會
+    // 靜默收斂到一個貼著門檻下緣（≈0.49999mm）的假讀數，讓 <0.5mm 斷言假綠通過
+    // （邊界案例）。進二分搜尋前先驗證端點色，
+    // 不成立就 fail loud（丟錯），不進去悄悄搜出一個看似合格的數字。
+    const findEdge = (axis: 'x' | 'y', fixed: number, lo: number, hi: number): number => {
+      const sampleAt = (value: number): boolean => (axis === 'x' ? isDark(value, fixed) : isDark(fixed, value));
+      const loIsBackground = !sampleAt(lo);
+      const hiIsMark = sampleAt(hi);
+      if (!loIsBackground || !hiIsMark) {
+        throw new Error(
+          `binary-search endpoint invariant violated (axis=${axis} fixed=${fixed} lo=${lo} hi=${hi} `
+          + `loDark=${!loIsBackground} hiDark=${hiIsMark})——定位記號可能缺席或被搬移`,
+        );
+      }
+      let low = lo;
+      let high = hi;
+      for (let i = 0; i < 24; i += 1) {
+        const mid = (low + high) / 2;
+        if (sampleAt(mid)) high = mid; else low = mid;
+      }
+      return (low + high) / 2;
+    };
+
+    const errors: number[] = [];
+    for (const { cx, cy } of marks) {
+      const expectedLeft = cx - half;
+      const expectedTop = cy - half;
+      const measuredLeft = findEdge('x', cy, expectedLeft - searchMargin, cx);
+      const measuredTop = findEdge('y', cx, expectedTop - searchMargin, cy);
+      errors.push(Math.abs(measuredLeft - expectedLeft));
+      errors.push(Math.abs(measuredTop - expectedTop));
+    }
+    return errors;
+  }, { frameX, frameY, span, half, marks: [...marks], searchMargin: 2 });
+}
+
+// 上傳對位 guard-rail 合成 Illustrator 風格 fixture——逐項復刻
+// 實際 Illustrator 匯出檔（未勾 Use Artboards）觀測到的特徵：
+//  ① viewBox 改寫為與真實內容座標系不同、四邊不對稱外擴的「pt 風格」數值（非真頁面）
+//  ② 移除 root width/height（Illustrator 匯出未勾選 Use Artboards 的典型結果）
+//  ③ 頁框 rect（data-role="page-frame"，帶真實 frame 座標）與 data-box-id／
+//     data-layout-hash 存活在 <g style="display:none">（Illustrator 把 GUIDES 圖層關閉
+//     顯示但不刪除）
+// 內容座標（色塊 rect）沿用 alignmentSvgFixture 的真實 frame 座標系——Illustrator 只
+// 重算外層 viewBox metadata，不會搬動使用者已畫物件的絕對座標。
+function illustratorStyleFixture(options?: {
+  boxId?: string;
+  layoutHash?: string;
+  extraRootAttrs?: string;
+  name?: string;
+}): UploadFixture {
+  const { frame } = DEFAULT_LAYOUT;
+  const frameX = frame.minX - frame.offsetX;
+  const frameY = frame.minY - frame.offsetY;
+  const panels = Object.entries(PANEL_COLORS).map(([panelId, color]) => {
+    const bounds = panelBounds(panelId);
+    const width = bounds.width * 0.4;
+    const height = bounds.height * 0.4;
+    const x = bounds.minX + (bounds.width - width) / 2;
+    const y = bounds.minY + (bounds.height - height) / 2;
+    return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${color.css}"/>`;
+  });
+  // 四邊不對稱外擴（非「等比縮放」）＋pt 風格單位換算，數值刻意與真 frame 差一整個
+  // 數量級，讓「改寫生效」與「改寫沒生效」在對位結果上有清楚可辨的差異。
+  const mangledX = frameX * 2.8346 - 11.3;
+  const mangledY = frameY * 2.8346 - 4.7;
+  const mangledW = frame.span * 2.8346 + 22.9;
+  const mangledH = frame.span * 2.8346 + 8.1;
+  const attrs = [
+    `data-box-id="${options?.boxId ?? 'rte'}"`,
+    `data-layout-hash="${options?.layoutHash ?? CURRENT_LAYOUT_HASH}"`,
+    options?.extraRootAttrs ?? '',
+  ].filter((entry) => entry !== '').join(' ');
+  const guides = `<g id="TEMPLATE_GUIDES" style="display:none">`
+    + `<rect data-role="page-frame" x="${frameX}" y="${frameY}" width="${frame.span}" height="${frame.span}" fill="none"/>`
+    + '</g>';
+  const marks = cornerMarksSvg(cornerMarks(frameX, frameY, frame.span));
+  return svgFixture([
+    `<svg xmlns="http://www.w3.org/2000/svg" ${attrs} viewBox="${mangledX} ${mangledY} ${mangledW} ${mangledH}">`,
+    guides,
+    `<rect x="${frameX}" y="${frameY}" width="${frame.span}" height="${frame.span}" fill="#ffffff"/>`,
+    ...panels,
+    marks,
+    '</svg>',
+  ].join(''), options?.name ?? 'illustrator-mangled.svg');
+}
+
+// 頁框錨定專屬 fixture——跟上面 pt 風格／不對稱
+// Illustrator fixture 分開，只測 viewBox 四邊皆外擴的案例：viewBox 四邊皆外擴
+// 10mm（非不對稱、非 pt 單位換算），其餘 metadata（頁框 rect／data-box-id／
+// data-layout-hash）與正常模板一致。
+function fourEdgeExpandFixture(): UploadFixture {
+  const { frame } = DEFAULT_LAYOUT;
+  const frameX = frame.minX - frame.offsetX;
+  const frameY = frame.minY - frame.offsetY;
+  const expand = 10;
+  const outerX = frameX - expand;
+  const outerY = frameY - expand;
+  const outerSpan = frame.span + expand * 2;
+  const guides = `<g id="TEMPLATE_GUIDES">`
+    + `<rect data-role="page-frame" x="${frameX}" y="${frameY}" width="${frame.span}" height="${frame.span}" fill="none"/>`
+    + '</g>';
+  const marks = cornerMarksSvg(cornerMarks(frameX, frameY, frame.span));
+  return svgFixture([
+    `<svg xmlns="http://www.w3.org/2000/svg" data-box-id="rte" data-layout-hash="${CURRENT_LAYOUT_HASH}" `
+      + `viewBox="${outerX} ${outerY} ${outerSpan} ${outerSpan}" width="${outerSpan}" height="${outerSpan}">`,
+    guides,
+    `<rect x="${frameX}" y="${frameY}" width="${frame.span}" height="${frame.span}" fill="#ffffff"/>`,
+    marks,
+    '</svg>',
+  ].join(''), 'four-edge-expand.svg');
+}
+
+/** 對已上傳的自訂圖稿逐 panel 讀 source-canvas 中心像素，斷言精確等於預期色——
+ *  比對「頁框錨定」是否把上傳檔正確映射回 [0,1] source 座標（sub-mm 對位誤差的
+ *  像素級證明：若 viewBox 改寫失敗，中心像素會落在背景白或錯誤色塊上，逐 bit
+ *  比對必露餡；不像「投影畫面 dominant channel」容許數 px 的模糊帶）。 */
+async function expectSourcePixelsAligned(page: Page): Promise<void> {
+  for (const [panelId, expected] of Object.entries(PANEL_COLORS)) {
+    const sourcePixel = await page.evaluate(({ u, v }) => {
+      const hook = (window as unknown as Record<string, unknown>).__p3ReadArtworkPixel;
+      if (typeof hook !== 'function') throw new Error('__p3ReadArtworkPixel unavailable');
+      return hook(u, v) as number[] | null;
+    }, panelCenterUv(panelId));
+    expect(sourcePixel, `${panelId} source-canvas center pixel`).toEqual([...expected.rgba]);
+  }
 }
 
 async function jpegFixture(page: Page): Promise<UploadFixture> {
@@ -635,4 +829,100 @@ test('fold artwork upload makes no request outside the localhost origin', async 
   const localhostOrigin = new URL(page.url()).origin;
   const externalUrls = requestUrls.filter((url) => new URL(url).origin !== localhostOrigin);
   expect(externalUrls, `non-localhost requests:\n${externalUrls.join('\n')}`).toEqual([]);
+});
+
+// 上傳對位 guard-rail：頁框錨定＋警示。
+
+test('Illustrator 風格改寫的模板上傳後仍精確對位，誤差 < 0.5mm（頁框錨定修復 viewBox 改寫）', async ({ page }) => {
+  await enterFold(page);
+  await freezeFrame(page);
+  const marks = cornerMarks(FRAME_X, FRAME_Y, FRAME_SPAN);
+  await upload(page, illustratorStyleFixture());
+
+  // 主證據：四角定位記號的量測 mm 誤差，直接斷言 < 0.5mm——不是「40% 色塊
+  // 中心落在容忍帶內」這種只能證明「有改寫」的弱判別力檢查。
+  const errorsMm = await measureCornerMarkErrorsMm(page, FRAME_X, FRAME_Y, FRAME_SPAN, marks);
+  for (const errorMm of errorsMm) expect(errorMm).toBeLessThan(ALIGNMENT_ERROR_TOLERANCE_MM);
+
+  // 輔助證據（既有）：色塊仍落在正確的 3D 面板上，證明改寫沒有把內容錯位到別的面。
+  await expectSourcePixelsAligned(page);
+});
+
+// 二分搜尋原本假設「lo 端點必為背景、hi 端點
+// 必為記號」的不變量成立，從未驗證過——記號整個缺席／被搬走時，兩端點皆讀白，
+// 搜尋仍會靜默收斂到一個貼著門檻下緣（≈0.49999mm）的假讀數，讓斷言假綠通過。
+// 這裡直接證明「記號缺席」時 measureCornerMarkErrorsMm 會 fail loud（丟錯），
+// 不是悄悄回傳一個看似合格的數字。
+test('二分搜尋端點檢查：定位記號缺席時 fail loud（非靜默收斂出貼近門檻的假讀數）', async ({ page }) => {
+  await enterFold(page);
+  await freezeFrame(page);
+  const blankMarkup = `<svg xmlns="http://www.w3.org/2000/svg" `
+    + `viewBox="${FRAME_X} ${FRAME_Y} ${FRAME_SPAN} ${FRAME_SPAN}">`
+    + `<rect x="${FRAME_X}" y="${FRAME_Y}" width="${FRAME_SPAN}" height="${FRAME_SPAN}" fill="#ffffff"/></svg>`;
+  await upload(page, svgFixture(blankMarkup, 'blank-no-marks.svg'));
+
+  const marks = cornerMarks(FRAME_X, FRAME_Y, FRAME_SPAN);
+  await expect(measureCornerMarkErrorsMm(page, FRAME_X, FRAME_Y, FRAME_SPAN, marks)).rejects.toThrow();
+});
+
+test('頁框錨定專屬 fixture：viewBox 四邊皆外擴 10mm，上傳後對位誤差 < 0.5mm', async ({ page }) => {
+  await enterFold(page);
+  await freezeFrame(page);
+  const marks = cornerMarks(FRAME_X, FRAME_Y, FRAME_SPAN);
+  await upload(page, fourEdgeExpandFixture());
+
+  const errorsMm = await measureCornerMarkErrorsMm(page, FRAME_X, FRAME_Y, FRAME_SPAN, marks);
+  for (const errorMm of errorsMm) expect(errorMm).toBeLessThan(ALIGNMENT_ERROR_TOLERANCE_MM);
+});
+
+test('root 原有 width/height 與 viewBox 比例嚴重不一致時，改寫後仍精確對位，誤差 < 0.5mm', async ({ page }) => {
+  await enterFold(page);
+  await freezeFrame(page);
+  const marks = cornerMarks(FRAME_X, FRAME_Y, FRAME_SPAN);
+  await upload(page, illustratorStyleFixture({ extraRootAttrs: 'width="5000" height="10"' }));
+
+  const errorsMm = await measureCornerMarkErrorsMm(page, FRAME_X, FRAME_Y, FRAME_SPAN, marks);
+  for (const errorMm of errorsMm) expect(errorMm).toBeLessThan(ALIGNMENT_ERROR_TOLERANCE_MM);
+  await expectSourcePixelsAligned(page);
+});
+
+test('無頁框且非正方形的 SVG 上傳後顯示 aspect 警示，圖稿仍照常套用（warn-and-apply）', async ({ page }) => {
+  await enterFold(page);
+  await upload(page, svgFixture(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400"><rect width="800" height="400" fill="#2255cc"/></svg>',
+    'wide.svg',
+  ));
+
+  await expect(page.getByRole('status')).toHaveText(dict['fold.art.warning.aspect'].en);
+  await expect(page.locator('.fold-view')).toHaveAttribute('data-artwork-ready', 'custom');
+});
+
+test('無頁框但正方形的 SVG 上傳後不顯示對位警示（正常檔案分支，行為不變）', async ({ page }) => {
+  await enterFold(page);
+  await upload(page, genericSvgFixture());
+
+  await expect(page.getByRole('status')).toHaveCount(0);
+});
+
+test('data-box-id 與目前盒型不同時顯示 box-mismatch 警示，圖稿仍照常套用', async ({ page }) => {
+  await enterFold(page);
+  await upload(page, illustratorStyleFixture({ boxId: 'ttb' }));
+
+  await expect(page.getByRole('status')).toHaveText(dict['fold.art.warning.boxMismatch'].en);
+  await expect(page.locator('.fold-view')).toHaveAttribute('data-artwork-ready', 'custom');
+});
+
+test('data-layout-hash 與目前參數不符時顯示 stale-template 警示，圖稿仍照常套用', async ({ page }) => {
+  await enterFold(page);
+  await upload(page, illustratorStyleFixture({ layoutHash: 'deadbeef' }));
+
+  await expect(page.getByRole('status')).toHaveText(dict['fold.art.staleTemplate'].en);
+  await expect(page.locator('.fold-view')).toHaveAttribute('data-artwork-ready', 'custom');
+});
+
+test('PNG／JPEG 上傳不受頁框錨定或警示邏輯影響（行為不變）', async ({ page }) => {
+  await enterFold(page);
+  await upload(page, pngFixture());
+
+  await expect(page.getByRole('status')).toHaveCount(0);
 });
