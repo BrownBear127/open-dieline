@@ -265,6 +265,144 @@ describe('panelize 分面範圍與 tag 傳播', () => {
     expect(model.panels.every(({ polygon }) => polygon.length === 4)).toBe(true);
   });
 
+  it('foldOnlyInactive 只影響 3D 分面，完整 2D guide 仍保留被排除 segment', () => {
+    const generated = threeBandResult();
+    generated.paths[0] = {
+      ...generated.paths[0]!,
+      segments: [...generated.paths[0]!.segments, line(5, 0, 5, 12)],
+    };
+    const foldOnlyInactive = new Map([['outer', [4]]]);
+
+    const model = panelizeFoldModel(
+      generated,
+      'A',
+      threeBandAngles(),
+      NO_STEPS,
+      ARC_TOLERANCE_MM,
+      foldOnlyInactive,
+    );
+
+    expect(model.panels).toHaveLength(3);
+    expect(model.dieline.find(({ id }) => id === 'outer')!.segments[4])
+      .toEqual(generated.paths[0]!.segments[4]);
+    expect(generated.paths[0]!.inactiveSegments).toBeUndefined();
+  });
+
+  it('單一路徑可按 segment 順序標記不同 fold role', () => {
+    const generated = result([
+      outerRectangle(),
+      {
+        id: 'band-folds',
+        type: 'crease',
+        tags: ['fold:A>B', 'fold:B>C'],
+        segments: [line(0, 4, 10, 4), line(0, 8, 10, 8)],
+      },
+    ]);
+
+    const model = panelizeFoldModel(generated, 'A', threeBandAngles(), NO_STEPS);
+
+    expect(model.panels.map(({ id, parent }) => ({ id, parent }))).toEqual([
+      { id: 'A', parent: null },
+      { id: 'B', parent: 'A' },
+      { id: 'C', parent: 'B' },
+    ]);
+  });
+
+  it('foldOnlyInactive 排除中段時，semantic tag 仍按原始 segment 索引對齊', () => {
+    const generated = result([
+      outerRectangle(),
+      {
+        id: 'band-folds',
+        type: 'crease',
+        tags: ['fold:A>B', 'fold:unusedA>unusedB', 'fold:B>C'],
+        segments: [
+          line(0, 4, 10, 4),
+          line(2, 2, 3, 3),
+          line(0, 8, 10, 8),
+        ],
+      },
+    ]);
+
+    const model = panelizeFoldModel(
+      generated,
+      'A',
+      threeBandAngles(),
+      NO_STEPS,
+      ARC_TOLERANCE_MM,
+      new Map([['band-folds', [1]]]),
+    );
+
+    expect(model.panels.map(({ id, parent }) => ({ id, parent }))).toEqual([
+      { id: 'A', parent: null },
+      { id: 'B', parent: 'A' },
+      { id: 'C', parent: 'B' },
+    ]);
+  });
+
+  it('foldOnlyInactive 含未知 path 或越界索引時具名失敗', () => {
+    expect(() => panelizeFoldModel(
+      threeBandResult(),
+      'A',
+      threeBandAngles(),
+      NO_STEPS,
+      ARC_TOLERANCE_MM,
+      new Map([['missing-path', [0]]]),
+    )).toThrow(/foldOnlyInactive.*未知 path id/);
+
+    expect(() => panelizeFoldModel(
+      threeBandResult(),
+      'A',
+      threeBandAngles(),
+      NO_STEPS,
+      ARC_TOLERANCE_MM,
+      new Map([['outer', [99]]]),
+    )).toThrow(/foldOnlyInactive.*越界索引/);
+  });
+
+  it('帶 fold role 的 halfcut 在 3D 分面中視為 crease，2D guide 保留 halfcut', () => {
+    const generated = threeBandResult();
+    generated.paths[2] = {
+      ...generated.paths[2]!,
+      type: 'halfcut',
+    };
+
+    const model = panelizeFoldModel(generated, 'A', threeBandAngles(), NO_STEPS);
+
+    expect(model.panels).toHaveLength(3);
+    expect(model.dieline.some(({ id }) => id === 'bc')).toBe(false);
+  });
+
+  it('closure boundary 約束相鄰面的 owner，但不建立父子 hinge', () => {
+    const generated = result([
+      outerRectangle(),
+      {
+        id: 'vertical-boundaries',
+        type: 'crease',
+        tags: ['fold:A>B', 'fold:C>D'],
+        segments: [line(5, 0, 5, 6), line(5, 6, 5, 12)],
+      },
+      {
+        id: 'horizontal-boundaries',
+        type: 'crease',
+        tags: ['fold:A>C', 'fold-boundary:closure:B>D'],
+        segments: [line(0, 6, 5, 6), line(5, 6, 10, 6)],
+      },
+    ]);
+    const angles = [
+      { id: 'A', foldAngle: 0 },
+      { id: 'B', foldAngle: Math.PI / 2 },
+      { id: 'C', foldAngle: Math.PI / 2 },
+      { id: 'D', foldAngle: Math.PI / 2 },
+    ];
+
+    const model = panelizeFoldModel(generated, 'A', angles, NO_STEPS);
+
+    expect(model.panels).toHaveLength(4);
+    expect(panelById(model, 'D').parent).toBe('C');
+    expect(panelById(model, 'D').hingeSourceCreaseIds)
+      .toEqual(['vertical-boundaries::segment:1']);
+  });
+
   it('inactiveSegments 含越界索引時具名失敗', () => {
     const generated = threeBandResult();
     generated.paths[0] = { ...generated.paths[0]!, inactiveSegments: [99] };

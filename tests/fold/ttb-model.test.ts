@@ -6,7 +6,7 @@ import { resolveParams } from '@/core/registry';
 import { InvalidBoxParamsError } from '@/fold/derive/panelize';
 import { buildTtbFoldModel } from '@/fold/models/triangular-tube';
 import { worldGeometry } from '@/fold/pose3d';
-import { FOLD_MODEL_BUILDERS } from '@/fold/registry';
+import { FOLD_SCENE_REGISTRY } from '@/fold/registry';
 import { foldPose } from '@/fold/schedule';
 import type { FoldModel, FoldPanel, Pt } from '@/fold/types';
 import { validateFoldModel } from '@/fold/validate';
@@ -192,7 +192,12 @@ describe('TTB folded physical contracts', () => {
 describe('TTB FoldModel integration contracts', () => {
   it('passes validation and remains registered', () => {
     expect(validateFoldModel(model())).toEqual([]);
-    expect(FOLD_MODEL_BUILDERS.ttb).toBe(buildTtbFoldModel);
+    const entry = FOLD_SCENE_REGISTRY.ttb!;
+    const params = resolveParams(triangularTube, {});
+    expect(entry.capabilities.previewScene).toBe(true);
+    expect(entry.sceneSpec!(params).pieces[0]!.buildModel(params)).toEqual(
+      buildTtbFoldModel(params),
+    );
   });
 
   it('uses the sweep pre-curl, tail-first-completion fold schedule', () => {

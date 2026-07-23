@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { dimensionKeys } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
+import type { FoldSceneRegistryEntry } from '@/fold/registry';
 import type { FoldModel } from '@/fold/types';
 import { t } from '@/i18n/t';
 import {
@@ -85,10 +86,8 @@ const FOLD_CARD_RECIPES = [
   { name: 'black', labelKey: 'fold.card.black' },
 ] as const satisfies ReadonlyArray<{ name: FoldRecipeName; labelKey: string }>;
 
-type FoldModelBuilder = (values: ResolvedParams) => FoldModel;
-
 interface FoldModelRuntime {
-  builders: Record<string, FoldModelBuilder>;
+  entries: Record<string, FoldSceneRegistryEntry>;
   validate: (model: FoldModel) => string[];
 }
 
@@ -98,7 +97,7 @@ async function loadFoldModelRuntime(): Promise<FoldModelRuntime> {
     import('@/fold/validate'),
   ]);
   return {
-    builders: registry.FOLD_MODEL_BUILDERS,
+    entries: registry.FOLD_SCENE_REGISTRY,
     validate: validation.validateFoldModel,
   };
 }
@@ -307,18 +306,31 @@ export function FoldView({
   const [loadFailed, setLoadFailed] = useState(false);
   const [previewLoadAttempt, setPreviewLoadAttempt] = useState(0);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
-  const builder = modelRuntime?.builders[boxId];
-  // 圖稿編輯器 gate 由 registry 驅動：有 builder 才放行（兩處共用同一布林值·避免漂移）。
-  const editorSupported = builder !== undefined;
+  const registryEntry = modelRuntime?.entries[boxId];
+  const previewSceneSupported = registryEntry?.capabilities.previewScene === true;
+  const editorSupported = registryEntry?.capabilities.editor === true;
+  const customArtworkSupported = registryEntry?.capabilities.upload === true
+    || registryEntry?.capabilities.editor === true;
   const modelBuild = useMemo<{ model: FoldModel | undefined; failed: boolean }>(() => {
-    if (builder === undefined) return { model: undefined, failed: false };
+    if (!previewSceneSupported || registryEntry?.sceneSpec === undefined) {
+      return { model: undefined, failed: false };
+    }
     try {
-      return { model: builder(values), failed: false };
+      const sceneSpec = registryEntry.sceneSpec(values);
+      if (sceneSpec.pieces.length !== 1) {
+        throw new Error(
+          `FoldView single-piece runtime received ${sceneSpec.pieces.length} pieces before multi-piece scene support`,
+        );
+      }
+      return {
+        model: sceneSpec.pieces[0]!.buildModel(values),
+        failed: false,
+      };
     } catch (error) {
       console.error(error);
       return { model: undefined, failed: true };
     }
-  }, [boxId, values, builder]);
+  }, [values, previewSceneSupported, registryEntry]);
   const model = modelBuild.model;
   const artworkSignature = useMemo(
     () => model === undefined ? null : artworkLayoutSignature(model),
@@ -332,7 +344,9 @@ export function FoldView({
     () => model === undefined ? [] : modelRuntime?.validate(model) ?? [],
     [model, modelRuntime],
   );
-  const canCreateScene = model !== undefined && validationErrors.length === 0;
+  const canCreateScene = previewSceneSupported
+    && model !== undefined
+    && validationErrors.length === 0;
   const staleEditor = currentEditorSession !== null
     && artworkSignature !== null
     && currentEditorSession.alignedLayoutSignature !== artworkSignature;
@@ -703,6 +717,23 @@ export function FoldView({
   useEffect(() => () => cancelEditorSync(), []);
 
   useEffect(() => {
+    if (registryEntry === undefined) return;
+    const { capabilities } = registryEntry;
+    const activeArtwork = artworkRef.current;
+    const artworkStillSupported = activeArtwork === 'none'
+      || (activeArtwork === 'sample' && capabilities.sampleArtwork)
+      || (activeArtwork === 'custom' && (capabilities.upload || capabilities.editor));
+    if (!artworkStillSupported) {
+      artworkRef.current = 'none';
+      setArtwork('none');
+      setSceneArtwork('none');
+      sceneRef.current?.applyArtwork('none');
+      sceneRef.current?.removeCustomSource();
+    }
+    if (!capabilities.editor) setViewMode('preview');
+  }, [registryEntry]);
+
+  useEffect(() => {
     const session = currentEditorSession;
     if (session === null) {
       observedContentRevisionRef.current = 0;
@@ -814,7 +845,7 @@ export function FoldView({
       if (currentModel !== undefined) {
         nextScene.replaceModel(currentModel, { thickness: thicknessRef.current });
       }
-      if (customSourceRef.current !== null) {
+      if (customArtworkSupported && customSourceRef.current !== null) {
         nextScene.installCustomSource(customSourceRef.current);
       }
       nextScene.updatePose(foldProgressRef.current);
@@ -822,10 +853,22 @@ export function FoldView({
       if (cardRecipeRef.current !== 'kraft') {
         nextScene.applyRecipe(cardRecipeRef.current);
       }
-      if (artworkRef.current !== 'none') {
-        nextScene.applyArtwork(artworkRef.current);
+      let supportedArtwork: ArtworkMode = 'none';
+      if (
+        artworkRef.current === 'sample'
+        && registryEntry?.capabilities.sampleArtwork
+      ) {
+        supportedArtwork = 'sample';
+      } else if (
+        artworkRef.current === 'custom'
+        && customArtworkSupported
+      ) {
+        supportedArtwork = 'custom';
       }
-      setSceneArtwork(artworkRef.current);
+      if (supportedArtwork !== 'none') {
+        nextScene.applyArtwork(supportedArtwork);
+      }
+      setSceneArtwork(supportedArtwork);
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver((entries) => {
@@ -851,13 +894,20 @@ export function FoldView({
         scene.dispose();
       }
     };
-  }, [canCreateScene, createScene, loadScene, previewLoadAttempt]);
+  }, [
+    canCreateScene,
+    createScene,
+    customArtworkSupported,
+    loadScene,
+    previewLoadAttempt,
+    registryEntry,
+  ]);
 
   if (loadFailed) {
     return <FoldEmpty copy={t('fold.loadFailed')} loadFailed onRetry={retryPreviewLoad} />;
   }
 
-  if (modelRuntime !== null && builder === undefined) {
+  if (modelRuntime !== null && !previewSceneSupported) {
     return (
       <section className="fold-view" ref={containerRef}>
         <FoldEmpty copy={t('fold.unsupported')} />
@@ -926,17 +976,24 @@ export function FoldView({
             type="button"
             className={`btn tog label${artworkEnabled ? ' on' : ''}`}
             aria-pressed={artworkEnabled}
+            disabled={!registryEntry?.capabilities.sampleArtwork}
             onClick={() => selectArtwork(artworkEnabled ? 'none' : 'sample')}
           >
             {t('fold.art.sample')}
           </button>
-          <button type="button" className="btn label" onClick={handleTemplateDownload}>
+          <button
+            type="button"
+            className="btn label"
+            disabled={!registryEntry?.capabilities.template}
+            onClick={handleTemplateDownload}
+          >
             {t('fold.art.template')}
           </button>
           <button
             type="button"
             className={`btn tog label${artwork === 'custom' ? ' on' : ''}`}
             aria-pressed={artwork === 'custom'}
+            disabled={!registryEntry?.capabilities.upload}
             onClick={handleUploadClick}
           >
             {t('fold.art.upload')}

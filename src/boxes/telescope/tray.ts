@@ -249,6 +249,63 @@ type Sign = 1 | -1;
 type Point = { x: number; y: number };
 /** 角撐內部使用的「離角落」座標：a＝沿 x 軸向外距離、b＝沿 y 軸向外距離（恆正）。 */
 type AB = { a: number; b: number };
+type WallLayer = 'outer' | 'rim' | 'inner' | 'tongue';
+
+function signName(sign: Sign): 'Neg' | 'Pos' {
+  return sign < 0 ? 'Neg' : 'Pos';
+}
+
+function wallStem(side: string): string {
+  const stems: Record<string, string> = {
+    left: 'wallXNeg',
+    right: 'wallXPos',
+    front: 'wallYNeg',
+    back: 'wallYPos',
+  };
+  const stem = stems[side];
+  if (stem === undefined) throw new Error(`未知 telescope wall side「${side}」`);
+  return stem;
+}
+
+function wallPanel(side: string, layer: WallLayer): string {
+  return `${wallStem(side)}-${layer}`;
+}
+
+function cornerToken(label: string): string {
+  const tokens: Record<string, string> = {
+    'left-front': 'NegNeg',
+    'left-back': 'NegPos',
+    'right-front': 'PosNeg',
+    'right-back': 'PosPos',
+  };
+  const token = tokens[label];
+  if (token === undefined) throw new Error(`未知 telescope corner「${label}」`);
+  return token;
+}
+
+function cornerForYWall(side: string, xSign: Sign): string {
+  if (side !== 'front' && side !== 'back') {
+    throw new Error(`y-wall corner 只接受 front/back，實際為「${side}」`);
+  }
+  return `${signName(xSign)}${side === 'front' ? 'Neg' : 'Pos'}`;
+}
+
+function wallSideForCorner(axis: Axis, label: string): string {
+  if (axis === 'x') return label.startsWith('left-') ? 'left' : 'right';
+  return label.endsWith('-front') ? 'front' : 'back';
+}
+
+function foldRole(parentId: string, childId: string): string {
+  return `fold:${parentId}>${childId}`;
+}
+
+function closureBoundary(firstOwnerId: string, secondOwnerId: string): string {
+  return `fold-boundary:closure:${firstOwnerId}>${secondOwnerId}`;
+}
+
+function wingPanel(axis: Axis, corner: string): string {
+  return `wing${axis.toUpperCase()}${corner}`;
+}
 
 /** 尚未指定 id 的路徑描述——generateTray 統一在最後指派 id 並套用 offsetX/offsetY 平移。 */
 interface PathDescriptor {
@@ -389,11 +446,12 @@ function buildWallRoot(
   side: string,
   independentJogEntity: boolean,
 ): PathDescriptor {
+  const rootRole = foldRole('floor', wallPanel(side, 'outer'));
   if (!hasDoubleRoot || rootJog <= 0) {
     const p1 = toXY(axis, geom.rootAlong, -perpHalf);
     const p2 = toXY(axis, geom.rootAlong, perpHalf);
     const b = new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
-    return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
+    return { type: 'crease', tags: ['wallRoot', side, rootRole], segments: b.segments() };
   }
 
   const nomNeg = toXY(axis, geom.rootAlong, -perpHalf);
@@ -413,7 +471,14 @@ function buildWallRoot(
     // 同線型共線重疊（Finding 1 修正：舊版在此多畫了 nomNeg→offNeg／offPos→nomPos）。
     b.moveTo(offNeg.x, offNeg.y).lineTo(offPos.x, offPos.y);
   }
-  return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
+  const semantics = independentJogEntity
+    ? [
+      rootRole,
+      closureBoundary('floor', wingPanel('y', cornerForYWall(side, -1))),
+      closureBoundary('floor', wingPanel('y', cornerForYWall(side, 1))),
+    ]
+    : [rootRole];
+  return { type: 'crease', tags: ['wallRoot', side, ...semantics], segments: b.segments() };
 }
 
 /**
@@ -462,7 +527,13 @@ function buildWallTop(axis: Axis, geom: WallGeom, perpHalf: number, platformWidt
     const e2 = toXY(axis, geom.topEndAlong, half);
     b.moveTo(s2.x, s2.y).lineTo(e2.x, e2.y);
   }
-  return { type: 'crease', tags: ['wallTop', side], segments: b.segments() };
+  const semantics = platformWidth > 0
+    ? [
+      foldRole(wallPanel(side, 'outer'), wallPanel(side, 'rim')),
+      foldRole(wallPanel(side, 'rim'), wallPanel(side, 'inner')),
+    ]
+    : [foldRole(wallPanel(side, 'outer'), wallPanel(side, 'inner'))];
+  return { type: 'crease', tags: ['wallTop', side, ...semantics], segments: b.segments() };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -573,13 +644,14 @@ function buildBTongueTopology(axis: Axis, geom: WallGeom, perpHalf: number, hasD
   const along = geom.tongueFoldAlong;
 
   const paths: PathDescriptor[] = [];
+  const role = foldRole(wallPanel(side, 'inner'), wallPanel(side, 'tongue'));
   if (endLen > 0) {
     const c1 = toXY(axis, along, -innerHalf);
     const c2 = toXY(axis, along, -innerHalf + endLen);
     const c3 = toXY(axis, along, innerHalf - endLen);
     const c4 = toXY(axis, along, innerHalf);
     const crease = new PathBuilder().moveTo(c1.x, c1.y).lineTo(c2.x, c2.y).moveTo(c3.x, c3.y).lineTo(c4.x, c4.y).segments();
-    paths.push({ type: 'crease', tags: ['tongueFold', side], segments: crease });
+    paths.push({ type: 'crease', tags: ['tongueFold', side, role], segments: crease });
   }
 
   const halfStart = -innerHalf + endLen;
@@ -588,7 +660,7 @@ function buildBTongueTopology(axis: Axis, geom: WallGeom, perpHalf: number, hasD
     const h1 = toXY(axis, along, halfStart);
     const h2 = toXY(axis, along, halfEnd);
     const halfcut = new PathBuilder().moveTo(h1.x, h1.y).lineTo(h2.x, h2.y).segments();
-    paths.push({ type: 'halfcut', tags: ['tongueFold', side], segments: halfcut });
+    paths.push({ type: 'halfcut', tags: ['tongueFold', side, role], segments: halfcut });
   }
 
   if (hasDoubleRoot && endLen >= V_RELIEF_MIN_END) {
@@ -681,7 +753,15 @@ function buildAHalfcutSegments(axis: Axis, along: number, perpHalf: number, chai
     const p2 = toXY(axis, along, boundaries[i + 1]!);
     b.moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
   }
-  return { type: 'halfcut', tags: ['tongueFold', side], segments: b.segments() };
+  return {
+    type: 'halfcut',
+    tags: [
+      'tongueFold',
+      side,
+      foldRole(wallPanel(side, 'inner'), wallPanel(side, 'tongue')),
+    ],
+    segments: b.segments(),
+  };
 }
 
 /**
@@ -848,11 +928,31 @@ function buildGussetA(
   const diagCut = new PathBuilder().moveTo(cornerX, cornerY).lineTo(mid.x, mid.y).segments();
   const diagCrease = new PathBuilder().moveTo(mid.x, mid.y).lineTo(tip.x, tip.y).segments();
   const outerCut = new PathBuilder().moveTo(v4.x, v4.y).lineTo(tip.x, tip.y).lineTo(v3.x, v3.y).segments();
+  const corner = cornerToken(side);
+  const xWall = wallSideForCorner('x', side);
+  const yWall = wallSideForCorner('y', side);
 
   return [
-    { type: 'crease', tags: ['gussetFold', side], segments: folds },
+    {
+      type: 'crease',
+      tags: [
+        'gussetFold',
+        side,
+        foldRole(wallPanel(xWall, 'outer'), wingPanel('x', corner)),
+        foldRole(wallPanel(yWall, 'outer'), wingPanel('y', corner)),
+      ],
+      segments: folds,
+    },
     { type: 'cut', tags: ['gusset', side], segments: diagCut },
-    { type: 'crease', tags: ['gusset', side], segments: diagCrease },
+    {
+      type: 'crease',
+      tags: [
+        'gusset',
+        side,
+        closureBoundary(wingPanel('x', corner), wingPanel('y', corner)),
+      ],
+      segments: diagCrease,
+    },
     { type: 'cut', tags: ['gusset', side], segments: outerCut },
   ];
 }
@@ -922,7 +1022,15 @@ function sweepFor(inDir: Point, outDir: Point): 0 | 1 {
  * ＋terminal cut（tip→y 軸錨點）＋讓位槽連續 cut 鏈（tip→p1→[R1.5]→p2→p3→[R5]→p4→p5→p6）。
  * 生產檔的 2mm 側邊內縮（鏈端實際落在內縮線上）未復刻——鏈端取整到軸線（殘差 ≤0.074mm）。
  */
-function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, height: number, thickness: number, side: string): PathDescriptor[] {
+function buildGussetB(
+  cornerX: number,
+  cornerY: number,
+  sx: Sign,
+  sy: Sign,
+  height: number,
+  thickness: number,
+  side: string,
+): PathDescriptor[] {
   const f = bGussetFrame(height, thickness);
   const m = (p: AB): Point => ({ x: cornerX + sx * p.a, y: cornerY + sy * p.b });
   const sinT = Math.sin(GUSSET_B_LEG_TILT_RAD);
@@ -940,7 +1048,8 @@ function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, heig
   const yEnd = m(f.yEnd);
 
   const foldsBuilder = new PathBuilder().moveTo(cornerX, cornerY);
-  if (f.p6.a > height + GUSSET_WEB_SPLIT_EPS) {
+  const splitXWeb = f.p6.a > height + GUSSET_WEB_SPLIT_EPS;
+  if (splitXWeb) {
     const wallTop = { x: cornerX + sx * height, y: cornerY };
     foldsBuilder
       .lineTo(wallTop.x, wallTop.y) // x 軸 web 內段：角落→壁高線
@@ -970,10 +1079,29 @@ function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, heig
     .lineTo(p6.x, p6.y)
     .segments();
 
+  const corner = cornerToken(side);
+  const xWall = wallSideForCorner('x', side);
+  const yWall = wallSideForCorner('y', side);
+  const foldSemantics = [
+    foldRole(wallPanel(xWall, 'outer'), wingPanel('x', corner)),
+    ...(splitXWeb
+      ? [foldRole(wallPanel(xWall, 'inner'), `gussetExt${corner}`)]
+      : []),
+    foldRole(wallPanel(yWall, 'outer'), wingPanel('y', corner)),
+  ];
+
   return [
-    { type: 'crease', tags: ['gussetFold', side], segments: folds },
+    { type: 'crease', tags: ['gussetFold', side, ...foldSemantics], segments: folds },
     { type: 'cut', tags: ['gusset', side], segments: diagCut },
-    { type: 'crease', tags: ['gusset', side], segments: diagCrease },
+    {
+      type: 'crease',
+      tags: [
+        'gusset',
+        side,
+        closureBoundary(wingPanel('x', corner), wingPanel('y', corner)),
+      ],
+      segments: diagCrease,
+    },
     { type: 'cut', tags: ['gusset', side], segments: terminalCut },
     { type: 'cut', tags: ['gusset', side], segments: slot },
   ];
@@ -1070,7 +1198,11 @@ function buildACornerFlapCrease(
   const { p1, p2 } = resolveAGussetChainPoints(cornerX, cornerY, sx, sy, anchors, [template])[0]!;
   return {
     type: 'crease',
-    tags: ['cornerFlapFold', side],
+    tags: [
+      'cornerFlapFold',
+      side,
+      foldRole(wallPanel(wallSideForCorner('x', side), 'inner'), `flap${cornerToken(side)}`),
+    ],
     segments: new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).segments(),
   };
 }

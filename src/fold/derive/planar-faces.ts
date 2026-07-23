@@ -667,6 +667,7 @@ function containingFaces(point: Pt, faces: PlanarFace[], tolerance: number): num
 export function extractFaces(
   inputs: PlanarSegmentInput[],
   snapTolMm = DEFAULT_SNAP_TOLERANCE_MM,
+  ignoreAmbiguousDanglingCuts = false,
 ): FaceGraph {
   if (!Number.isFinite(snapTolMm) || snapTolMm <= 0) {
     throw new PlanarFacesError(`snapTolMm 必須是大於 0 的有限數（收到 ${snapTolMm}）`);
@@ -738,6 +739,7 @@ export function extractFaces(
     const sampledFaces = offsetMidpointSamples(edge.a, edge.b)
       .map((sample) => containingFaces(sample, faces, snapTolMm));
     if (sampledFaces.some((hits) => hits.length !== 1)) {
+      if (ignoreAmbiguousDanglingCuts) continue;
       throw new PlanarFacesError(
         `死端 cut「${pathIds.join(',')}」邊界外偏移採樣仍歧義，找不到唯一 containingFace 歸屬`
         + `（edge=(${edge.a.x},${edge.a.y})→(${edge.b.x},${edge.b.y})，`

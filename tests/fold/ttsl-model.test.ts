@@ -6,7 +6,7 @@ import { resolveParams } from '@/core/registry';
 import { InvalidBoxParamsError } from '@/fold/derive/panelize';
 import { mirrorFoldModel } from '@/fold/mirror';
 import { buildTtslFoldModel } from '@/fold/models/tuck-top-snap-lock';
-import { FOLD_MODEL_BUILDERS } from '@/fold/registry';
+import { FOLD_SCENE_REGISTRY } from '@/fold/registry';
 import { foldPose } from '@/fold/schedule';
 import type { FoldModel, FoldPanel, Pt } from '@/fold/types';
 import { validateFoldModel } from '@/fold/validate';
@@ -85,7 +85,12 @@ describe('TTSL FoldModel derived geometry', () => {
 describe('TTSL FoldModel integration contracts', () => {
   it('passes validation and remains registered', () => {
     expect(validateFoldModel(model())).toEqual([]);
-    expect(FOLD_MODEL_BUILDERS.ttsl).toBe(buildTtslFoldModel);
+    const entry = FOLD_SCENE_REGISTRY.ttsl!;
+    const params = resolveParams(tuckTopSnapLock, {});
+    expect(entry.capabilities.previewScene).toBe(true);
+    expect(entry.sceneSpec!(params).pieces[0]!.buildModel(params)).toEqual(
+      buildTtslFoldModel(params),
+    );
   });
 
   it('uses the single-receiver physical fold schedule', () => {
