@@ -141,6 +141,12 @@ interface ABLine {
 }
 
 /**
+ * A 款鉤葉根部未被 snap 的固定 nominal a 錨；運動學 allowance 與 generator
+ * 共用此常數，變更時不會讓 zSpanFormula 靜默漂移。
+ */
+export const A_GUSSET_FIXED_NOMINAL_A_MM = 103.699;
+
+/**
  * 外緣：10° cut 樞紐（LINE27，topLeft 模板）。
  *
  * T0 原始鏈另含 LINE57/58（角落→45° 對角線 tip 附近的兩段）與 LINE202（outerWall
@@ -175,9 +181,9 @@ const A_GUSSET_PLATFORM_RELIEF_TL: ABLine[] = [
 const A_GUSSET_INNER_WALL_APPROACH_TL: ABLine[] = [
   { p1: { a: 121.2003, b: 72.9968 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 138.2007, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -2.5012 }, p2: { a: 103.699, b: -4.5014 }, type: 'cut' },
-  { p1: { a: 103.699, b: -4.5014 }, p2: { a: 103.699, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -2.5012 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 121.2003, b: -21.5018 }, type: 'cut' },
   { p1: { a: 121.2003, b: -21.5018 }, p2: { a: 123.2006, b: -21.5018 }, type: 'cut' },
 ];
@@ -211,9 +217,9 @@ const A_GUSSET_PLATFORM_RELIEF_TR: ABLine[] = [
 const A_GUSSET_INNER_WALL_APPROACH_TR: ABLine[] = [
   { p1: { a: 121.2003, b: 52.9978 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 138.2007, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -2.5012 }, p2: { a: 103.699, b: -4.5014 }, type: 'cut' },
-  { p1: { a: 103.699, b: -4.5014 }, p2: { a: 103.699, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -2.5012 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 121.2003, b: -21.5018 }, type: 'cut' },
   { p1: { a: 121.2003, b: -21.5018 }, p2: { a: 123.2006, b: -21.5018 }, type: 'cut' },
 ];
@@ -231,12 +237,12 @@ const A_GUSSET_CHAIN_TR: ABLine[] = [...A_GUSSET_OUTER_TR, ...A_GUSSET_PLATFORM_
  */
 const A_CORNER_FLAP_CREASE_TL: ABLine = {
   p1: { a: 64.4984, b: -4.5014 },
-  p2: { a: 103.699, b: -4.5014 },
+  p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 },
   type: 'crease',
 };
 const A_CORNER_FLAP_CREASE_TR: ABLine = {
   p1: { a: 64.4984, b: -4.5014 },
-  p2: { a: 103.699, b: -4.5014 },
+  p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 },
   type: 'crease',
 };
 

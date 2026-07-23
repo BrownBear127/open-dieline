@@ -1048,6 +1048,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'notch-reduced',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F4／spec §縮放與降級表：A 款（platformWidth>0）側壁雙 U-notch 若中心距/開口不足以並存兩個（2×比例中心距−30<5，或有一個超出壁內），先退化為單一置中 notch。只警告不擋，讓使用者知道細節已降級（tray.ts longWallNotchPlan 的同一門檻，這裡獨立重算供 UI 警告用）。',
     },
@@ -1065,6 +1066,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'notch-omitted',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F4／spec §縮放與降級表：A 款（platformWidth>0）U-notch（側壁單一置中或上下壁）若壁長不足 30+2×5=40mm，該 notch 全省（結構主體仍合法，只是不再有這個功能性讓位槽）。只警告不擋。',
     },
@@ -1082,6 +1084,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'platform-corner-omitted',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F6-A／spec §縮放與降級表：A 款平台端 R2.5 圓角需 platformWidth≥2.5mm 才有意義，否則降級為直角轉接（platform-corner-omitted）。只警告不擋。',
     },
@@ -1102,6 +1105,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'gusset-relief-omitted',
+    severity: 'warning',
     description: {
       zh: 'Fix 2·2026-07-11 review H2／spec §縮放與降級規律「放不下就省略＋警告」：A 款角撐周邊複合 relief 鏈（aGussetPeriphery）尺寸固定 nominal 不隨壁高縮放（Fix 3 取代先前的無條件縮放安全網），壁長過短（與 U-notch 或壁界衝突）或壁高極端偏離校準值（鏈自身因錨點校正而扭曲自撞）時整鏈省略，只警告不擋。與 notch-reduced/notch-omitted 各自獨立判斷（鏈可能省略但 notch 仍可容納，反之亦然）。',
     },
@@ -1119,6 +1123,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tongue-crease-shrunk',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F5／spec §縮放與降級表：B 款（platformWidth=0）舌根端段縮減分支 2——扣除 V relief／角撐周邊保留區後的可用舌摺線長度 reservedSpan 若 10≤reservedSpan<2×E+10（E＝該壁端段 nominal 45/35），端段縮至 (reservedSpan−10)/2。只警告不擋。',
     },

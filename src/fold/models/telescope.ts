@@ -7,6 +7,8 @@ import type {
   ResolvedParams,
 } from '../../core/types';
 import {
+  assertBoxInvariants,
+  InvalidBoxParamsError,
   panelizeFoldModel,
   type FoldOnlyInactiveSegments,
   type PanelAngleSpec,
@@ -14,6 +16,8 @@ import {
 import {
   defineFoldSceneSpec,
   type FoldSceneSpec,
+  type Quaternion,
+  type SceneKeyframe,
 } from '../scene-spec';
 import {
   ARC_TOLERANCE_MM,
@@ -25,14 +29,133 @@ import {
 const FOLD_ROLE_PATTERN = /^fold:([^>]+)>([^>]+)$/;
 const ROOT_ID = 'floor';
 const LINER_ROOT_ID = 'linerPad';
-const TRAY_FOLD_ANGLE = -Math.PI / 2;
-const LINER_FOLD_ANGLE = Math.PI / 2;
 const ROLE_FRAGMENT_TOLERANCE_MM = 30;
 const MIN_AUXILIARY_FACE_AREA_MM2 = 50;
 const AUXILIARY_FACE_WIDTH_MM = 1;
+const QUARTER_TURN = Math.PI / 2;
+const THREE_QUARTER_TURN = (3 * Math.PI) / 4;
 
 const AXIS_SIGNS = ['XNeg', 'XPos', 'YNeg', 'YPos'] as const;
 const CORNERS = ['NegNeg', 'NegPos', 'PosNeg', 'PosPos'] as const;
+
+export const TELESCOPE_FOLD_WINDOWS = {
+  base: [0, 0.5],
+  lid: [0.1, 0.55],
+  liner: [0.15, 0.58],
+} as const;
+
+export const TELESCOPE_FOLD_WINDOWS_OFF = {
+  base: [0, 0.62],
+  lid: [0.05, 0.68],
+} as const;
+
+export const TELESCOPE_ASSEMBLY_WINDOWS = {
+  // identity anchor → lift → move → drop
+  liner: [0.6, 0.66, 0.72, 0.78],
+  // identity anchor → lift → x-flip → move → drop
+  lid: [0.8, 0.85, 0.9, 0.95, 1],
+  lidOff: [0.7, 0.775, 0.85, 0.925, 1],
+} as const;
+
+export const TELESCOPE_TRAY_WINDOWS = {
+  flapped: {
+    pretuck: [0, 0.08],
+    prefoldX: [0.08, 0.18],
+    prefoldY: [0.18, 0.3],
+    phaseA: [0.3, 0.65],
+    phaseB: [0.65, 0.82],
+    phaseC: [0.82, 1],
+  },
+  plain: {
+    prefoldX: [0, 0.15],
+    prefoldY: [0.15, 0.3],
+    phaseA: [0.3, 0.825],
+    phaseB: [0.825, 1],
+  },
+} as const;
+
+export interface TelescopeFlapDriverWindows {
+  pretuckEnd: number;
+  phaseCStart: number;
+  phaseCMid: number;
+  phaseCEnd: number;
+}
+
+function intervalProgress(value: number, start: number, end: number): number {
+  if (value <= start) return 0;
+  if (value >= end) return 1;
+  return (value - start) / (end - start);
+}
+
+/** 五摺線頂點的 inward branch 閉式；輸入牆角 φ、輸出翼角 ψ（rad）。 */
+export function telescopePsi(phi: number): number {
+  return 2 * Math.atan((1 + Math.SQRT2) * Math.tan(phi / 2));
+}
+
+/**
+ * phase A 與 phase B 合在同一 panel driver：
+ * A 依 ψ(φ) 同步立壁，B 讓 X 翼壓貼左右壁、Y 翼反向退至 90°。
+ */
+export function createTelescopeWingAngleFn(
+  axis: 'X' | 'Y',
+  phaseASplit: number,
+): (stepLocalT: number) => number {
+  if (!(phaseASplit > 0 && phaseASplit < 1)) {
+    throw new Error('Telescope wing phaseASplit 必須落在 0 與 1 之間');
+  }
+  return (stepLocalT) => {
+    if (stepLocalT <= phaseASplit) {
+      const phi = QUARTER_TURN * intervalProgress(
+        stepLocalT,
+        0,
+        phaseASplit,
+      );
+      return telescopePsi(phi);
+    }
+    const pressProgress = intervalProgress(stepLocalT, phaseASplit, 1);
+    const direction = axis === 'X' ? 1 : -1;
+    return THREE_QUARTER_TURN
+      + direction * (Math.PI / 4) * pressProgress;
+  };
+}
+
+/** pretuck→hold→C tuck-seq 合在單一 panel driver；xNeg 先、xPos 後。 */
+export function createTelescopeFlapAngleFn(
+  xSign: 'Neg' | 'Pos',
+  windows: TelescopeFlapDriverWindows,
+): (stepLocalT: number) => number {
+  const {
+    pretuckEnd,
+    phaseCStart,
+    phaseCMid,
+    phaseCEnd,
+  } = windows;
+  if (!(
+    0 < pretuckEnd
+    && pretuckEnd <= phaseCStart
+    && phaseCStart < phaseCMid
+    && phaseCMid < phaseCEnd
+    && phaseCEnd <= 1
+  )) {
+    throw new Error('Telescope flap windows 必須依 pretuck→C 前半→C 後半嚴格排序');
+  }
+
+  return (stepLocalT) => {
+    if (stepLocalT <= pretuckEnd) {
+      return Math.PI * intervalProgress(stepLocalT, 0, pretuckEnd);
+    }
+    const foldStart = xSign === 'Neg' ? phaseCStart : phaseCMid;
+    const foldEnd = xSign === 'Neg' ? phaseCMid : phaseCEnd;
+    if (stepLocalT <= foldStart) return Math.PI;
+    return Math.PI
+      - QUARTER_TURN * intervalProgress(stepLocalT, foldStart, foldEnd);
+  };
+}
+
+/** P0 extension 不自轉，只剛性跟隨 x 內壁。 */
+export function telescopeExtensionAngle(_stepLocalT: number): number {
+  return 0;
+}
 
 function point(horizontal: number, vertical: number): Pt {
   const result = {} as Pt;
@@ -82,22 +205,136 @@ function panelIdsFromRoles(result: GenerateResult, rootId: string): string[] {
 }
 
 function panelAngles(result: GenerateResult, rootId: string): PanelAngleSpec[] {
-  const childAngle = rootId === LINER_ROOT_ID
-    ? LINER_FOLD_ANGLE
-    : TRAY_FOLD_ANGLE;
-  return panelIdsFromRoles(result, rootId).map((id) => ({
-    id,
-    foldAngle: id === rootId ? 0 : childAngle,
-  }));
+  const panelIds = panelIdsFromRoles(result, rootId);
+  const panelIdSet = new Set(panelIds);
+  return panelIds.map((id) => {
+    let foldAngle = 0;
+    if (id !== rootId && rootId === LINER_ROOT_ID) {
+      foldAngle = -QUARTER_TURN;
+    } else if (/^wall[XY](?:Neg|Pos)-outer$/.test(id)) {
+      foldAngle = QUARTER_TURN;
+    } else if (/^wall[XY](?:Neg|Pos)-rim$/.test(id)) {
+      foldAngle = id.startsWith('wallX') ? 0 : QUARTER_TURN;
+    } else if (/^wall[XY](?:Neg|Pos)-inner$/.test(id)) {
+      const rimId = id.replace(/-inner$/, '-rim');
+      foldAngle = id.startsWith('wallY') && panelIdSet.has(rimId)
+        ? QUARTER_TURN
+        : Math.PI;
+    } else if (/^wall[XY](?:Neg|Pos)-tongue$/.test(id)) {
+      foldAngle = Math.PI;
+    } else if (id.startsWith('wingX')) {
+      foldAngle = Math.PI;
+    } else if (id.startsWith('wingY')) {
+      foldAngle = QUARTER_TURN;
+    } else if (id.startsWith('flap')) {
+      foldAngle = -QUARTER_TURN;
+    }
+    return { id, foldAngle };
+  });
 }
 
-function placeholderSteps(angles: PanelAngleSpec[], rootId: string): FoldStep[] {
-  const panelIds = angles
-    .map(({ id }) => id)
-    .filter((id) => id !== rootId);
+function step(
+  panelIds: string[],
+  window: readonly [number, number],
+): FoldStep | null {
   return panelIds.length === 0
-    ? []
-    : [{ panelIds, t0: 0, t1: 1, ease: 'linear' }];
+    ? null
+    : {
+      panelIds,
+      t0: window[0],
+      t1: window[1],
+      ease: 'linear',
+    };
+}
+
+function traySteps(panelIds: string[]): FoldStep[] {
+  const hasFlaps = panelIds.some((id) => id.startsWith('flap'));
+  const windows = hasFlaps
+    ? TELESCOPE_TRAY_WINDOWS.flapped
+    : TELESCOPE_TRAY_WINDOWS.plain;
+  const matching = (pattern: RegExp): string[] =>
+    panelIds.filter((id) => pattern.test(id));
+  const steps = [
+    step(
+      matching(/^wallX(?:Neg|Pos)-(?:rim|inner|tongue)$|^gussetExt/),
+      windows.prefoldX,
+    ),
+    step(
+      matching(/^wallY(?:Neg|Pos)-(?:rim|inner|tongue)$/),
+      windows.prefoldY,
+    ),
+    step(matching(/^wall[XY](?:Neg|Pos)-outer$/), windows.phaseA),
+    step(
+      matching(/^wing[XY]/),
+      [windows.phaseA[0], windows.phaseB[1]],
+    ),
+    hasFlaps
+      ? step(matching(/^flap/), [
+        TELESCOPE_TRAY_WINDOWS.flapped.pretuck[0],
+        TELESCOPE_TRAY_WINDOWS.flapped.phaseC[1],
+      ])
+      : null,
+  ];
+  return steps.filter((candidate): candidate is FoldStep => candidate !== null);
+}
+
+function linerSteps(panelIds: string[]): FoldStep[] {
+  const legIds = panelIds.filter((id) => id.startsWith('linerLeg'));
+  const legStep = step(legIds, [0, 1]);
+  return legStep === null ? [] : [legStep];
+}
+
+function withTrayAngleDrivers(model: FoldModel): FoldModel {
+  const hasFlaps = model.panels.some(({ id }) => id.startsWith('flap'));
+  const windows = hasFlaps
+    ? TELESCOPE_TRAY_WINDOWS.flapped
+    : TELESCOPE_TRAY_WINDOWS.plain;
+  const phaseASplit = (
+    (windows.phaseA[1] - windows.phaseA[0])
+    / (windows.phaseB[1] - windows.phaseA[0])
+  );
+  const flapWindows: TelescopeFlapDriverWindows = {
+    pretuckEnd: TELESCOPE_TRAY_WINDOWS.flapped.pretuck[1],
+    phaseCStart: TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0],
+    phaseCMid: (
+      TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0]
+      + TELESCOPE_TRAY_WINDOWS.flapped.phaseC[1]
+    ) / 2,
+    phaseCEnd: TELESCOPE_TRAY_WINDOWS.flapped.phaseC[1],
+  };
+
+  return {
+    ...model,
+    panels: model.panels.map((panel) => {
+      if (panel.id.startsWith('wingX')) {
+        return {
+          ...panel,
+          angleFn: createTelescopeWingAngleFn('X', phaseASplit),
+        };
+      }
+      if (panel.id.startsWith('wingY')) {
+        return {
+          ...panel,
+          angleFn: createTelescopeWingAngleFn('Y', phaseASplit),
+        };
+      }
+      if (panel.id.startsWith('flap')) {
+        const xSign = panel.id.slice('flap'.length).startsWith('Neg')
+          ? 'Neg'
+          : 'Pos';
+        const magnitudeDriver = createTelescopeFlapAngleFn(xSign, flapWindows);
+        return {
+          ...panel,
+          // canonical hinge 方向下負角才由 x 內壁掃入盒內；180° 時兩符號同姿態。
+          angleFn: (stepLocalT) => -magnitudeDriver(stepLocalT),
+        };
+      }
+      if (panel.id.startsWith('gussetExt')) {
+        return { ...panel, angleFn: telescopeExtensionAngle };
+      }
+      return panel;
+    }),
+  };
 }
 
 function foldOnlyInactiveForPiece(
@@ -579,11 +816,14 @@ function buildPieceModel(params: ResolvedParams, pieceId: string): FoldModel {
     inactive,
   } = foldOnlyInactiveForPiece(scoped, rootJog);
   const angles = panelAngles(prepared, rootId);
+  const panelIds = angles.map(({ id }) => id);
   const model = panelizeFoldModel(
     prepared,
     rootId,
     angles,
-    placeholderSteps(angles, rootId),
+    rootId === LINER_ROOT_ID
+      ? linerSteps(panelIds)
+      : traySteps(panelIds),
     ARC_TOLERANCE_MM,
     inactive,
     {
@@ -592,23 +832,224 @@ function buildPieceModel(params: ResolvedParams, pieceId: string): FoldModel {
       ignoreAmbiguousDanglingCuts: true,
     },
   );
+  const scheduled = rootId === LINER_ROOT_ID
+    ? model
+    : withTrayAngleDrivers(model);
   return {
-    ...model,
+    ...scheduled,
     dieline: fullDielineGuide(scoped),
   };
 }
 
+const ASSEMBLY_CLEARANCE_MM = 20;
+
+function quaternion(
+  axisX: number,
+  axisY: number,
+  axisZ: number,
+  scalar: number,
+): Quaternion {
+  const result = {} as Quaternion;
+  result.x = axisX;
+  result.y = axisY;
+  result.z = axisZ;
+  result.w = scalar;
+  return result;
+}
+
+const IDENTITY_QUATERNION = quaternion(0, 0, 0, 1);
+const X_FLIP_QUATERNION = quaternion(1, 0, 0, 0);
+
+function position(
+  horizontal: number,
+  vertical: number,
+  depth: number,
+): SceneKeyframe['position'] {
+  const result = {} as SceneKeyframe['position'];
+  result.x = horizontal;
+  result.y = vertical;
+  result.z = depth;
+  return result;
+}
+
+function numericParam(params: ResolvedParams, key: string): number {
+  const value = params[key];
+  if (typeof value !== 'number') {
+    throw new Error(`Telescope 組裝軌缺少數值參數「${key}」`);
+  }
+  return value;
+}
+
+interface PieceCenter {
+  horizontal: number;
+  vertical: number;
+}
+
+function rootCenter(model: FoldModel, rootId: string): PieceCenter {
+  const root = model.panels.find(({ id }) => id === rootId);
+  if (!root) throw new Error(`Telescope 組裝軌缺少 root「${rootId}」`);
+  const xs = root.polygon.map(({ x }) => x);
+  const ys = root.polygon.map(({ y }) => y);
+  return {
+    horizontal: (Math.min(...xs) + Math.max(...xs)) / 2,
+    vertical: (Math.min(...ys) + Math.max(...ys)) / 2,
+  };
+}
+
+function keyframe(
+  time: number,
+  scenePosition: SceneKeyframe['position'],
+  quaternion: Quaternion,
+): SceneKeyframe {
+  return {
+    time,
+    position: scenePosition,
+    quaternion: { ...quaternion },
+  };
+}
+
+function lidAssemblyTrack(
+  times: typeof TELESCOPE_ASSEMBLY_WINDOWS.lid
+    | typeof TELESCOPE_ASSEMBLY_WINDOWS.lidOff,
+  sourceCenter: PieceCenter,
+  targetCenter: PieceCenter,
+  baseRim: number,
+  lidHeight: number,
+): SceneKeyframe[] {
+  const lift = baseRim + lidHeight + ASSEMBLY_CLEARANCE_MM;
+  const finalPosition = position(
+    targetCenter.horizontal - sourceCenter.horizontal,
+    // x 軸 180° 會把 absolute y 變成 -y，translation 需補回目標中心。
+    targetCenter.vertical + sourceCenter.vertical,
+    baseRim,
+  );
+  return [
+    keyframe(times[0], position(0, 0, 0), IDENTITY_QUATERNION),
+    keyframe(times[1], position(0, 0, lift), IDENTITY_QUATERNION),
+    keyframe(
+      times[2],
+      position(0, 2 * sourceCenter.vertical, lift),
+      X_FLIP_QUATERNION,
+    ),
+    keyframe(
+      times[3],
+      position(finalPosition.x, finalPosition.y, lift),
+      X_FLIP_QUATERNION,
+    ),
+    keyframe(times[4], finalPosition, X_FLIP_QUATERNION),
+  ];
+}
+
+function linerAssemblyTrack(
+  sourceCenter: PieceCenter,
+  targetCenter: PieceCenter,
+  baseRim: number,
+  linerDepth: number,
+): SceneKeyframe[] {
+  const lift = baseRim + linerDepth + ASSEMBLY_CLEARANCE_MM;
+  const finalPosition = position(
+    targetCenter.horizontal - sourceCenter.horizontal,
+    targetCenter.vertical - sourceCenter.vertical,
+    linerDepth,
+  );
+  const times = TELESCOPE_ASSEMBLY_WINDOWS.liner;
+  return [
+    keyframe(times[0], position(0, 0, 0), IDENTITY_QUATERNION),
+    keyframe(times[1], position(0, 0, lift), IDENTITY_QUATERNION),
+    keyframe(
+      times[2],
+      position(finalPosition.x, finalPosition.y, lift),
+      IDENTITY_QUATERNION,
+    ),
+    keyframe(times[3], finalPosition, IDENTITY_QUATERNION),
+  ];
+}
+
+function assemblyTracks(
+  params: ResolvedParams,
+  models: Map<string, FoldModel>,
+  linerEnabled: boolean,
+): Map<string, SceneKeyframe[]> {
+  const baseModel = models.get('base');
+  const lidModel = models.get('lid');
+  if (!baseModel || !lidModel) {
+    throw new Error('Telescope 組裝軌需要 base 與 lid model');
+  }
+  const baseCenter = rootCenter(baseModel, ROOT_ID);
+  const lidCenter = rootCenter(lidModel, ROOT_ID);
+  const baseHeight = numericParam(params, 'baseHeight');
+  const platformWidth = numericParam(params, 'basePlatformWidth');
+  const wallTopCompensation = numericParam(params, 'wallTopCompensation');
+  const lidHeight = numericParam(params, 'lidHeight');
+  const baseRim = Math.max(
+    baseHeight,
+    baseHeight - wallTopCompensation + platformWidth,
+  );
+  const lidTimes = linerEnabled
+    ? TELESCOPE_ASSEMBLY_WINDOWS.lid
+    : TELESCOPE_ASSEMBLY_WINDOWS.lidOff;
+  const tracks = new Map<string, SceneKeyframe[]>([
+    ['base', []],
+    ['lid', lidAssemblyTrack(
+      lidTimes,
+      lidCenter,
+      baseCenter,
+      baseRim,
+      lidHeight,
+    )],
+  ]);
+
+  if (linerEnabled) {
+    const linerModel = models.get('liner');
+    if (!linerModel) throw new Error('Telescope liner on 態缺少 liner model');
+    const linerCenter = rootCenter(linerModel, LINER_ROOT_ID);
+    const linerDepth = numericParam(params, 'linerFlapDepth');
+    tracks.set('liner', linerAssemblyTrack(
+      linerCenter,
+      baseCenter,
+      baseRim,
+      linerDepth,
+    ));
+  }
+  return tracks;
+}
+
 export function buildTelescopeSceneSpec(params: ResolvedParams): FoldSceneSpec {
   const generated = telescope.generate(params);
+  // 多條 error 同時觸發時以幾何主體不存在的原因先報，矩陣據此 fail-loud。
+  for (const invariantId of [
+    'tongue-flap-fits',
+    'gusset-b-fits',
+    'liner-flap-fits',
+  ]) {
+    const invariant = telescope.invariants.find(({ id }) => id === invariantId);
+    const outcome = invariant?.check(params, generated);
+    if (invariant && outcome && !outcome.ok) {
+      throw new InvalidBoxParamsError(invariant.id, outcome.message.zh);
+    }
+  }
+  assertBoxInvariants(telescope, params, generated);
   if (!generated.pieces) {
     throw new Error('Telescope generate() 必須回傳 pieces');
   }
+  const linerEnabled = params.linerEnabled !== false;
+  const models = new Map(generated.pieces.map((piece) => [
+    piece.id,
+    buildPieceModel(params, piece.id),
+  ]));
+  const tracks = assemblyTracks(params, models, linerEnabled);
   return defineFoldSceneSpec({
     pieces: generated.pieces.map((piece) => ({
       pieceId: piece.id,
       buildModel: (buildParams) => buildPieceModel(buildParams, piece.id),
-      foldWindow: [0, 1],
-      assemblyTrack: [],
+      foldWindow: linerEnabled
+        ? [...TELESCOPE_FOLD_WINDOWS[
+          piece.id as keyof typeof TELESCOPE_FOLD_WINDOWS
+        ]]
+        : [...TELESCOPE_FOLD_WINDOWS_OFF[
+          piece.id as keyof typeof TELESCOPE_FOLD_WINDOWS_OFF
+        ]],
+      assemblyTrack: tracks.get(piece.id) ?? [],
     })),
   });
 }

@@ -44,6 +44,35 @@ describe('foldPose', () => {
     expect(pose.get('side-a')).toBeCloseTo(Math.PI / 4, 12);
   });
 
+  it('angleFn 取得 easing 後的 step 進度，並直接決定面板角度', () => {
+    let received = Number.NaN;
+    const driven: FoldModel = {
+      panels: [
+        { id: 'root', polygon: [], parent: null, foldAngle: 0 },
+        {
+          id: 'driven',
+          polygon: [],
+          parent: 'root',
+          foldAngle: 999,
+          angleFn: (stepLocalT) => {
+            received = stepLocalT;
+            return stepLocalT + 0.25;
+          },
+        },
+      ],
+      steps: [{
+        panelIds: ['driven'],
+        t0: 0,
+        t1: 1,
+        ease: 'powerInOut',
+      }],
+      dieline: [],
+    };
+
+    expect(foldPose(0.25, driven).get('driven')).toBeCloseTo(0.375, 12);
+    expect(received).toBeCloseTo(easings.powerInOut(0.25), 12);
+  });
+
   it('將範圍外的 t clamp 到 [0, 1]', () => {
     expect(foldPose(-1, model)).toEqual(foldPose(0, model));
     expect(foldPose(2, model)).toEqual(foldPose(1, model));
