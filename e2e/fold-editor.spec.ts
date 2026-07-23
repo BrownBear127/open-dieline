@@ -4,10 +4,10 @@ import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { reverseTuckEnd } from '../src/boxes/reverse-tuck-end';
 import { resolveParams } from '../src/core/registry';
+import { LINE_STYLES } from '../src/core/styles';
 import { buildRteFoldModel } from '../src/fold/models/reverse-tuck-end';
 import { dict } from '../src/i18n/dict';
 import { deriveArtworkLayout, type ArtworkLayout } from '../src/ui/artwork-layout';
-import { dedupCutEdges } from '../src/ui/fold-template';
 import { gotoReady, settleFontsAndLayout } from './helpers';
 
 interface UploadFixture {
@@ -270,18 +270,51 @@ function centeredTextRegion(layout: ArtworkLayout): NormalizedRegion {
   };
 }
 
-// 取最長的 cut 邊：長直邊中點的 stroke 中心是實色，短邊/斜邊中點會吃到抗鋸齒混色。
-function longestCutMidpointSample(layout: ArtworkLayout): Pick<NormalizedSample, 'x' | 'y'> {
-  const edges = dedupCutEdges(layout.panels);
-  if (edges.length === 0) throw new Error('Missing cut edge');
-  const longest = edges.reduce((best, edge) => {
-    const len = (e: typeof edge) => Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y);
-    return len(edge) > len(best) ? edge : best;
+function pointInsideArtwork(layout: ArtworkLayout, point: { x: number; y: number }): boolean {
+  return layout.panels.some(({ polygon }) => {
+    let inside = false;
+    for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+      const start = polygon[index]!;
+      const end = polygon[previous]!;
+      if ((start.y > point.y) !== (end.y > point.y)
+        && point.x < ((end.x - start.x) * (point.y - start.y)) / (end.y - start.y) + start.x) {
+        inside = !inside;
+      }
+    }
+    return inside;
   });
-  return normalizedLayoutPoint(layout, {
-    x: (longest.a.x + longest.b.x) / 2,
-    y: (longest.a.y + longest.b.y) / 2,
-  });
+}
+
+// 從完整 dieline 找遠離畫布邊界的長 cut 直線，向線的一側微移以避開像素柵格
+// 恰落在線心時的抗鋸齒混色，同時仍維持在 stroke 範圍內。
+function solidCutStrokeSample(layout: ArtworkLayout): Pick<NormalizedSample, 'x' | 'y'> {
+  const lines = layout.dieline
+    .filter(({ type }) => type === 'cut')
+    .flatMap(({ segments }) => segments)
+    .filter((segment) => segment.kind === 'line');
+  if (lines.length === 0) throw new Error('Missing cut line');
+  const insetMm = LINE_STYLES.cut.strokeWidth / 4;
+  const candidates = lines.map((line) => {
+    const dx = line.x2 - line.x1;
+    const dy = line.y2 - line.y1;
+    const length = Math.hypot(dx, dy);
+    const midpoint = { x: (line.x1 + line.x2) / 2, y: (line.y1 + line.y2) / 2 };
+    const offsets = [1, -1].map((direction) => ({
+      x: midpoint.x - (dy / length) * insetMm * direction,
+      y: midpoint.y + (dx / length) * insetMm * direction,
+    }));
+    const point = offsets.find((candidate) => pointInsideArtwork(layout, candidate));
+    if (point === undefined) return undefined;
+    return { length, normalized: normalizedLayoutPoint(layout, point) };
+  }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== undefined)
+    .filter(({ normalized }) =>
+    normalized.x >= 0.05
+    && normalized.x <= 0.95
+    && normalized.y >= 0.05
+    && normalized.y <= 0.95);
+  if (candidates.length === 0) throw new Error('Missing cut edge away from canvas boundary');
+  return candidates.reduce((best, candidate) =>
+    candidate.length > best.length ? candidate : best).normalized;
 }
 
 async function readArtworkPixel(
@@ -698,7 +731,7 @@ test('C5 downloads a paper-backed, clipped, guided 4096 PNG and disables downloa
   if (path === null) throw new Error('Playwright did not provide a download path');
   const outputSamples: NormalizedSample[] = [
     { ...panelCenterSample(DEFAULT_LAYOUT, 'P4'), expected: PAPER },
-    { ...longestCutMidpointSample(DEFAULT_LAYOUT), expected: CUT },
+    { ...solidCutStrokeSample(DEFAULT_LAYOUT), expected: CUT },
   ];
   const inspected = await inspectDownload(
     page,

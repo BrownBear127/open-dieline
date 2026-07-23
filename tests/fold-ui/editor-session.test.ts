@@ -1,3 +1,5 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArtworkLayout } from '@/ui/artwork-layout';
 import type { EditableArtworkAsset } from '@/ui/artwork-source';
@@ -12,6 +14,8 @@ import { reduce } from '@/ui/editor/editor-state';
 
 const LAYOUT: ArtworkLayout = {
   panels: [],
+  dieline: [],
+  seams: [],
   frame: { minX: -40, minY: 10, span: 200, offsetX: 20, offsetY: 0 },
 };
 

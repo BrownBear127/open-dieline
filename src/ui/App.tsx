@@ -98,6 +98,7 @@ import { Canvas } from '@/ui/Canvas';
 import { ExportBar } from '@/ui/ExportBar';
 import { LayersPanel } from '@/ui/LayersPanel';
 import { AnnouncementModal, isAnnouncementDismissed } from '@/ui/AnnouncementModal';
+import { DevBuildBeacon } from '@/ui/DevBuildBeacon';
 import { ImpositionControls, ImpositionResults } from '@/ui/ImpositionView';
 import type { ImpositionState } from '@/ui/ImpositionView';
 import { PAPER_PRESETS, MIN_GAP_MM } from '@/core/imposition';
@@ -586,6 +587,7 @@ export function App({
       </footer>
 
       <AnnouncementModal open={announcementOpen} onClose={() => setAnnouncementOpen(false)} />
+      {import.meta.env.DEV && <DevBuildBeacon />}
     </div>
   );
 }

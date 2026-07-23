@@ -1,3 +1,5 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { BackSide, FrontSide } from 'three';
 import { describe, expect, it } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
@@ -12,12 +14,12 @@ import {
 } from '@/ui/fold-scene';
 
 describe('folded artwork surface selection', () => {
-  it('diagnoses one physical front-side print surface for every completed RTE panel', () => {
+  it('diagnoses the completed single-lid surfaces while retaining the front print side', () => {
     const model = buildRteFoldModel(resolveParams(reverseTuckEnd, {}));
 
     expect(diagnoseFoldedPanelFaces(model)).toEqual(model.panels.map(({ id }) => ({
       panelId: id,
-      exteriorFace: 'front',
+      exteriorFace: id === 'topLid' || id === 'topDustP2' ? 'back' : 'front',
     })));
     expect(foldedArtworkFace(model)).toBe('front');
   });
@@ -44,10 +46,22 @@ describe('folded artwork surface selection', () => {
       ],
     });
   });
+
+  it('uses the actual triangle-index count for a collinear boundary-touch panel', () => {
+    expect(panelSurfacePlan(8, 0.5, 'front', 15)).toEqual({
+      artworkSide: FrontSide,
+      paperSide: FrontSide,
+      groups: [
+        { start: 0, count: 15, materialIndex: 1 },
+        { start: 15, count: 15, materialIndex: 0 },
+        { start: 30, count: 48, materialIndex: 1 },
+      ],
+    });
+  });
 });
 
 describe('completed-fold overlap layering', () => {
-  it('orders the glue seam, closure layers, and sliced-lid overlaps', () => {
+  it('orders the glue seam and single-lid closure layers', () => {
     expect(panelOverlapPlan('P4', 0.5)).toEqual({
       normalOffset: 0,
       polygonOffsetUnits: 0,
@@ -66,24 +80,15 @@ describe('completed-fold overlap layering', () => {
     expect(panelOverlapPlan('bottomTuck', 0.5)).toEqual(
       panelOverlapPlan('topTuck', 0.5),
     );
-    expect(panelOverlapPlan('topDustP2', 0.5)).toEqual({
-      normalOffset: 0,
-      polygonOffsetUnits: 0,
-      renderOrder: 0,
-    });
-    expect(panelOverlapPlan('topLidC', 0.5)).toEqual({
+    const topDustP2Plan = panelOverlapPlan('topDustP2', 0.5);
+    expect(topDustP2Plan.normalOffset).toBeCloseTo(-1.65, 9);
+    expect(topDustP2Plan.polygonOffsetUnits).toBe(1);
+    expect(topDustP2Plan.renderOrder).toBe(-3);
+    expect(panelOverlapPlan('topLid', 0.5)).toEqual({
       normalOffset: 0.55,
       polygonOffsetUnits: 0,
       renderOrder: 1,
     });
-    expect(panelOverlapPlan('topLidL', 0.5)).toEqual({
-      normalOffset: 0.55,
-      polygonOffsetUnits: -1,
-      renderOrder: 2,
-    });
-    expect(panelOverlapPlan('topLidR', 0.5)).toEqual(
-      panelOverlapPlan('topLidL', 0.5),
-    );
   });
 
   it('keeps a small non-zero separation in zero-thickness card mode', () => {
@@ -119,14 +124,6 @@ describe('completed-fold overlap layering', () => {
     ['P1', 'topTuck'],
     ['P3', 'bottomTuck'],
     ['glue', 'topTuck'],
-    ['topLidL', 'topLidC'],
-    ['topLidL', 'topDustP2'],
-    ['topLidC', 'topLidR'],
-    ['topLidR', 'topDustP4'],
-    ['bottomLidL', 'bottomLidC'],
-    ['bottomLidL', 'bottomDustP4'],
-    ['bottomLidC', 'bottomLidR'],
-    ['bottomLidR', 'bottomDustP2'],
     ['topLid', 'topDustP2'],
     ['topLid', 'topDustP4'],
     ['bottomLid', 'bottomDustP2'],

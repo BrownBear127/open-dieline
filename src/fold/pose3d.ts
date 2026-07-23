@@ -8,7 +8,7 @@ type Mat3 = [
   number, number, number,
 ];
 
-interface Transform {
+export interface Transform {
   rotation: Mat3;
   translation: Vec3;
 }
@@ -46,7 +46,7 @@ function rotate(matrix: Mat3, vector: Vec3): Vec3 {
   };
 }
 
-function applyTransform(transform: Transform, point: Vec3): Vec3 {
+export function applyTransform(transform: Transform, point: Vec3): Vec3 {
   const rotated = rotate(transform.rotation, point);
 
   return {
@@ -107,7 +107,7 @@ function hingeRotation(
   };
 }
 
-export function worldGeometry(model: FoldModel, pose: Map<string, number>): Map<string, Vec3[]> {
+function basePanelTransforms(model: FoldModel, pose: Map<string, number>): Map<string, Transform> {
   const panelsById = new Map(model.panels.map((panel) => [panel.id, panel]));
   const transforms = new Map<string, Transform>();
   const visiting = new Set<string>();
@@ -137,24 +137,84 @@ export function worldGeometry(model: FoldModel, pose: Map<string, number>): Map<
     return transform;
   }
 
+  for (const panel of model.panels) cumulativeTransform(panel);
+  return transforms;
+}
+
+function withPanelLift(
+  transform: Transform,
+  panel: FoldModel['panels'][number],
+  pose: Map<string, number>,
+): Transform {
+  const angle = panel.parent === null ? 0 : (pose.get(panel.id) ?? 0);
+  const liftRatio = panel.foldAngle === 0 ? 0 : Math.abs(angle) / Math.abs(panel.foldAngle);
+  const liftAmount = (panel.liftOffset ?? 0) * liftRatio;
+
+  // liftOffset 依目前角度占完整摺角的比例線性套用，不改變 pose 輸入。
+  if (liftAmount === 0) return transform;
+
+  const normal = rotate(transform.rotation, { x: 0, y: 0, z: 1 });
+  return {
+    rotation: transform.rotation,
+    translation: {
+      x: transform.translation.x + normal.x * liftAmount,
+      y: transform.translation.y + normal.y * liftAmount,
+      z: transform.translation.z + normal.z * liftAmount,
+    },
+  };
+}
+
+export function panelWorldTransform(
+  model: FoldModel,
+  pose: Map<string, number>,
+  panelId: string,
+): Transform {
+  const panel = model.panels.find((candidate) => candidate.id === panelId);
+  if (!panel) throw new Error(`Unknown fold panel "${panelId}"`);
+
+  const transform = basePanelTransforms(model, pose).get(panelId)!;
+  return withPanelLift(transform, panel, pose);
+}
+
+export interface WorldGeometryOptions {
+  /** false＝取名義（未收束）幾何——面朝向診斷等「剛體性質」量測用；預設 true。 */
+  applyVertexClamp?: boolean;
+}
+
+export function worldGeometry(
+  model: FoldModel,
+  pose: Map<string, number>,
+  options: WorldGeometryOptions = {},
+): Map<string, Vec3[]> {
+  const applyClamp = options.applyVertexClamp ?? true;
+  const transforms = basePanelTransforms(model, pose);
+
   const geometry = new Map<string, Vec3[]>();
 
   for (const panel of model.panels) {
-    const transform = cumulativeTransform(panel);
-    const angle = panel.parent === null ? 0 : (pose.get(panel.id) ?? 0);
-    const liftRatio = panel.foldAngle === 0 ? 0 : Math.abs(angle) / Math.abs(panel.foldAngle);
-    const liftAmount = (panel.liftOffset ?? 0) * liftRatio;
-    const normal = rotate(transform.rotation, { x: 0, y: 0, z: 1 });
+    const transform = withPanelLift(transforms.get(panel.id)!, panel, pose);
 
-    // M0 uses a direct |angle|/|foldAngle| lift ratio. M1 may replace it with
-    // the animation step's final-20% curve without changing this pose input.
-    const vertices = panel.polygon.map((point) => {
-      const world = applyTransform(transform, { x: point.x, y: point.y, z: 0 });
-      return {
-        x: world.x + normal.x * liftAmount,
-        y: world.y + normal.y * liftAmount,
-        z: world.z + normal.z * liftAmount,
-      };
+    // vertexClamp（視覺 allowance）：依摺疊完成度把越界頂點 lerp 到收束目標——
+    // 攤平（完成度 0）＝名義 polygon＝真刀模；摺合（完成度 1）＝收進盒體輪廓。
+    const angle = panel.parent === null ? 0 : (pose.get(panel.id) ?? 0);
+    const completion = panel.foldAngle === 0
+      ? 0
+      : Math.min(1, Math.abs(angle) / Math.abs(panel.foldAngle));
+    const clampByIndex = applyClamp && completion > 0 && panel.vertexClamp
+      ? new Map(panel.vertexClamp.map((entry) => [entry.index, entry]))
+      : null;
+
+    const vertices = panel.polygon.map((point, index) => {
+      const entry = clampByIndex?.get(index);
+      // normalOffset＝面外彎入（局部 z·同完成度 lerp）：edge-on panel 的收束路徑。
+      const local = entry
+        ? {
+          x: point.x + (entry.target.x - point.x) * completion,
+          y: point.y + (entry.target.y - point.y) * completion,
+          z: (entry.normalOffset ?? 0) * completion,
+        }
+        : { x: point.x, y: point.y, z: 0 };
+      return applyTransform(transform, local);
     });
 
     geometry.set(panel.id, vertices);

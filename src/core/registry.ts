@@ -81,6 +81,19 @@ export function listBoxes(): BoxModule[] {
   return Array.from(registry.values());
 }
 
+/**
+ * 檔名尺寸欄位序列：讀盒型 params 宣告裡 group.id==='dimensions' 且 unit==='mm' 的參數
+ * key（依宣告順序），排除 'thickness'（紙厚是材質屬性、不是外觀尺寸——rte／ttsl 兩盒型
+ * 皆以此 key 命名同一語意，非個別盒型專屬概念）。此規則直接由盒型 params 宣告讀出正確
+ * 序列（例如 ttb 的 edgeA/tubeLength），不必按 boxId 寫 switch。`FoldView.tsx` 與
+ * `fold-template.ts` 共用此單一 export，避免排除規則各自維護一份而彼此漂移。
+ */
+export function dimensionKeys(boxId: string): string[] {
+  return getBox(boxId).params
+    .filter((param) => param.group.id === 'dimensions' && param.unit === 'mm' && param.key !== 'thickness')
+    .map((param) => param.key);
+}
+
 /** 測試專用：清空 registry，供每個測試案例間隔離（避免前一個測試殘留的 id 讓後續 registerBox 誤判重複）。 */
 export function _clearRegistry(): void {
   registry.clear();

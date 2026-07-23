@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { triangularTube } from '@/boxes/triangular-tube';
+import { resolveParams } from '@/core/registry';
+import { panelizeFoldModel, type PanelAngleSpec } from '@/fold/derive/panelize';
 import type { FoldModel } from '@/fold/types';
 import { validateFoldModel } from '@/fold/validate';
 
@@ -33,11 +36,43 @@ function validModel(): FoldModel {
       { panelIds: ['side-a'], t0: 0, t1: 0.5, ease: 'linear' },
       { panelIds: ['side-b'], t0: 0.5, t1: 1, ease: 'powerInOut' },
     ],
+    dieline: [],
+    seams: [],
   };
 }
 
 function errorText(model: FoldModel): string {
   return validateFoldModel(model).join('\n').toLowerCase();
+}
+
+function realTtbPanelizedModel(): FoldModel {
+  const result = triangularTube.generate(resolveParams(triangularTube, {}));
+  const ids = new Set(['faceA']);
+  for (const tag of result.paths.flatMap(({ tags }) => tags ?? [])) {
+    const match = /^fold:([^>]+)>([^>]+)$/.exec(tag);
+    if (match) {
+      ids.add(match[1]!);
+      ids.add(match[2]!);
+    }
+  }
+  const angles: PanelAngleSpec[] = [...ids].sort().map((id) => ({
+    id,
+    foldAngle: id === 'faceA' ? 0 : Math.PI / 2,
+  }));
+  const panelIds = angles.filter(({ id }) => id !== 'faceA').map(({ id }) => id);
+
+  return panelizeFoldModel(result, 'faceA', angles, [
+    { panelIds, t0: 0, t1: 1, ease: 'linear' },
+  ]);
+}
+
+function hasReflexVertex(polygon: FoldModel['panels'][number]['polygon']): boolean {
+  return polygon.some((point, index) => {
+    const previous = polygon[(index - 1 + polygon.length) % polygon.length]!;
+    const next = polygon[(index + 1) % polygon.length]!;
+    return (point.x - previous.x) * (next.y - point.y)
+      - (point.y - previous.y) * (next.x - point.x) < 0;
+  });
 }
 
 describe('validateFoldModel', () => {
@@ -52,6 +87,31 @@ describe('validateFoldModel', () => {
     const errors = errorText(model);
     expect(errors).toContain('duplicate panel id');
     expect(errors).toContain('side-a');
+  });
+
+  it('rejects a seam whose owner panel does not exist', () => {
+    const model = validModel();
+    model.seams = [{
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+      ownerPanelId: 'missing-owner',
+      sourcePathId: 'slot-cut',
+    }];
+
+    const errors = errorText(model);
+    expect(errors).toContain('seam 0');
+    expect(errors).toContain('missing-owner');
+  });
+
+  it.each([
+    ['fewer than two points', [{ x: 0, y: 0 }], 'at least 2 points'],
+    ['a non-finite point', [{ x: 0, y: 0 }, { x: Number.NaN, y: 1 }], 'point 1 coordinates must be finite'],
+  ])('rejects seam points with %s', (_label, points, expectedMessage) => {
+    const model = validModel();
+    model.seams = [{ points, ownerPanelId: 'root', sourcePathId: 'slot-cut' }];
+
+    const errors = errorText(model);
+    expect(errors).toContain('seam 0');
+    expect(errors).toContain(expectedMessage);
   });
 
   it('requires exactly one root', () => {
@@ -106,6 +166,16 @@ describe('validateFoldModel', () => {
     const errors = errorText(model);
     expect(errors).toContain('side-a');
     expect(errors).toContain('hingeline');
+  });
+
+  it('rejects an empty hingeSourceCreaseIds array when it is present', () => {
+    const model = validModel();
+    model.panels[1]!.hingeSourceCreaseIds = [];
+
+    const errors = errorText(model);
+    expect(errors).toContain('side-a');
+    expect(errors).toContain('hingesourcecreaseids');
+    expect(errors).toContain('non-empty');
   });
 
   it('requires both hingeLine endpoints to lie on a parent polygon edge', () => {
@@ -322,6 +392,67 @@ describe('validateFoldModel', () => {
     const errors = errorText(model);
     expect(errors).toContain('side-a');
     expect(errors).toContain('positive area');
+  });
+
+  it('rejects a self-intersecting panel polygon', () => {
+    const model = validModel();
+    model.panels[1]!.polygon = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 0, y: 10 },
+      { x: 8, y: 10 },
+    ];
+
+    const errors = errorText(model);
+    expect(errors).toContain('side-a');
+    expect(errors).toContain('self-intersect');
+  });
+
+  it('accepts the complete real TTB panelize output, including all four end wings', () => {
+    const model = realTtbPanelizedModel();
+    const endWingIds = [
+      'endStartWingTop',
+      'endStartWingBottom',
+      'endEndWingTop',
+      'endEndWingBottom',
+    ];
+
+    expect(endWingIds.every((id) => model.panels.some((panel) => panel.id === id))).toBe(true);
+    expect(validateFoldModel(model)).toEqual([]);
+  });
+
+  it('still rejects a real TTB hinge endpoint moved 0.5mm off its shared edge', () => {
+    const model = realTtbPanelizedModel();
+    const wing = model.panels.find(({ id }) => id === 'endStartWingTop')!;
+    const { a, b } = wing.hingeLine!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = Math.hypot(dx, dy);
+    wing.hingeLine!.a = {
+      x: a.x - (dy / length) * 0.5,
+      y: a.y + (dx / length) * 0.5,
+    };
+
+    expect(errorText(model)).toContain('endstartwingtop');
+  });
+
+  it('accepts the real concave zoneDTab polygon with its canonical hinge segment', () => {
+    const fullModel = realTtbPanelizedModel();
+    const zoneDBase = fullModel.panels.find(({ id }) => id === 'zoneDBase')!;
+    const zoneDTab = fullModel.panels.find(({ id }) => id === 'zoneDTab')!;
+    const model: FoldModel = {
+      panels: [
+        { id: zoneDBase.id, polygon: zoneDBase.polygon, parent: null, foldAngle: 0 },
+        zoneDTab,
+      ],
+      steps: [{ panelIds: [zoneDTab.id], t0: 0, t1: 1, ease: 'linear' }],
+      dieline: [],
+      seams: [],
+    };
+
+    expect(hasReflexVertex(zoneDTab.polygon)).toBe(true);
+    expect(zoneDTab.hingeSourceCreaseIds).toHaveLength(2);
+    expect(validateFoldModel(model)).toEqual([]);
   });
 
   it('requires hingeLine length to be greater than zero', () => {

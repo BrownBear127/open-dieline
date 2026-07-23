@@ -179,6 +179,14 @@ export const dict = {
     en: 'Parameters changed. Download a new template to realign your artwork.',
     zh: '參數已變更，建議重新下載模板對位。',
   },
+  'fold.art.warning.boxMismatch': {
+    en: 'This template was made for a different box style. Alignment may be off.',
+    zh: '此模板屬於其他盒型，對位可能不準確。',
+  },
+  'fold.art.warning.aspect': {
+    en: 'This artwork isn’t square. Download the template to check the expected size.',
+    zh: '此圖檔比例並非正方形，對位可能不準確，建議下載模板核對尺寸。',
+  },
   'fold.art.invalidFile': {
     en: 'This file can’t be used. Upload a PNG, JPEG, or SVG within the size limit.',
     zh: '無法使用此檔案。請上傳大小限制內的 PNG、JPEG 或 SVG。',

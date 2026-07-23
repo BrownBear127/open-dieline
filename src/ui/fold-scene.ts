@@ -10,6 +10,8 @@ import {
   DoubleSide,
   FrontSide,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -22,8 +24,12 @@ import {
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { Vec3 } from '../fold/pose3d';
-import { worldGeometry } from '../fold/pose3d';
+import type { Transform, Vec3 } from '../fold/pose3d';
+import {
+  applyTransform,
+  panelWorldTransform,
+  worldGeometry,
+} from '../fold/pose3d';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
 import {
@@ -31,13 +37,14 @@ import {
   type FoldRecipeName,
 } from './fold-paper-colors';
 
-// P3 M3 T1（F1.0）：ArtworkLayout 抽取層搬走了 flatDielineUvFrame（TEMPLATE 與 3D UV
-// 共用同一份 square frame 真相源）。這裡改 import 再 re-export 回同名稱——
+// flatDielineUvFrame 由 ArtworkLayout 抽取層提供（TEMPLATE 與 3D UV
+// 共用同一份 square frame 真相源）。這裡 import 再 re-export 回同名稱——
 // 既有 fold-scene-geometry/fold-paper-texture 兩份測試 `import { flatDielineUvFrame }
 // from '@/ui/fold-scene'` 零改動，且拿到的仍是同一顆 function reference（不是各自
 // 維護一份公式）。
 import { deriveArtworkLayout, flatDielineUvFrame } from './artwork-layout';
 import type { ArtworkLayout, FlatDielineUvFrame } from './artwork-layout';
+import { earClipIndices } from './triangulate';
 
 export { flatDielineUvFrame };
 export type { FlatDielineUvFrame };
@@ -68,6 +75,8 @@ const PAPER_LIGHT_VECTOR_LENGTH = Math.sqrt(6);
 const ARTWORK_ALPHA = 0.88;
 const CUSTOM_ARTWORK_SIZE = 2048;
 const SAMPLE_ARTWORK_URL = '/sample-artwork.webp';
+const SEAM_COLOR = '#3a3a3a';
+const SEAM_SURFACE_OFFSET_MM = 0.05;
 
 export function configureFoldRenderer(
   renderer: Pick<WebGLRenderer, 'toneMapping' | 'toneMappingExposure'>,
@@ -804,7 +813,9 @@ function verticesCenter(vertices: Vec3[]): Vec3 {
 
 /** Classifies the completed FoldModel face whose normal points away from the box center. */
 export function diagnoseFoldedPanelFaces(model: FoldModel): FoldedPanelFaceDiagnosis[] {
-  const geometry = worldGeometry(model, foldPose(1, model));
+  // 面朝向是剛體紙面性質——用名義（未收束）幾何診斷，避免 vertexClamp 移動
+  // 前三頂點時翻轉 firstFaceNormal 的三角形。
+  const geometry = worldGeometry(model, foldPose(1, model), { applyVertexClamp: false });
   const allVertices = [...geometry.values()].flat();
   const xs = allVertices.map(({ x }) => x);
   const ys = allVertices.map(({ y }) => y);
@@ -852,8 +863,8 @@ export function panelSurfacePlan(
   vertexCount: number,
   thickness: number,
   artworkFace: PhysicalPanelFace,
+  faceVertexCount = Math.max(0, vertexCount - 2) * 3,
 ): PanelSurfacePlan {
-  const faceVertexCount = Math.max(0, vertexCount - 2) * 3;
   const artworkUsesFirstGroup = artworkFace === 'back';
 
   if (!(thickness > 0)) {
@@ -899,33 +910,132 @@ export function panelOverlapPlan(panelId: string, thickness: number): PanelOverl
     return { normalOffset: -layerOffset, polygonOffsetUnits: 1, renderOrder: -1 };
   }
 
-  const isLid = panelId.startsWith('topLid') || panelId.startsWith('bottomLid');
-  if (!isLid) {
-    return { normalOffset: 0, polygonOffsetUnits: 0, renderOrder: 0 };
+  if (panelId === 'topDustP2' || panelId === 'topDustP4') {
+    // 防塵翼摺序最早（activeSteps t0.6-0.72，先於 topTuck 0.72-0.85/0.84-0.92，
+    // 更先於 topLid 0.85-1/0.92-1），物理上被 tuck、lid 依序蓋在外側，需要
+    // 給專屬非零層，量級延續 topTuck 的 -2×layerOffset
+    // 往內再退一階（-3×layerOffset／renderOrder -3），維持
+    // dust < topTuck < topLid 的雙軸（normalOffset + renderOrder）相對關係。
+    return { normalOffset: -3 * layerOffset, polygonOffsetUnits: 1, renderOrder: -3 };
   }
 
-  const isWing = panelId.endsWith('L') || panelId.endsWith('R');
-  if (isWing) {
-    return { normalOffset: layerOffset, polygonOffsetUnits: -1, renderOrder: 2 };
+  // ttsl 底部 1-2-3 snap-lock 四片組——這四片彼此兩兩交疊（見
+  // fold-overlap-diagnosis.test.ts 的 overlappingPairs），若都落下方的通用
+  // fallback（0,0,0）會直接同層互撞、必破圖。分層依底部堆疊順序：
+  // bottomReceiveP3（底層）< bottomLockP1（上層·視覺呈現「插進 P3 之上」）
+  // < bottomWebP2/bottomWebP4（各自獨立層，兩者本身不交疊但仍分開，防未來
+  // 幾何微調後意外重疊）。
+  if (panelId === 'bottomReceiveP3') {
+    // U 缺口接收片位於鎖片下層。
+    return { normalOffset: -layerOffset, polygonOffsetUnits: 1, renderOrder: -1 };
+  }
+
+  if (panelId === 'bottomLockP1') {
+    // 梯形鎖片摺序最後、尖端插進 P3 缺口——視覺呈現在 receive 之上，比照 RTE
+    // lid（同樣是摺序最後、蓋在其餘層之上的最外層）偏移慣例。
+    return { normalOffset: layerOffset, polygonOffsetUnits: 0, renderOrder: 1 };
+  }
+
+  if (panelId === 'bottomWebP2') {
+    return { normalOffset: 2 * layerOffset, polygonOffsetUnits: -1, renderOrder: 2 };
+  }
+
+  if (panelId === 'bottomWebP4') {
+    return { normalOffset: 3 * layerOffset, polygonOffsetUnits: -2, renderOrder: 3 };
+  }
+
+  // ttb（triangular-tube）沒有 lid/tuck/glue 詞彙，id（faceA/zoneDBase/endStartMain
+  // 等）與 RTE/ttsl 無撞名，可安全獨立分支。盒身 faceA/faceB/faceC
+  // 維持下方通用 fallback（0,0,0）當基準層——比照 RTE/ttsl 主體面板（P1/P4 等）慣例，
+  // 只有蓋在主體上的附加片才需要專屬層。內外層序：
+  //   zoneDTab（−2）< zoneDBase（−1）< faceA/faceB/faceC（0）
+  //     < zoneDLip/endStartMain/endEndMain（+1）< 四 wing（+2）
+  // normalOffset／renderOrder 兩軸同向遞增（避免單軸成立、另一軸反向導致繪製順序
+  // 出錯）；polygonOffsetUnits 沿用既有反向遞減慣例。
+  if (panelId === 'zoneDBase') {
+    // 摺到 faceA 內側、蓋在 faceA 上——內側負層。
+    return { normalOffset: -layerOffset, polygonOffsetUnits: 1, renderOrder: -1 };
+  }
+
+  if (panelId === 'zoneDTab') {
+    // 穿過 slot 後進入盒內——比 zoneDBase 更內一層。
+    return { normalOffset: -2 * layerOffset, polygonOffsetUnits: 2, renderOrder: -2 };
+  }
+
+  if (panelId === 'zoneDLip') {
+    // 虛擬摺線把 lip 貼到 faceB 外側；與 faceB 基準層分開，避免共面閃爍。
+    return { normalOffset: layerOffset, polygonOffsetUnits: -1, renderOrder: 1 };
+  }
+
+  if (panelId === 'endStartMain' || panelId === 'endEndMain') {
+    // 立在端面——正層，比盒身（0）高一階。
+    return { normalOffset: layerOffset, polygonOffsetUnits: -1, renderOrder: 1 };
+  }
+
+  const isTtbWing =
+    panelId === 'endStartWingTop' ||
+    panelId === 'endStartWingBottom' ||
+    panelId === 'endEndWingTop' ||
+    panelId === 'endEndWingBottom';
+  if (isTtbWing) {
+    // 防塵翼收盒內（藏在端蓋後·實體盒裝配驗證：翼外露即破圖）：零厚度下
+    // 翼與側面共面，內/外純屬堆疊層序——負層讓 faceA/faceC 從外側蓋住翼。
+    return { normalOffset: -2 * layerOffset, polygonOffsetUnits: 2, renderOrder: -2 };
+  }
+
+  const isLid = panelId === 'topLid' || panelId === 'bottomLid';
+  if (!isLid) {
+    return { normalOffset: 0, polygonOffsetUnits: 0, renderOrder: 0 };
   }
 
   return { normalOffset: layerOffset, polygonOffsetUnits: 0, renderOrder: 1 };
 }
 
-/** Applies the render-only stacking distance as the panel approaches its folded pose. */
+/** 非 root 的零摺角 rider 片透過 pose3d.ts 的 FK 恆等變換跟著 parent 剛體共動，
+ * 本身沒有真實摺疊角度可用。
+ * `panelRenderVertices` 對這類片的完成度訊號改用這裡算出的「parent 摺到多開」，
+ * 呼叫端已經有 `pose`／`model`，不必在這裡重跑一次 schedule。一般（有真實 hinge）
+ * 面板用不到這個值——`panelRenderVertices` 只在 `panel.foldAngle === 0` 時才會參考它。 */
+export function parentFoldCompletion(
+  panel: FoldModel['panels'][number],
+  model: FoldModel,
+  pose: Map<string, number>,
+): number {
+  if (panel.parent === null) return 0;
+  const parent = model.panels.find((candidate) => candidate.id === panel.parent);
+  if (!parent || parent.foldAngle === 0) return 0;
+  const parentAngle = pose.get(parent.id) ?? 0;
+  return Math.min(1, Math.abs(parentAngle) / Math.abs(parent.foldAngle));
+}
+
+/** Applies the render-only stacking distance as the panel approaches its folded pose.
+ * `normalReference`：層位移方向屬剛體性質；vertexClamp 收束後的頂點可能讓 first-face
+ * 三角形退化或翻轉（與 diagnoseFoldedPanelFaces 用名義幾何同理），呼叫端可另供
+ * 未收束的名義頂點當方向來源。 */
 export function panelRenderVertices(
   panel: FoldModel['panels'][number],
   vertices: Vec3[],
   angle: number,
   exteriorFace: PhysicalPanelFace,
   thickness: number,
+  parentCompletion = 0,
+  normalReference: Vec3[] = vertices,
 ): Vec3[] {
   const { normalOffset } = panelOverlapPlan(panel.id, thickness);
-  if (normalOffset === 0 || panel.foldAngle === 0 || angle === 0) return vertices;
+  if (normalOffset === 0) return vertices;
+  // root 面板恆 foldAngle=0、無 parent 可跟——攤平時不推開。
+  if (panel.foldAngle === 0 && panel.parent === null) return vertices;
 
-  const normal = firstFaceNormal(vertices);
+  // 非 root 的 foldAngle=0 rider 自身角度恆為 0，完成度改跟 parent；
+  // 一般面板仍用自身角度 / 自身 foldAngle 的比值。
+  const foldCompletion =
+    panel.foldAngle === 0
+      ? Math.min(1, Math.max(0, parentCompletion))
+      : Math.min(1, Math.abs(angle) / Math.abs(panel.foldAngle));
+  if (foldCompletion === 0) return vertices;
+
+  const normal = firstFaceNormal(normalReference);
   if (normal === null) return vertices;
-  const foldCompletion = Math.min(1, Math.abs(angle) / Math.abs(panel.foldAngle));
   const exteriorDirection = exteriorFace === 'front' ? 1 : -1;
   const distance = normalOffset * foldCompletion * exteriorDirection;
   return vertices.map((vertex) => ({
@@ -933,6 +1043,132 @@ export function panelRenderVertices(
     y: vertex.y + normal.y * distance,
     z: vertex.z + normal.z * distance,
   }));
+}
+
+export interface PanelRenderPoseContext {
+  model: FoldModel;
+  worldGeometryByPanel: ReadonlyMap<string, Vec3[]>;
+  /** 實際送進 mesh buffer 的逐頂點座標（含 vertexClamp 收束＋顯示層位移）。
+   * mesh 路徑必須吃這份，不得從 panel.polygon 重算——重算會繞過收束
+   * （端封件曾因此在畫面上凸出 2.3mm 而數值閘門全綠）。 */
+  renderedVerticesByPanel: ReadonlyMap<string, Vec3[]>;
+  worldTransformByPanel: ReadonlyMap<string, Transform>;
+  renderOffsetByPanel: ReadonlyMap<string, Vec3>;
+}
+
+/** 建立同一幀內 panel 與 seam 共用的世界變換及顯示層位移。 */
+export function createPanelRenderPoseContext(
+  model: FoldModel,
+  pose: Map<string, number>,
+  thickness: number,
+  knownExteriorFaces?: ReadonlyMap<string, PhysicalPanelFace>,
+): PanelRenderPoseContext {
+  const worldGeometryByPanel = worldGeometry(model, pose);
+  // 層位移的方向來源：未收束的名義幾何（剛體性質；收束頂點可能讓 first-face 退化/翻轉）。
+  const nominalGeometryByPanel = worldGeometry(model, pose, { applyVertexClamp: false });
+  const exteriorFaces = knownExteriorFaces ?? new Map(
+    diagnoseFoldedPanelFaces(model).map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
+  );
+  const renderedVerticesByPanel = new Map<string, Vec3[]>();
+  const worldTransformByPanel = new Map<string, Transform>();
+  const renderOffsetByPanel = new Map<string, Vec3>();
+
+  for (const panel of model.panels) {
+    const worldVertices = worldGeometryByPanel.get(panel.id) ?? [];
+    const renderedVertices = panelRenderVertices(
+      panel,
+      worldVertices,
+      pose.get(panel.id) ?? 0,
+      exteriorFaces.get(panel.id) ?? 'back',
+      thickness,
+      parentFoldCompletion(panel, model, pose),
+      nominalGeometryByPanel.get(panel.id) ?? worldVertices,
+    );
+    renderedVerticesByPanel.set(panel.id, renderedVertices);
+    const worldAnchor = worldVertices[0];
+    const renderedAnchor = renderedVertices[0];
+    worldTransformByPanel.set(panel.id, panelWorldTransform(model, pose, panel.id));
+    renderOffsetByPanel.set(panel.id, worldAnchor && renderedAnchor
+      ? {
+          x: renderedAnchor.x - worldAnchor.x,
+          y: renderedAnchor.y - worldAnchor.y,
+          z: renderedAnchor.z - worldAnchor.z,
+        }
+      : { x: 0, y: 0, z: 0 });
+  }
+
+  return {
+    model,
+    worldGeometryByPanel,
+    renderedVerticesByPanel,
+    worldTransformByPanel,
+    renderOffsetByPanel,
+  };
+}
+
+/** 將 panel 攤平座標轉成含顯示層堆疊位移的世界座標。 */
+export function panelRenderPoint(
+  panelId: string,
+  flatPoint: { x: number; y: number },
+  poseContext: PanelRenderPoseContext,
+): Vec3 {
+  const transform = poseContext.worldTransformByPanel.get(panelId);
+  const renderOffset = poseContext.renderOffsetByPanel.get(panelId);
+  if (!transform || !renderOffset) {
+    throw new Error(`Unknown render panel "${panelId}"`);
+  }
+
+  const worldPoint = applyTransform(transform, { ...flatPoint, z: 0 });
+  return {
+    x: worldPoint.x + renderOffset.x,
+    y: worldPoint.y + renderOffset.y,
+    z: worldPoint.z + renderOffset.z,
+  };
+}
+
+/** 將 polyline 展開為 LineSegments 所需的相鄰點對。 */
+export function expandPolylineSegments(points: readonly Vec3[]): Vec3[] {
+  const expanded: Vec3[] = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    expanded.push(points[index]!, points[index + 1]!);
+  }
+  return expanded;
+}
+
+function renderedPanelVertices(
+  panel: FoldModel['panels'][number],
+  poseContext: PanelRenderPoseContext,
+): Vec3[] {
+  const vertices = poseContext.renderedVerticesByPanel.get(panel.id);
+  if (!vertices) throw new Error(`Unknown render panel "${panel.id}"`);
+  return vertices;
+}
+
+function seamLinePositions(
+  seam: NonNullable<FoldModel['seams']>[number],
+  poseContext: PanelRenderPoseContext,
+  surfaceDirection: -1 | 1,
+): Float32Array {
+  const panel = poseContext.model.panels.find(({ id }) => id === seam.ownerPanelId);
+  if (!panel) throw new Error(`Unknown seam owner panel "${seam.ownerPanelId}"`);
+  const normal = firstFaceNormal(renderedPanelVertices(panel, poseContext));
+  if (!normal) throw new Error(`Cannot determine seam normal for panel "${panel.id}"`);
+  const points = expandPolylineSegments(
+    seam.points.map((point) => panelRenderPoint(panel.id, point, poseContext)),
+  );
+  const positions = new Float32Array(points.length * 3);
+  const offset = SEAM_SURFACE_OFFSET_MM * surfaceDirection;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!;
+    writeThreeVertex(positions, index * 3, {
+      x: point.x + normal.x * offset,
+      y: point.y + normal.y * offset,
+      z: point.z + normal.z * offset,
+    });
+  }
+
+  return positions;
 }
 
 const P3_TEST_HOOKS_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
@@ -945,9 +1181,29 @@ export interface FoldSceneOptions {
 
 export type ArtworkMode = 'none' | 'sample' | 'custom';
 
+/**
+ * 上傳對位 guard-rail：上傳檔宣告的對位 metadata，原樣存在
+ * `CustomArtworkSource` 上（隨同一個物件一起被 FoldView 的 controlled-prop 提升
+ * 機制持久化）。顯示層（FoldView）依「當前 boxId／當前 layout signature」對這份
+ * metadata 即時求值＋套優先序，不在上傳當下就把警示「凍結」成固定字串——盒型/
+ * 參數之後再變，警示會跟著重算（見 `evaluateArtworkWarnings`，artwork-source.ts）。
+ */
+export interface ArtworkAlignmentMetadata {
+  /** 上傳檔宣告的 data-box-id；null＝檔案沒有這個屬性（一般手繪 SVG，非本工具模板）。 */
+  boxId: string | null;
+  /** 上傳檔宣告的 data-layout-hash；null＝檔案沒有這個屬性。 */
+  layoutHash: string | null;
+  /** 無頁框且 viewBox 長寬比偏離正方形超過容差——這是上傳當下就能確定的固定事實
+   *  （不像 boxId／layoutHash 需要跟「現在」比對），故直接存布林值。 */
+  aspectMismatch: boolean;
+}
+
 export interface CustomArtworkSource {
   canvas: HTMLCanvasElement;
   signature: string;
+  /** 僅 SVG 上傳路徑會設置；PNG/JPEG 與編輯器合成的來源沒有這份 metadata
+   *  （undefined＝「無法判斷」，顯示層不警示）。 */
+  alignmentMetadata?: ArtworkAlignmentMetadata;
 }
 
 export interface FoldSceneHandle {
@@ -983,65 +1239,50 @@ interface ContactShadow {
   texture: CanvasTexture;
 }
 
-/**
- * Fan-triangulates panel vertices while mapping dieline coordinates to Three.js.
- * Dielines use y-down coordinates; Three.js uses y-up, so y is always negated.
- */
-export function panelGeometryPositions(worldVertices: Vec3[]): Float32Array {
-  const triangleCount = Math.max(0, worldVertices.length - 2);
-  const positions = new Float32Array(triangleCount * 9);
-  const firstVertex = worldVertices[0];
-
-  if (!firstVertex) return positions;
-
-  let offset = 0;
-  for (let index = 1; index < worldVertices.length - 1; index += 1) {
-    writeThreeVertex(positions, offset, firstVertex);
-    writeThreeVertex(positions, offset + 3, worldVertices[index]!);
-    writeThreeVertex(positions, offset + 6, worldVertices[index + 1]!);
-    offset += 9;
+/** 依攤平 polygon 的 triangle indices 寫入 Three.js 座標，並反轉 dieline y 軸。 */
+export function panelGeometryPositions(
+  worldVertices: Vec3[],
+  triangleIndices: readonly number[],
+): Float32Array {
+  const positions = new Float32Array(triangleIndices.length * 3);
+  for (let index = 0; index < triangleIndices.length; index += 1) {
+    const vertex = worldVertices[triangleIndices[index]!];
+    if (vertex) writeThreeVertex(positions, index * 3, vertex);
   }
-
   return positions;
 }
 
-/**
- * Builds a closed, thin panel solid in Three.js coordinates. The nominal
- * polygon remains the front face; board thickness extends behind it.
- */
+/** 建立封閉薄板；名義 polygon 是正面，紙厚沿背面方向延伸。 */
 export function panelSolidPositions(
   worldVertices: Vec3[],
+  triangleIndices: readonly number[],
   thickness: number,
 ): Float32Array {
-  if (!(thickness > 0)) return panelGeometryPositions(worldVertices);
+  if (!(thickness > 0)) return panelGeometryPositions(worldVertices, triangleIndices);
 
   const frontVertices = worldVertices.map(toThreeVertex);
   const normal = firstFaceNormal(frontVertices);
-  if (!normal) return panelGeometryPositions(worldVertices);
+  if (!normal) return panelGeometryPositions(worldVertices, triangleIndices);
 
   const backVertices = frontVertices.map((vertex) => ({
     x: vertex.x - normal.x * thickness,
     y: vertex.y - normal.y * thickness,
     z: vertex.z - normal.z * thickness,
   }));
-  const faceTriangleCount = Math.max(0, frontVertices.length - 2);
-  const sideTriangleCount = frontVertices.length * 2;
   const positions = new Float32Array(
-    (faceTriangleCount * 2 + sideTriangleCount) * 9,
+    (triangleIndices.length * 2 + frontVertices.length * 6) * 3,
   );
 
   let offset = 0;
-  for (let index = 1; index < frontVertices.length - 1; index += 1) {
-    writePosition(positions, offset, frontVertices[0]!);
-    writePosition(positions, offset + 3, frontVertices[index]!);
-    writePosition(positions, offset + 6, frontVertices[index + 1]!);
-    offset += 9;
+  for (const vertexIndex of triangleIndices) {
+    writePosition(positions, offset, frontVertices[vertexIndex]!);
+    offset += 3;
   }
 
-  for (let index = 1; index < backVertices.length - 1; index += 1) {
-    writePosition(positions, offset, backVertices[0]!);
-    writePosition(positions, offset + 3, backVertices[index + 1]!);
-    writePosition(positions, offset + 6, backVertices[index]!);
+  for (let index = 0; index < triangleIndices.length; index += 3) {
+    writePosition(positions, offset, backVertices[triangleIndices[index]!]!);
+    writePosition(positions, offset + 3, backVertices[triangleIndices[index + 2]!]!);
+    writePosition(positions, offset + 6, backVertices[triangleIndices[index + 1]!]!);
     offset += 9;
   }
 
@@ -1178,6 +1419,7 @@ export function artworkPointUv(
 
 export function panelSolidUvs(
   flatVertices: ReadonlyArray<Pick<Vec3, 'x' | 'y'>>,
+  triangleIndices: readonly number[],
   frame: FlatDielineUvFrame,
   thickness: number,
 ): Float32Array {
@@ -1188,17 +1430,13 @@ export function panelSolidUvs(
     if (coordinate) values.push(coordinate.u, coordinate.v);
   };
 
-  for (let index = 1; index < coordinates.length - 1; index += 1) {
-    write(0);
-    write(index);
-    write(index + 1);
-  }
+  for (const index of triangleIndices) write(index);
   if (!(thickness > 0)) return new Float32Array(values);
 
-  for (let index = 1; index < coordinates.length - 1; index += 1) {
-    write(0);
-    write(index + 1);
-    write(index);
+  for (let index = 0; index < triangleIndices.length; index += 3) {
+    write(triangleIndices[index]!);
+    write(triangleIndices[index + 2]!);
+    write(triangleIndices[index + 1]!);
   }
   for (let index = 0; index < coordinates.length; index += 1) {
     const nextIndex = (index + 1) % coordinates.length;
@@ -1218,12 +1456,21 @@ export interface PanelArtworkUvs {
   uvs: Map<string, Float32Array>;
 }
 
-/** Production UV input: panel polygons and the square frame come from one ArtworkLayout. */
-export function buildPanelArtworkUvs(model: FoldModel, thickness: number): PanelArtworkUvs {
+/** 正式 UV 輸入：panel polygons 與方形 frame 共同來自同一份 ArtworkLayout。 */
+export function buildPanelArtworkUvs(
+  model: FoldModel,
+  thickness: number,
+  triangulations?: ReadonlyMap<string, readonly number[]>,
+): PanelArtworkUvs {
   const layout = deriveArtworkLayout(model);
   const uvs = new Map(layout.panels.map((panel) => [
     panel.id,
-    panelSolidUvs(panel.polygon, layout.frame, thickness),
+    panelSolidUvs(
+      panel.polygon,
+      triangulations?.get(panel.id) ?? earClipIndices(panel.polygon),
+      layout.frame,
+      thickness,
+    ),
   ]));
   return { layout, uvs };
 }
@@ -1274,7 +1521,7 @@ function disposeContactShadow(shadow: ContactShadow): void {
 }
 
 function boundsForGeometry(
-  geometryByPanel: Map<string, Vec3[]>,
+  geometryByPanel: ReadonlyMap<string, Vec3[]>,
 ): GeometryBounds | null {
   let bounds: GeometryBounds | null = null;
 
@@ -1464,6 +1711,16 @@ export function createFoldScene(
     string,
     { artwork: MeshStandardMaterial; paper: MeshStandardMaterial }
   >();
+  const seamMaterial = new LineBasicMaterial({
+    color: SEAM_COLOR,
+    opacity: 1,
+    transparent: false,
+  });
+  const seamLines: Array<{
+    negative: LineSegments<BufferGeometry, LineBasicMaterial>;
+    positive: LineSegments<BufferGeometry, LineBasicMaterial>;
+  }> = [];
+  const panelTriangulations = new Map<string, number[]>();
   let exteriorFaceByPanel = new Map<string, PhysicalPanelFace>();
   let currentModel: FoldModel | null = null;
   let currentThickness = 0;
@@ -1480,13 +1737,40 @@ export function createFoldScene(
       mesh.geometry.dispose();
     }
     panelMeshes.clear();
+    for (const { negative, positive } of seamLines) {
+      negative.geometry.dispose();
+      positive.geometry.dispose();
+    }
+    seamLines.length = 0;
     panelRoot.clear();
     for (const { artwork, paper } of panelMaterials.values()) {
       artwork.dispose();
       paper.dispose();
     }
     panelMaterials.clear();
+    panelTriangulations.clear();
     exteriorFaceByPanel.clear();
+  };
+
+  const createSeamLine = (
+    seam: NonNullable<FoldModel['seams']>[number],
+    seamIndex: number,
+    surfaceDirection: -1 | 1,
+    poseContext: PanelRenderPoseContext,
+  ): LineSegments<BufferGeometry, LineBasicMaterial> => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new BufferAttribute(seamLinePositions(seam, poseContext, surfaceDirection), 3),
+    );
+    const line = new LineSegments(geometry, seamMaterial);
+    const surface = surfaceDirection === 1 ? 'positive' : 'negative';
+    line.name = `fold-seam:${seamIndex}:${surface}`;
+    line.renderOrder = panelOverlapPlan(seam.ownerPanelId, currentThickness).renderOrder;
+    line.userData.ownerPanelId = seam.ownerPanelId;
+    line.userData.sourcePathId = seam.sourcePathId;
+    line.userData.surfaceDirection = surfaceDirection;
+    return line;
   };
 
   const buildPanelTree = (model: FoldModel): void => {
@@ -1496,20 +1780,26 @@ export function createFoldScene(
       diagnoses.map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
     );
     const pose = foldPose(currentT, model);
-    const geometryByPanel = worldGeometry(model, pose);
-    const panelArtworkUvs = buildPanelArtworkUvs(model, currentThickness);
+    const poseContext = createPanelRenderPoseContext(
+      model,
+      pose,
+      currentThickness,
+      exteriorFaceByPanel,
+    );
+    for (const panel of model.panels) {
+      panelTriangulations.set(panel.id, earClipIndices(panel.polygon));
+    }
+    const panelArtworkUvs = buildPanelArtworkUvs(
+      model,
+      currentThickness,
+      panelTriangulations,
+    );
 
     for (const panel of model.panels) {
       const geometry = new BufferGeometry();
-      const worldVertices = geometryByPanel.get(panel.id) ?? [];
-      const vertices = panelRenderVertices(
-        panel,
-        worldVertices,
-        pose.get(panel.id) ?? 0,
-        exteriorFaceByPanel.get(panel.id) ?? artworkFace,
-        currentThickness,
-      );
-      const positions = panelSolidPositions(vertices, currentThickness);
+      const triangleIndices = panelTriangulations.get(panel.id)!;
+      const vertices = renderedPanelVertices(panel, poseContext);
+      const positions = panelSolidPositions(vertices, triangleIndices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
       geometry.setAttribute(
         'uv',
@@ -1522,6 +1812,7 @@ export function createFoldScene(
         panel.polygon.length,
         currentThickness,
         artworkFace,
+        triangleIndices.length,
       );
       for (const group of surfacePlan.groups) {
         geometry.addGroup(group.start, group.count, group.materialIndex);
@@ -1556,6 +1847,13 @@ export function createFoldScene(
       panelMeshes.set(panel.id, mesh);
       panelRoot.add(mesh);
     }
+
+    for (const [seamIndex, seam] of (model.seams ?? []).entries()) {
+      const negative = createSeamLine(seam, seamIndex, -1, poseContext);
+      const positive = createSeamLine(seam, seamIndex, 1, poseContext);
+      seamLines.push({ negative, positive });
+      panelRoot.add(negative, positive);
+    }
   };
 
   const updateContactShadow = (bounds: GeometryBounds): void => {
@@ -1573,28 +1871,41 @@ export function createFoldScene(
     if (!currentModel) return null;
 
     const pose = foldPose(currentT, currentModel);
-    const geometryByPanel = worldGeometry(currentModel, pose);
+    const poseContext = createPanelRenderPoseContext(
+      currentModel,
+      pose,
+      currentThickness,
+      exteriorFaceByPanel,
+    );
 
     for (const panel of currentModel.panels) {
       const mesh = panelMeshes.get(panel.id);
-      const worldVertices = geometryByPanel.get(panel.id);
-      if (!mesh || !worldVertices) continue;
-      const vertices = panelRenderVertices(
-        panel,
-        worldVertices,
-        pose.get(panel.id) ?? 0,
-        exteriorFaceByPanel.get(panel.id) ?? 'back',
-        currentThickness,
-      );
+      const triangleIndices = panelTriangulations.get(panel.id);
+      if (!mesh || !triangleIndices) continue;
+      const vertices = renderedPanelVertices(panel, poseContext);
 
       const attribute = mesh.geometry.getAttribute('position') as BufferAttribute;
-      attribute.copyArray(panelSolidPositions(vertices, currentThickness));
+      attribute.copyArray(panelSolidPositions(vertices, triangleIndices, currentThickness));
       attribute.needsUpdate = true;
       mesh.geometry.computeVertexNormals();
       mesh.geometry.computeBoundingSphere();
     }
 
-    const bounds = boundsForGeometry(geometryByPanel);
+    for (const [seamIndex, seam] of (currentModel.seams ?? []).entries()) {
+      const pair = seamLines[seamIndex];
+      if (!pair) continue;
+      for (const [surfaceDirection, line] of [
+        [-1, pair.negative],
+        [1, pair.positive],
+      ] as const) {
+        const attribute = line.geometry.getAttribute('position') as BufferAttribute;
+        attribute.copyArray(seamLinePositions(seam, poseContext, surfaceDirection));
+        attribute.needsUpdate = true;
+        line.geometry.computeBoundingSphere();
+      }
+    }
+
+    const bounds = boundsForGeometry(poseContext.worldGeometryByPanel);
     if (bounds) updateContactShadow(bounds);
     needsRender = true;
     return bounds;
@@ -1819,6 +2130,18 @@ export function createFoldScene(
     };
     (window as unknown as Record<string, unknown>).__p3SetLook = devSetLook;
     (window as unknown as Record<string, unknown>).__p3SetCameraOrbit = devSetCameraOrbit;
+    // 視覺歸因儀器：逐片顯隱＋截圖 diff 可判定「畫面上這塊像素屬於哪片 panel」
+    // （殘留輪廓的 owner 認定不靠肉眼猜）。
+    (window as unknown as Record<string, unknown>).__p3SetPanelVisible = (
+      panelId: string,
+      visible: boolean,
+    ): boolean => {
+      const mesh = panelMeshes.get(panelId);
+      if (!mesh) return false;
+      mesh.visible = visible;
+      markNeedsRender();
+      return true;
+    };
   }
 
   const resize = (width: number, height: number): void => {
@@ -1932,6 +2255,7 @@ export function createFoldScene(
       controls.removeEventListener('start', onControlsStart);
       controls.dispose();
       disposePanelTree();
+      seamMaterial.dispose();
       if (paperAlbedoTexture !== paperBaseAlbedoTexture) {
         paperAlbedoTexture.dispose();
       }

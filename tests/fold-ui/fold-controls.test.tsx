@@ -1,15 +1,20 @@
+// normalized 慣例層：拓撲計數、索引、進度與容差依測試契約固定。
+// 觀測慣例層：座標、距離與面積 golden 取自 2D generate() 實際輸出或其補償後幾何。
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { triangularTube } from '@/boxes/triangular-tube';
 import { resolveParams } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
 import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
+import { buildTtbFoldModel } from '@/fold/models/triangular-tube';
 import { setLang } from '@/i18n/lang';
 import { t } from '@/i18n/t';
 import { FoldView, type ArtworkFileLoader } from '@/ui/FoldView';
-import { artworkLayoutSignature } from '@/ui/artwork-layout';
+import { artworkLayoutSignature, hashArtworkLayoutSignature } from '@/ui/artwork-layout';
 import type {
+  ArtworkAlignmentMetadata,
   CustomArtworkSource,
   FoldSceneHandle,
   FoldSceneOptions,
@@ -17,6 +22,7 @@ import type {
 } from '@/ui/fold-scene';
 
 const RTE_VALUES = resolveParams(reverseTuckEnd, {});
+const TTB_VALUES = resolveParams(triangularTube, {});
 
 interface FakeScene {
   createScene: typeof createFoldScene;
@@ -53,6 +59,28 @@ function artworkSignature(values: ResolvedParams = RTE_VALUES): string {
 
 function customSource(signature = artworkSignature()): CustomArtworkSource {
   return { canvas: document.createElement('canvas'), signature };
+}
+
+// 切盒型測試要跟目前盒型的真實 model signature 相符（不然會誤觸「不同的、既有」
+// 事後 param-drift staleTemplate 偵測——那是本測試不驗證的獨立機制）。
+function ttbArtworkSignature(values: ResolvedParams = TTB_VALUES): string {
+  return artworkLayoutSignature(buildTtbFoldModel(values));
+}
+
+// 警示不再由 loadArtworkFile 的回傳值「凍結」，
+// 而是原樣掛在 CustomArtworkSource.alignmentMetadata 上，FoldView 每次 render 都拿
+// 「當下」boxId／layout signature 對這份 metadata 重新求值——測試因此要在 source
+// 上帶 metadata，而非只在 mock 回傳值裡塞 warnings（那個回傳值只是「上傳當下」的
+// 一次性快照，FoldView 已不讀它來決定顯示）。
+function customSourceWithMetadata(
+  metadata: Partial<ArtworkAlignmentMetadata>,
+  signature = artworkSignature(),
+): CustomArtworkSource {
+  return {
+    canvas: document.createElement('canvas'),
+    signature,
+    alignmentMetadata: { boxId: null, layoutHash: null, aspectMismatch: false, ...metadata },
+  };
 }
 
 function installTimerBackedAnimationFrame() {
@@ -205,7 +233,7 @@ describe('FoldView controls', () => {
     const onCustomSourceChange = vi.fn();
     const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
       options.onCommit(source);
-      return 'committed';
+      return { status: 'committed', warnings: [] };
     });
     const { container } = render(
       <FoldView
@@ -227,6 +255,7 @@ describe('FoldView controls', () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => expect(onCustomSourceChange).toHaveBeenCalledExactlyOnceWith(source));
+    expect(loadArtwork).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ boxId: 'rte' }));
     expect(fake.handles[0]!.installCustomSource).toHaveBeenCalledExactlyOnceWith(source);
     expect(fake.handles[0]!.applyArtwork).toHaveBeenLastCalledWith('custom');
     expect(foldView).toHaveAttribute('data-artwork-ready', 'custom');
@@ -374,7 +403,7 @@ describe('FoldView controls', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('does not mark custom artwork stale when only paper thickness changes without changing the flat layout', async () => {
+  it('marks custom artwork stale when paper thickness changes the compensated flat layout', async () => {
     const fake = createFakeScene();
     const source = customSource();
     const view = render(
@@ -397,7 +426,7 @@ describe('FoldView controls', () => {
     );
 
     await waitFor(() => expect(fake.handles[0]!.replaceModel).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(t('fold.art.staleTemplate'));
   });
 
   it.each([
@@ -430,7 +459,7 @@ describe('FoldView controls', () => {
     const changedValues: ResolvedParams = { ...RTE_VALUES, D: (RTE_VALUES.D as number) + 5 };
     const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
       options.onCommit(customSource(options.signature));
-      return 'committed';
+      return { status: 'committed', warnings: [] };
     });
     const { container } = render(
       <FoldView
@@ -491,7 +520,7 @@ describe('FoldView controls', () => {
     const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
       if (!succeeds) return { code: 'type' };
       options.onCommit(customSource(options.signature));
-      return 'committed';
+      return { status: 'committed', warnings: [] };
     });
     const { container } = render(
       <FoldView
@@ -706,5 +735,219 @@ describe('FoldView controls', () => {
     fireEvent.click(autoRotate);
     expect(autoRotate).toHaveAttribute('aria-pressed', 'true');
     expect(fake.handles[0]!.setAutoRotate).toHaveBeenLastCalledWith(true);
+  });
+
+  // 上傳對位 guard-rail：警示不阻擋 commit（warn-and-apply），顯示於既有
+  // status 列。stale-template 借用既有 fold.art.staleTemplate 文案（同語意），
+  // box-mismatch／aspect 各自有新文案。
+  // 警示不是上傳當下凍結的字串——metadata 掛在 source 上，FoldView 每次 render
+  // 都拿「當下」boxId／layout signature 重新求值，故測試用 customSourceWithMetadata
+  // 讓 source 帶 metadata，而不是靠 mock 回傳值裡的 warnings 陣列驅動顯示。
+  describe('artwork alignment warnings（warn-and-apply＋動態重算）', () => {
+    function loaderCommitting(source: CustomArtworkSource) {
+      return vi.fn<ArtworkFileLoader>(async (_file, options) => {
+        options.onCommit(source);
+        return { status: 'committed', warnings: [] };
+      });
+    }
+
+    it('box-mismatch 警示：commit 照常發生，status 列顯示對應文案', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ boxId: 'ttb' });
+      const loadArtwork = loaderCommitting(source);
+      const { container } = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} loadArtwork={loadArtwork} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+      fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+      });
+
+      const status = await screen.findByRole('status');
+      expect(status).toHaveTextContent(t('fold.art.warning.boxMismatch'));
+      expect(container.querySelector('.fold-view')).toHaveAttribute('data-artwork-ready', 'custom');
+    });
+
+    it('aspect 警示：commit 照常發生，status 列顯示對應文案', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ aspectMismatch: true });
+      const loadArtwork = loaderCommitting(source);
+      const { container } = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} loadArtwork={loadArtwork} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+      fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+      });
+
+      expect(await screen.findByRole('status')).toHaveTextContent(t('fold.art.warning.aspect'));
+    });
+
+    it('stale-template 警示借用既有 fold.art.staleTemplate 文案（同語意，不重複定義）', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ layoutHash: 'deadbeef' });
+      const loadArtwork = loaderCommitting(source);
+      const { container } = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} loadArtwork={loadArtwork} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+      fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+      });
+
+      expect(await screen.findByRole('status')).toHaveTextContent(t('fold.art.staleTemplate'));
+    });
+
+    it('多個警示同時成立時只顯示最高優先的一條（box-mismatch > stale-template > aspect）', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ layoutHash: 'deadbeef', aspectMismatch: true });
+      const loadArtwork = loaderCommitting(source);
+      const { container } = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} loadArtwork={loadArtwork} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+
+      fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+      });
+
+      const status = await screen.findByRole('status');
+      expect(status).toHaveTextContent(t('fold.art.staleTemplate'));
+      expect(status).not.toHaveTextContent(t('fold.art.warning.aspect'));
+    });
+
+    it('切換到 SAMPLE/NONE 會清除警示（同既有 staleTemplate 的清除慣例）', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ boxId: 'ttb' });
+      const loadArtwork = loaderCommitting(source);
+      const { container } = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} loadArtwork={loadArtwork} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['png'], 'art.png', { type: 'image/png' })] },
+      });
+      await screen.findByRole('status');
+
+      fireEvent.click(screen.getByRole('button', { name: t('fold.art.sample') }));
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('下一次成功上傳且無警示時，舊警示不殘留', async () => {
+      const fake = createFakeScene();
+      const warned = customSourceWithMetadata({ boxId: 'ttb' });
+      const clean = customSourceWithMetadata({});
+      let nextSource = warned;
+      const loadArtwork = vi.fn<ArtworkFileLoader>(async (_file, options) => {
+        options.onCommit(nextSource);
+        return { status: 'committed', warnings: [] };
+      });
+      const { container } = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} loadArtwork={loadArtwork} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(input, { target: { files: [new File(['png'], 'a.png', { type: 'image/png' })] } });
+      await screen.findByRole('status');
+
+      nextSource = clean;
+      fireEvent.change(input, { target: { files: [new File(['png'], 'b.png', { type: 'image/png' })] } });
+
+      await waitFor(() => expect(loadArtwork).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    });
+
+    // 核心不變量：警示不凍結在上傳當下，跟著「當下」boxId／參數動態重算。
+    it('上傳時對位盒型與目前相同（不警示），事後切換盒型才動態出現 box-mismatch，切回去又消失', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ boxId: 'rte' });
+      const view = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+      view.rerender(
+        <FoldView boxId="ttb" values={TTB_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+      expect(await screen.findByRole('status')).toHaveTextContent(t('fold.art.warning.boxMismatch'));
+
+      view.rerender(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+      // 切回去後 box-mismatch 必須動態消失（核心不變量：不凍結在上傳當下）。
+      // 不斷言「完全無 status」——來回切換盒型必然也改變 model signature，會連帶
+      // 觸發既有、獨立的「事後改參數」staleTemplate sticky 偵測（該機制獨立於本測試，
+      // 其 sticky 行為在別的既有測試已驗證是刻意設計），兩者互不相關、各自對錯。
+      await waitFor(() => expect(screen.queryByText(t('fold.art.warning.boxMismatch'))).not.toBeInTheDocument());
+    });
+
+    it('上傳後改參數才動態出現 stale-template（metadata.layoutHash 對「上傳當下」的 hash，不對新 hash）', async () => {
+      const fake = createFakeScene();
+      const uploadHash = hashArtworkLayoutSignature(artworkSignature(RTE_VALUES));
+      const source = customSourceWithMetadata({ layoutHash: uploadHash }, artworkSignature(RTE_VALUES));
+      const view = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+      const changedValues: ResolvedParams = { ...RTE_VALUES, L: (RTE_VALUES.L as number) + 10 };
+      view.rerender(
+        <FoldView boxId="rte" values={changedValues} createScene={fake.createScene} customSource={source} />,
+      );
+
+      expect(await screen.findByRole('status')).toHaveTextContent(t('fold.art.staleTemplate'));
+    });
+
+    it('DESIGN→FOLD 往返（卸載＋重掛載）後，metadata 隨 customSource 一起持久化，警示仍能正確重算（非侷限本地 state）', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ boxId: 'ttb' }, ttbArtworkSignature());
+      const view = render(
+        <FoldView boxId="ttb" values={TTB_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+      // 模擬 App 層 DESIGN→FOLD 往返：FoldView 整個卸載又重新掛載（同一個 customSource
+      // 物件由父層持久化並原樣傳回——這正是既有「retained custom artwork」測試證明過的
+      // 提升機制；alignmentMetadata 隨同一個物件一起活下來，不需要額外的 lift-up 管線）。
+      view.unmount();
+      render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+
+      expect(await screen.findByRole('status')).toHaveTextContent(t('fold.art.warning.boxMismatch'));
+    });
+
+    // 上傳「無 data-layout-hash 但 aspect 異常」的
+    // 檔案時只有 aspect 警示（metadata.boxId／layoutHash 皆 null）。之後改參數觸發
+    // 既有「事後改參數」sticky staleTemplate 偵測——這顆偵測跟 metadata 系統本是兩條
+    // 獨立管線，若各自佔一層優先序（金字塔式互相蓋壓），aspect 那一層若排在
+    // staleTemplate 那層之上，sticky 觸發後畫面仍卡在 aspect 文案，違反
+    // box-mismatch > stale-template > aspect 的規格優先序（sticky 情境下
+    // stale-template 應該贏過 aspect）。兩者併入同一份 warnings 陣列一起排序。
+    it('aspect 警示顯示中，之後改參數觸發 sticky staleTemplate → 優先序切換顯示 stale-template（非卡在 aspect）', async () => {
+      const fake = createFakeScene();
+      const source = customSourceWithMetadata({ aspectMismatch: true });
+      const view = render(
+        <FoldView boxId="rte" values={RTE_VALUES} createScene={fake.createScene} customSource={source} />,
+      );
+      await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+      expect(await screen.findByRole('status')).toHaveTextContent(t('fold.art.warning.aspect'));
+
+      const changedValues: ResolvedParams = { ...RTE_VALUES, L: (RTE_VALUES.L as number) + 10 };
+      view.rerender(
+        <FoldView boxId="rte" values={changedValues} createScene={fake.createScene} customSource={source} />,
+      );
+
+      const status = await screen.findByRole('status');
+      expect(status).toHaveTextContent(t('fold.art.staleTemplate'));
+      expect(status).not.toHaveTextContent(t('fold.art.warning.aspect'));
+    });
   });
 });
