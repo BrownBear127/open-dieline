@@ -164,6 +164,19 @@ describe('Telescope §6.1 12 列矩陣', () => {
 });
 
 describe('Telescope gate sabotage', () => {
+  it('extension 回退 identity 會被終態包絡閘門抓到', () => {
+    const { model, params } = buildPiece({}, 'lid');
+    const broken: FoldModel = {
+      ...model,
+      panels: model.panels.map((panel) => panel.id.startsWith('gussetExt')
+        ? { ...panel, angleFn: () => 0 }
+        : panel),
+    };
+
+    expect(telescopeGateReport(broken, params, 'lid').violations)
+      .toContainEqual(expect.stringContaining('finalEnvelope'));
+  });
+
   it('角度偏移會被 flapWallCoplanarity 抓到', () => {
     const { model, params } = buildPiece({}, 'base');
     const broken: FoldModel = {

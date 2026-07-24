@@ -58,9 +58,13 @@ describe('Telescope angle drivers', () => {
     expect(deg(xPos(1))).toBeCloseTo(90, 12);
   });
 
-  it('gusset extension driver 全窗恆為 identity', () => {
-    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
-      expect(telescopeExtensionAngle(t)).toBe(0);
-    }
+  it('gusset extension 在 B 結束前保持 identity，之後單調包上 y 壁', () => {
+    const phaseBEnd = 0.82;
+
+    expect(telescopeExtensionAngle(0)).toBe(0);
+    expect(telescopeExtensionAngle(phaseBEnd)).toBe(0);
+    expect(telescopeExtensionAngle((phaseBEnd + 1) / 2)).toBeGreaterThan(0);
+    expect(telescopeExtensionAngle((phaseBEnd + 1) / 2)).toBeLessThan(Math.PI / 2);
+    expect(telescopeExtensionAngle(1)).toBeCloseTo(Math.PI / 2, 12);
   });
 });

@@ -905,6 +905,8 @@ function telescopePanelLayer(panelId: string): number | null {
   if (/^wall[XY](?:Neg|Pos)-rim$/.test(panelId)) return -2;
   if (/^flapNeg(?:Neg|Pos)$/.test(panelId)) return 9;
   if (/^flapPos(?:Neg|Pos)$/.test(panelId)) return 10;
+  // P0 extension 的 C-ext 終態在相鄰 y 壁上；-4 < 7 < 8 明確形成
+  // wallY outer / extension / wallY inner 三明治（piece 前綴由呼叫端保留）。
   if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return 7;
   if (/^wall[XY](?:Neg|Pos)-inner$/.test(panelId)) return 8;
   if (/^wall[XY](?:Neg|Pos)-tongue$/.test(panelId)) return 9;

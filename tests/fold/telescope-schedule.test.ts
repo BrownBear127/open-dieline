@@ -66,7 +66,7 @@ describe('Telescope per-piece schedule', () => {
     expect(foldPose(1, base).get(flap.id)).toBeCloseTo(-Math.PI / 2, 12);
   });
 
-  it('default lid P0：flap count=0 後省略 pretuck/C，extension 全程 identity', () => {
+  it('default lid P0：flap count=0 後省略 pretuck，extension 在 B 後獨立完成 C-ext', () => {
     const lid = model('lid');
     const flaps = lid.panels.filter(({ id }) => id.startsWith('flap'));
     const extensions = lid.panels.filter(({ id }) => id.startsWith('gussetExt'));
@@ -76,14 +76,22 @@ describe('Telescope per-piece schedule', () => {
     expect(TELESCOPE_TRAY_WINDOWS.plain).toEqual({
       prefoldX: [0, 0.15],
       prefoldY: [0.15, 0.3],
-      phaseA: [0.3, 0.825],
-      phaseB: [0.825, 1],
+      phaseA: [0.3, 0.65],
+      phaseB: [0.65, 0.82],
+      phaseCExt: [0.82, 1],
     });
+    const { phaseB, phaseCExt } = TELESCOPE_TRAY_WINDOWS.plain;
+    expect(phaseCExt[0]).toBe(phaseB[1]);
+    expect(phaseCExt[1]).toBe(1);
     for (const extension of extensions) {
       expect(stepFor(lid, extension.id)).toHaveLength(1);
-      for (const t of [0, 0.15, 0.3, 0.825, 1]) {
+      expect(stepFor(lid, extension.id)[0]).toMatchObject({ t0: 0, t1: 1 });
+      for (const t of [0, 0.15, 0.3, phaseB[0], phaseB[1]]) {
         expect(foldPose(t, lid).get(extension.id)).toBe(0);
       }
+      expect(foldPose((phaseCExt[0] + phaseCExt[1]) / 2, lid).get(extension.id))
+        .toBeLessThan(0);
+      expect(foldPose(1, lid).get(extension.id)).toBeCloseTo(-Math.PI / 2, 12);
     }
   });
 

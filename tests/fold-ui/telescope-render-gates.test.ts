@@ -348,10 +348,10 @@ describe('Telescope AC-T3 render-layer gates', () => {
       expect(xNeg).toBeLessThan(1);
     }
     for (const corner of ['NegNeg', 'NegPos', 'PosNeg', 'PosPos']) {
-      const xSign = corner.startsWith('Neg') ? 'Neg' : 'Pos';
+      const ySign = corner.endsWith('Neg') ? 'Neg' : 'Pos';
       const [extension] = normalizedLayerPositions(
         'lid',
-        `wallX${xSign}-outer`,
+        `wallY${ySign}-outer`,
         [`gussetExt${corner}`],
       );
       expect(extension).toBeGreaterThan(0);

@@ -708,6 +708,7 @@ export function trayWindowOrderViolations(windows: TrayWindows): string[] {
     'phaseA',
     'phaseB',
     'phaseC',
+    'phaseCExt',
   ].filter((name) => windows[name] !== undefined);
   const violations: string[] = [];
   for (const name of order) {
@@ -1147,6 +1148,144 @@ function finalFlapViolations(
   return violations;
 }
 
+function hingeArcResidualMm(
+  panel: FoldModel['panels'][number],
+  hinge: NonNullable<FoldModel['panels'][number]['hingeLine']>,
+): number {
+  const axisX = hinge.b.x - hinge.a.x;
+  const axisY = hinge.b.y - hinge.a.y;
+  const length = Math.hypot(axisX, axisY);
+  if (length <= NUMERIC_EPSILON) return 0;
+  return Math.max(0, ...panel.polygon.flatMap((point) => {
+    const projection = (
+      (point.x - hinge.a.x) * axisX
+      + (point.y - hinge.a.y) * axisY
+    ) / length;
+    return [-projection, projection - length];
+  }));
+}
+
+function finalEnvelopeAllowance(
+  params: ResolvedParams,
+  pieceId: string,
+  panelId: string,
+): { id: string; residualMm: number } {
+  if (!panelId.startsWith('flap')) return { id: 'none', residualMm: 0 };
+  return {
+    id: 'jog-hook-root-strip',
+    residualMm: hookFormula(
+      params,
+      pieceId,
+      panelId.slice('flap'.length),
+    ).bandMm,
+  };
+}
+
+function finalExtensionViolations(model: FoldModel): string[] {
+  const extensionIds = model.panels
+    .filter(({ id }) => id.startsWith('gussetExt'))
+    .map(({ id }) => id);
+  if (extensionIds.length === 0) return [];
+
+  const violations: string[] = [];
+  const phaseBEnd = TELESCOPE_TRAY_WINDOWS.plain.phaseB[1];
+  const earlyMotion = new Set<string>();
+  for (let sample = 0; sample <= SWEEP_SAMPLES; sample += 1) {
+    const t = phaseBEnd * sample / SWEEP_SAMPLES;
+    const pose = foldPose(t, model);
+    for (const extensionId of extensionIds) {
+      const angle = pose.get(extensionId) ?? 0;
+      if (
+        Math.abs(angle) > NUMERIC_EPSILON
+        && !earlyMotion.has(extensionId)
+      ) {
+        earlyMotion.add(extensionId);
+        violations.push(
+          `extensionBeforeCExtIdentity:${extensionId}@${t.toFixed(4)}=${angle}`,
+        );
+      }
+    }
+  }
+
+  const finalPose = foldPose(1, model);
+  const geometry = worldGeometry(model, finalPose, { applyVertexClamp: false });
+  for (const extensionId of extensionIds) {
+    const extensionPanel = model.panels.find(({ id }) => id === extensionId)!;
+    const hinge = extensionPanel.hingeLine;
+    if (!hinge) {
+      violations.push(`extensionWallCoplanarity:${extensionId} 缺少 hinge`);
+      continue;
+    }
+    const targetPlaneY = (
+      worldPoint(model, finalPose, extensionId, hinge.a).y
+      + worldPoint(model, finalPose, extensionId, hinge.b).y
+    ) / 2;
+    const extension = polyFromWorld(model, geometry, extensionId);
+    const distance = Math.max(...extension.points.map(({ y }) =>
+      Math.abs(y - targetPlaneY)));
+    if (distance > GEOMETRY_TOLERANCE_MM) {
+      violations.push(
+        `extensionWallCoplanarity:${extensionId}=${distance.toFixed(6)}mm`,
+      );
+    }
+
+    const corner = extensionId.slice('gussetExt'.length);
+    const ySign = corner.endsWith('Neg') ? 'Neg' : 'Pos';
+    const wall = polyFromWorld(model, geometry, `wallY${ySign}-inner`);
+    const drop = dominantDropAxis(plane(wall).normal);
+    const wall2 = wall.points.map((point) => project2(point, drop));
+    const hingeArcResidual = hingeArcResidualMm(extensionPanel, hinge);
+    const outside = extension.points.filter((point) =>
+      !pointInPolygonWithTolerance(
+        project2(point, drop),
+        wall2,
+        hingeArcResidual + GEOMETRY_TOLERANCE_MM,
+      ));
+    if (outside.length > 0) {
+      violations.push(
+        `extensionContainment:${extensionId} outside=${outside.length} `
+        + `allowance=hinge-arc-residual:${hingeArcResidual.toFixed(6)}mm`,
+      );
+    }
+  }
+  return violations;
+}
+
+function finalEnvelopeViolations(
+  model: FoldModel,
+  params: ResolvedParams,
+  pieceId: string,
+): string[] {
+  if (pieceId === 'liner') return [];
+  const geometry = worldGeometry(model, foldPose(1, model), {
+    applyVertexClamp: false,
+  });
+  const outerWallPoints = model.panels
+    .filter(({ id }) => /^wall[XY](?:Neg|Pos)-outer$/.test(id))
+    .flatMap(({ id }) => geometry.get(id) ?? []);
+  if (outerWallPoints.length === 0) {
+    return [`finalEnvelope:${pieceId} 缺少 outer wall 包絡`];
+  }
+  const envelope = bounds(outerWallPoints);
+  const violations: string[] = [];
+  for (const [panelId, points] of geometry) {
+    const allowance = finalEnvelopeAllowance(params, pieceId, panelId);
+    const maximumResidual = Math.max(0, ...points.map((point) => Math.max(
+      envelope.minX - point.x,
+      point.x - envelope.maxX,
+      envelope.minY - point.y,
+      point.y - envelope.maxY,
+    )));
+    if (maximumResidual > allowance.residualMm + GEOMETRY_TOLERANCE_MM) {
+      violations.push(
+        `finalEnvelope:${pieceId}/${panelId} residual=${maximumResidual.toFixed(6)}mm `
+        + `allowance=${allowance.id}:${allowance.residualMm.toFixed(6)}mm`,
+      );
+    }
+  }
+  return violations;
+}
+
 function namedPairIds(model: FoldModel): Array<{
   left: string;
   right: string;
@@ -1174,6 +1313,9 @@ function namedPairIds(model: FoldModel): Array<{
       [`flap${corner}`, `wallX${xSign}-inner`, 'flap↔wallX'],
       [`flap${corner}`, `wallY${ySign}-inner`, 'flap↔wallY'],
       [`gussetExt${corner}`, `wingX${corner}`, 'extension↔wingX'],
+      [`gussetExt${corner}`, `wingY${corner}`, 'extension↔wingY'],
+      [`gussetExt${corner}`, `wallX${xSign}-inner`, 'extension↔wallX'],
+      [`gussetExt${corner}`, `wallY${ySign}-inner`, 'extension↔wallY'],
     ] as const;
     for (const [left, right, family] of candidates) {
       if (ids.has(left) && ids.has(right)) {
@@ -1191,25 +1333,25 @@ function namedPairIds(model: FoldModel): Array<{
   return pairs;
 }
 
-function flapWallLayerPeelLimit(
+function wallLayerPeelLimit(
   model: FoldModel,
   pose: ReadonlyMap<string, number>,
-  flapId: string,
+  panelId: string,
 ): number | null {
-  const flap = model.panels.find(({ id }) => id === flapId);
-  const hinge = flap?.hingeLine;
-  if (!flap || !hinge) return null;
+  const panel = model.panels.find(({ id }) => id === panelId);
+  const hinge = panel?.hingeLine;
+  if (!panel || !hinge) return null;
   const axisX = hinge.b.x - hinge.a.x;
   const axisY = hinge.b.y - hinge.a.y;
   const axisLength = Math.hypot(axisX, axisY);
   if (axisLength <= NUMERIC_EPSILON) return null;
-  const reach = Math.max(...flap.polygon.map((point) =>
+  const reach = Math.max(...panel.polygon.map((point) =>
     Math.abs(
       axisX * (point.y - hinge.a.y)
       - axisY * (point.x - hinge.a.x),
     ) / axisLength));
-  const currentAngle = Math.abs(pose.get(flapId) ?? 0);
-  const finalAngle = Math.abs(flap.foldAngle);
+  const currentAngle = Math.abs(pose.get(panelId) ?? 0);
+  const finalAngle = Math.abs(panel.foldAngle);
   const remainingAngle = Math.min(
     Math.PI / 2,
     Math.abs(currentAngle - finalAngle),
@@ -1270,7 +1412,23 @@ export function telescopeCollisionViolations(
       ) {
         // flap 以豎直 hinge 貼向 y wall 時，零厚度剛體的可見剝離深度上界，
         // 由當片 hinge reach × 尚未到位角的 sin 現場推導；超界仍是 G1。
-        const layerPeelLimit = flapWallLayerPeelLimit(
+        const layerPeelLimit = wallLayerPeelLimit(
+          model,
+          pose,
+          pair.left,
+        );
+        if (
+          layerPeelLimit !== null
+          && crossing.depthMm <= layerPeelLimit
+        ) {
+          continue;
+        }
+      }
+      if (
+        pair.family === 'extension↔wallY'
+        && t >= TELESCOPE_TRAY_WINDOWS.plain.phaseCExt[0] - NUMERIC_EPSILON
+      ) {
+        const layerPeelLimit = wallLayerPeelLimit(
           model,
           pose,
           pair.left,
@@ -1309,6 +1467,8 @@ export function telescopeGateReport(
     violations.push(
       ...seamFormulaViolations(model, params),
       ...finalFlapViolations(model, params, pieceId),
+      ...finalExtensionViolations(model),
+      ...finalEnvelopeViolations(model, params, pieceId),
       ...telescopeCollisionViolations(model, params, pieceId),
     );
   }

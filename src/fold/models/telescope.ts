@@ -69,8 +69,9 @@ export const TELESCOPE_TRAY_WINDOWS = {
   plain: {
     prefoldX: [0, 0.15],
     prefoldY: [0.15, 0.3],
-    phaseA: [0.3, 0.825],
-    phaseB: [0.825, 1],
+    phaseA: [0.3, 0.65],
+    phaseB: [0.65, 0.82],
+    phaseCExt: [0.82, 1],
   },
 } as const;
 
@@ -152,9 +153,10 @@ export function createTelescopeFlapAngleFn(
   };
 }
 
-/** P0 extension 不自轉，只剛性跟隨 x 內壁。 */
-export function telescopeExtensionAngle(_stepLocalT: number): number {
-  return 0;
+/** P0 extension 在 B 後繞自身鉸包上相鄰 y 壁。 */
+export function telescopeExtensionAngle(stepLocalT: number): number {
+  const [start, end] = TELESCOPE_TRAY_WINDOWS.plain.phaseCExt;
+  return QUARTER_TURN * intervalProgress(stepLocalT, start, end);
 }
 
 function point(horizontal: number, vertical: number): Pt {
@@ -228,6 +230,8 @@ function panelAngles(result: GenerateResult, rootId: string): PanelAngleSpec[] {
       foldAngle = QUARTER_TURN;
     } else if (id.startsWith('flap')) {
       foldAngle = -QUARTER_TURN;
+    } else if (id.startsWith('gussetExt')) {
+      foldAngle = -QUARTER_TURN;
     }
     return { id, foldAngle };
   });
@@ -256,7 +260,7 @@ function traySteps(panelIds: string[]): FoldStep[] {
     panelIds.filter((id) => pattern.test(id));
   const steps = [
     step(
-      matching(/^wallX(?:Neg|Pos)-(?:rim|inner|tongue)$|^gussetExt/),
+      matching(/^wallX(?:Neg|Pos)-(?:rim|inner|tongue)$/),
       windows.prefoldX,
     ),
     step(
@@ -268,6 +272,12 @@ function traySteps(panelIds: string[]): FoldStep[] {
       matching(/^wing[XY]/),
       [windows.phaseA[0], windows.phaseB[1]],
     ),
+    !hasFlaps
+      ? step(matching(/^gussetExt/), [
+        TELESCOPE_TRAY_WINDOWS.plain.prefoldX[0],
+        TELESCOPE_TRAY_WINDOWS.plain.phaseCExt[1],
+      ])
+      : null,
     hasFlaps
       ? step(matching(/^flap/), [
         TELESCOPE_TRAY_WINDOWS.flapped.pretuck[0],
@@ -330,7 +340,14 @@ function withTrayAngleDrivers(model: FoldModel): FoldModel {
         };
       }
       if (panel.id.startsWith('gussetExt')) {
-        return { ...panel, angleFn: telescopeExtensionAngle };
+        return {
+          ...panel,
+          // canonical hinge 方向下負角才由 x 內壁端部掃向 y 壁內側。
+          angleFn: (stepLocalT) => {
+            const angle = telescopeExtensionAngle(stepLocalT);
+            return angle === 0 ? 0 : -angle;
+          },
+        };
       }
       return panel;
     }),

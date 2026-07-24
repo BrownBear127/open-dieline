@@ -456,10 +456,6 @@ it('enumerates every completed telescope overlap before assigning render layers'
       'wingXPosPos/wingYPosPos',
     ],
     lid: [
-      'gussetExtNegNeg/wingYNegNeg',
-      'gussetExtNegPos/wingYNegPos',
-      'gussetExtPosNeg/wingYPosNeg',
-      'gussetExtPosPos/wingYPosPos',
       'wallXNeg-inner/wallXNeg-outer',
       'wallXNeg-inner/wallXNeg-tongue',
       'wallXNeg-inner/wingXNegNeg',
@@ -522,12 +518,14 @@ it('enumerates every completed telescope overlap before assigning render layers'
   }
 
   for (const corner of ['NegNeg', 'NegPos', 'PosNeg', 'PosPos']) {
-    const xSign = corner.startsWith('Neg') ? 'Neg' : 'Pos';
-    const outer = panelOverlapPlan(`lid:wallX${xSign}-outer`, 0);
+    const ySign = corner.endsWith('Neg') ? 'Neg' : 'Pos';
+    const outer = panelOverlapPlan(`lid:wallY${ySign}-outer`, 0);
     const extension = panelOverlapPlan(`lid:gussetExt${corner}`, 0);
-    const inner = panelOverlapPlan(`lid:wallX${xSign}-inner`, 0);
-    expect(extension).not.toEqual(outer);
-    expect(extension).not.toEqual(inner);
+    const inner = panelOverlapPlan(`lid:wallY${ySign}-inner`, 0);
+    expect(outer.normalOffset).toBeLessThan(extension.normalOffset);
+    expect(extension.normalOffset).toBeLessThan(inner.normalOffset);
+    expect(outer.renderOrder).toBeLessThan(extension.renderOrder);
+    expect(extension.renderOrder).toBeLessThan(inner.renderOrder);
   }
 });
 
@@ -583,6 +581,8 @@ const GOLDEN_DISPLACEMENT_MULTIPLIER: Record<string, number> = {
   'wallXNeg-rim': 2,
   'wallXNeg-inner': 8,
   'wallXNeg-tongue': 9,
+  'wallYNeg-outer': 4,
+  'wallYNeg-inner': 8,
   wingXNegNeg: 6,
   wingYNegNeg: 5,
   flapNegNeg: 9,
@@ -677,7 +677,7 @@ it('ttsl: t=1 底部咬合四片＋頂部 topLid/topTuck/topDustP2/topDustP4/glu
   }
 });
 
-it('telescope: T9 手填 golden 覆蓋反摺、互卡、extension 與 jog 家族', () => {
+it('telescope: T11 手填 golden 覆蓋反摺、互卡、y 壁 extension 三明治與 jog 家族', () => {
   const base = telescopePieceModel('base');
   const lid = telescopePieceModel('lid');
   for (const [model, targets] of [
@@ -691,7 +691,7 @@ it('telescope: T9 手填 golden 覆蓋反摺、互卡、extension 與 jog 家族
       'flapNegNeg',
       'flapPosNeg',
     ]],
-    [lid, ['gussetExtNegNeg']],
+    [lid, ['wallYNeg-outer', 'gussetExtNegNeg', 'wallYNeg-inner']],
   ] as const) {
     const pose = foldPose(1, model);
     const geometry = worldGeometry(model, pose);
