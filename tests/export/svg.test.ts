@@ -263,7 +263,10 @@ describe('toSvgDocument', () => {
     });
 
     it('telescope 真實輸出：省略第二參數，輸出逐 byte 鎖定（golden 快照）', () => {
-      const result = telescope.generate(resolveParams(telescope));
+      const result = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       expect(toSvgDocument(result)).toMatchSnapshot();
     });
 

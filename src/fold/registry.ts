@@ -8,6 +8,7 @@ import {
   type FoldScenePiece,
   type FoldSceneSpec,
 } from './scene-spec';
+import type { FoldWorldUp } from './world-orientation';
 
 export interface FoldCapabilities {
   previewScene: boolean;
@@ -18,6 +19,7 @@ export interface FoldCapabilities {
 }
 
 export interface FoldSceneRegistryEntry {
+  worldUp: FoldWorldUp;
   capabilities: FoldCapabilities;
   sceneSpec?: (params: ResolvedParams) => FoldSceneSpec;
 }
@@ -29,6 +31,11 @@ export function registerFoldScene(
   boxId: string,
   entry: FoldSceneRegistryEntry,
 ): void {
+  if (entry.worldUp !== 'tube' && entry.worldUp !== 'tray') {
+    throw new Error(
+      `registerFoldScene "${boxId}": worldUp must be "tube" or "tray"`,
+    );
+  }
   const { previewScene } = entry.capabilities;
   const hasSceneSpec = entry.sceneSpec !== undefined;
   if (previewScene && !hasSceneSpec) {
@@ -47,6 +54,7 @@ export function registerFoldScene(
 
   const buildSceneSpec = entry.sceneSpec;
   FOLD_SCENE_REGISTRY[boxId] = {
+    worldUp: entry.worldUp,
     capabilities: { ...entry.capabilities },
     ...(buildSceneSpec === undefined
       ? {}
@@ -70,6 +78,7 @@ function registerSinglePiece(
   buildModel: FoldScenePiece['buildModel'],
 ): void {
   registerFoldScene(boxId, {
+    worldUp: 'tube',
     capabilities: FULL_CAPABILITIES,
     sceneSpec: () => ({
       pieces: [{
@@ -87,6 +96,7 @@ registerSinglePiece('ttsl', buildTtslFoldModel);
 registerSinglePiece('ttb', buildTtbFoldModel);
 
 registerFoldScene('telescope', {
+  worldUp: 'tray',
   capabilities: {
     previewScene: true,
     sampleArtwork: false,

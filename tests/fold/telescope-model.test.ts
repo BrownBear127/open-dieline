@@ -38,7 +38,7 @@ const AC_T1_LEGAL_ROWS: ReadonlyArray<{
   delta: Overrides;
 }> = [
   { caseId: 'M-01', delta: {} },
-  { caseId: 'M-02', delta: { linerEnabled: false } },
+  { caseId: 'M-02', delta: { linerEnabled: true } },
   { caseId: 'M-03', delta: { basePlatformWidth: 0 } },
   { caseId: 'M-04', delta: { lidPlatformWidth: 5 } },
   {
@@ -62,6 +62,7 @@ const AC_T1_LEGAL_ROWS: ReadonlyArray<{
       lidMarginY: 5,
       lidHeight: 17,
       linerFlapDepth: 5,
+      linerEnabled: true,
     },
   },
   {
@@ -196,8 +197,8 @@ function sourcePiece(generated: GenerateResult, pieceId: string) {
 }
 
 describe('Telescope per-piece fold topology', () => {
-  it('default：base=P+ chainFits、lid=P0、liner=5 面', () => {
-    const resolved = params();
+  it('liner on：base=P+ chainFits、lid=P0、liner=5 面', () => {
+    const resolved = params({ linerEnabled: true });
     const scene = buildTelescopeSceneSpec(resolved);
 
     expect(scene.pieces.map(({ pieceId }) => pieceId)).toEqual(['base', 'lid', 'liner']);
@@ -242,7 +243,7 @@ describe('Telescope per-piece fold topology', () => {
   });
 
   it('同一 params 的 scene 與所有 piece model 只 generate 一次', () => {
-    const resolved = params();
+    const resolved = params({ linerEnabled: true });
     const generate = vi.spyOn(telescope, 'generate');
 
     const scene = buildTelescopeSceneSpec(resolved);
@@ -253,7 +254,7 @@ describe('Telescope per-piece fold topology', () => {
   });
 
   it.each([
-    ['M-05 rootJog=0', { rootJog: 0 }, [29, 25, 5]],
+    ['M-05 rootJog=0', { rootJog: 0 }, [29, 25]],
     [
       'M-09 最小合法包絡',
       {
@@ -264,6 +265,7 @@ describe('Telescope per-piece fold topology', () => {
         lidMarginY: 5,
         lidHeight: 17,
         linerFlapDepth: 5,
+        linerEnabled: true,
       },
       [25, 25, 5],
     ],
@@ -277,7 +279,7 @@ describe('Telescope per-piece fold topology', () => {
         lidMarginY: 60,
         lidHeight: 200,
       },
-      [25, 25, 5],
+      [25, 25],
     ],
   ] as const)(
     '%s：合法尺寸仍能建立完整 per-piece topology',
@@ -293,10 +295,14 @@ describe('Telescope per-piece fold topology', () => {
 });
 
 describe('Telescope AC-T1 flat-space identity', () => {
-  it.each(['lid', 'base', 'liner'] as const)(
+  it.each([
+    ['lid', {}],
+    ['base', {}],
+    ['liner', { linerEnabled: true }],
+  ] as const)(
     'default %s：模型維持 2D 絕對座標，guide 全量逐值複製',
-    (pieceId) => {
-      const resolved = params();
+    (pieceId, overrides) => {
+      const resolved = params(overrides);
       const generated = telescope.generate(resolved);
       const piece = sourcePiece(generated, pieceId);
       const expectedGuide: FoldModel['dieline'] = generated.paths.flatMap(

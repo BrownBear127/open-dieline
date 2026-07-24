@@ -189,7 +189,7 @@ describe('FoldScene multi-piece runtime', () => {
 
   it('uses prefixed panel ids and removes every liner object when the next scene turns it off', () => {
     mockCanvasContext();
-    const onParams = resolveParams(telescope, {});
+    const onParams = resolveParams(telescope, { linerEnabled: true });
     const offParams = resolveParams(telescope, { linerEnabled: false });
     const onScene = resolveFoldSceneSpec(buildTelescopeSceneSpec(onParams), onParams);
     const offScene = resolveFoldSceneSpec(buildTelescopeSceneSpec(offParams), offParams);

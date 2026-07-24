@@ -236,8 +236,8 @@ const params: BoxParamDef[] = [
     key: 'linerEnabled',
     label: { zh: '內襯墊片', en: 'Liner pad' },
     unit: 'bool',
-    default: true,
-    group: { id: 'liner', zh: '內襯', en: 'Liner' },
+    default: false,
+    group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
       zh: '是否產生內襯墊片（2026-07-09 T7 gate 反饋重定義：平台式腳架墊片，放進下盒貼底、把物品墊高）。關閉時只輸出上蓋／下盒兩片，套合與定位需另外自理（如緊配或腰封）。',
       en: 'Liner-pad generation; under the 2026-07-09 T7 gate redefinition, produces a platform liner seated against the base with downward legs that raise the contents. When disabled, only the lid and base pieces are generated; fit and positioning require a separate solution, such as a friction fit or belly band.',

@@ -1465,7 +1465,7 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 
     expect(await screen.findByLabelText(paramLabel(telescope, 'baseLength'))).toBeInTheDocument(); // telescope 專屬參數出現
     const switchButtons = screen.getAllByRole('button', { name: /^(Full set|Base|Lid|Liner)$/ });
-    expect(switchButtons.map((b) => b.textContent)).toEqual([t('canvas.view.fullSet'), 'Base', 'Lid', 'Liner']);
+    expect(switchButtons.map((b) => b.textContent)).toEqual([t('canvas.view.fullSet'), 'Base', 'Lid']);
 
     expect(() => {
       fireEvent.change(select, { target: { value: 'rte' } });
@@ -1478,6 +1478,7 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     render(<App />);
     const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'telescope' } });
+    fireEvent.click(screen.getByLabelText(paramLabel(telescope, 'linerEnabled')));
     await screen.findByRole('button', { name: 'Liner' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Liner' }));
@@ -1485,9 +1486,10 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
 
     fireEvent.change(select, { target: { value: 'rte' } });
     fireEvent.change(select, { target: { value: 'telescope' } });
+    fireEvent.click(screen.getByLabelText(paramLabel(telescope, 'linerEnabled')));
 
     expect(await screen.findByRole('button', { name: t('canvas.view.fullSet') })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Liner' })).toHaveAttribute('aria-pressed', 'false');
+    expect(await screen.findByRole('button', { name: 'Liner' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   // ── FX5（whole-branch review 修復）：selectedPieceId 復活 snap-back ──
@@ -1503,6 +1505,7 @@ describe('useParams：切換盒型時不因殘留 overrides 而 crash（final re
     render(<App />);
     const select = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(select, { target: { value: 'telescope' } });
+    fireEvent.click(screen.getByLabelText(paramLabel(telescope, 'linerEnabled')));
     await screen.findByRole('button', { name: 'Liner' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Liner' }));

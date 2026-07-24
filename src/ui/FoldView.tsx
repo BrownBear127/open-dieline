@@ -23,6 +23,7 @@ import {
 } from '@/fold/scene-spec';
 import type { FoldModel } from '@/fold/types';
 import { validateFoldModel } from '@/fold/validate';
+import type { FoldWorldUp } from '@/fold/world-orientation';
 import { t } from '@/i18n/t';
 import {
   clearInitialFoldProgress,
@@ -114,13 +115,14 @@ function replaceResolvedScene(
   handle: FoldSceneHandle,
   scene: ResolvedSceneSpec,
   thickness: number,
+  worldUp: FoldWorldUp,
 ): void {
   const onlyPiece = scene.pieces.length === 1 ? scene.pieces[0] : undefined;
   if (onlyPiece !== undefined) {
-    handle.replaceModel(onlyPiece.model, { thickness });
+    handle.replaceModel(onlyPiece.model, { thickness, worldUp });
     return;
   }
-  handle.replaceScene(scene, { thickness });
+  handle.replaceScene(scene, { thickness, worldUp });
 }
 
 export interface FoldViewProps {
@@ -414,6 +416,9 @@ export function FoldView({
   artworkSignatureRef.current = artworkSignature;
   const resolvedSceneRef = useRef(resolvedScene);
   resolvedSceneRef.current = resolvedScene;
+  const worldUp = registryEntry?.worldUp;
+  const worldUpRef = useRef(worldUp);
+  worldUpRef.current = worldUp;
   const thickness = values.thickness as number;
   const thicknessRef = useRef(thickness);
   thicknessRef.current = thickness;
@@ -819,10 +824,15 @@ export function FoldView({
   }, [artwork, artworkSignature, currentEditorSession]);
 
   useEffect(() => {
-    if (canCreateScene && resolvedScene !== undefined && sceneRef.current !== null) {
-      replaceResolvedScene(sceneRef.current, resolvedScene, thickness);
+    if (
+      canCreateScene
+      && resolvedScene !== undefined
+      && sceneRef.current !== null
+      && worldUp !== undefined
+    ) {
+      replaceResolvedScene(sceneRef.current, resolvedScene, thickness, worldUp);
     }
-  }, [canCreateScene, resolvedScene, thickness]);
+  }, [canCreateScene, resolvedScene, thickness, worldUp]);
 
   useEffect(() => {
     if (!canCreateScene) return;
@@ -873,8 +883,14 @@ export function FoldView({
       scene = nextScene;
       sceneRef.current = nextScene;
       const currentScene = resolvedSceneRef.current;
-      if (currentScene !== undefined) {
-        replaceResolvedScene(nextScene, currentScene, thicknessRef.current);
+      const currentWorldUp = worldUpRef.current;
+      if (currentScene !== undefined && currentWorldUp !== undefined) {
+        replaceResolvedScene(
+          nextScene,
+          currentScene,
+          thicknessRef.current,
+          currentWorldUp,
+        );
       }
       if (customArtworkSupported && customSourceRef.current !== null) {
         nextScene.installCustomSource(customSourceRef.current);

@@ -281,7 +281,8 @@ test('telescope preview renders prefixed pieces at flat, folded, and assembled s
       hook('liner:linerPad', true),
     ];
   });
-  expect(panelHookResults).toEqual([true, true, true]);
+  // liner 預設關閉：default 場景不含 liner piece，hook 必須回報缺席。
+  expect(panelHookResults).toEqual([true, true, false]);
 
   const artworkGroup = page.getByRole('group', {
     name: dict['fold.art.label'].en,

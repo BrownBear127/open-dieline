@@ -54,26 +54,43 @@ function syntheticAllTypes(): GenerateResult {
 
 const CASES: Array<{ name: string; make: () => GenerateResult }> = [
   { name: 'rte-default', make: () => reverseTuckEnd.generate(resolveParams(reverseTuckEnd)) },
-  { name: 'telescope-default', make: () => telescope.generate(resolveParams(telescope)) },
+  // Historical A2 fixtures stay liner-on so the geometry/export baseline remains byte-identical
+  // while the application default changes independently to opt-in.
+  {
+    name: 'telescope-default',
+    make: () => telescope.generate(resolveParams(
+      telescope,
+      { linerEnabled: true },
+    )),
+  },
   { name: 'synthetic-all-types', make: syntheticAllTypes },
   {
     name: 'telescope-lid',
     make: () => {
-      const full = telescope.generate(resolveParams(telescope));
+      const full = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'lid')!);
     },
   },
   {
     name: 'telescope-base',
     make: () => {
-      const full = telescope.generate(resolveParams(telescope));
+      const full = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'base')!);
     },
   },
   {
     name: 'telescope-liner',
     make: () => {
-      const full = telescope.generate(resolveParams(telescope));
+      const full = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'liner')!);
     },
   },

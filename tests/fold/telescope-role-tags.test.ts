@@ -31,7 +31,10 @@ function semantics(path: DielinePath): string[] {
 }
 
 describe('telescope 2D crease role tags', () => {
-  const generated = telescope.generate(resolveParams(telescope, {}));
+  const generated = telescope.generate(resolveParams(
+    telescope,
+    { linerEnabled: true },
+  ));
   const base = piecePaths(generated, 'base');
   const lid = piecePaths(generated, 'lid');
   const liner = piecePaths(generated, 'liner');

@@ -30,7 +30,7 @@ function replacePiece(
 
 describe('Telescope assembly tracks', () => {
   it('on 態以幕一三拍裝 liner，再以幕二 F3 四拍裝 lid', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const scene = buildTelescopeSceneSpec(params);
     const base = scene.pieces.find(({ pieceId }) => pieceId === 'base')!;
     const liner = scene.pieces.find(({ pieceId }) => pieceId === 'liner')!;
@@ -50,14 +50,14 @@ describe('Telescope assembly tracks', () => {
   });
 
   it('AC-T4b ⓪-④ 與 AC-T4 全組裝段在 on 態通過', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const scene = buildTelescopeSceneSpec(params);
     expect(telescopeAssemblyOracleViolations(scene, params)).toEqual([]);
     expect(telescopeAssemblyClearanceViolations(scene, params)).toEqual([]);
   }, 30_000);
 
   it('oracle sabotage：錯翻軸與錯 z 序都 fail-loud', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const scene = buildTelescopeSceneSpec(params);
     const wrongAxis = replacePiece(scene, 'lid', (piece) => ({
       ...piece,
@@ -90,7 +90,7 @@ describe('Telescope assembly tracks', () => {
   });
 
   it('clearance sabotage：取消抬升並穿過 base 會被逐拍掃描抓到', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const scene = buildTelescopeSceneSpec(params);
     const lid = scene.pieces.find(({ pieceId }) => pieceId === 'lid')!;
     const finalPosition = lid.assemblyTrack.at(-1)!.position;
@@ -112,7 +112,7 @@ describe('Telescope assembly tracks', () => {
   }, 30_000);
 
   it('liner seating corridor 不是 blanket skip：水平越界仍 fail-loud', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const scene = buildTelescopeSceneSpec(params);
     const broken = replacePiece(scene, 'liner', (piece) => ({
       ...piece,

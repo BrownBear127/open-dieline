@@ -1057,7 +1057,7 @@ export function buildTelescopeSceneSpec(params: ResolvedParams): FoldSceneSpec {
     piece.id,
     buildPieceModel(params, piece.id, generated),
   ]));
-  const linerEnabled = params.linerEnabled !== false;
+  const linerEnabled = params.linerEnabled === true;
   const tracks = assemblyTracks(params, models, linerEnabled);
   return defineFoldSceneSpec({
     pieces: pieces.map((piece) => ({

@@ -251,6 +251,7 @@ describe('App：模式往返 state 保留（spec F6「模式往返」：逐欄�
     const boxSelect = screen.getByLabelText(t('console.boxStyle'));
     fireEvent.change(boxSelect, { target: { value: 'telescope' } });
     const lidButton = await screen.findByRole('button', { name: 'Lid' }); // 等切盒完成（telescope 的片切換鈕出現）
+    fireEvent.click(screen.getByLabelText(paramLabel(telescope, 'linerEnabled')));
 
     // ── design 模式：選單片視圖「上蓋」(lid)——之後驗證這顆 selectedPieceId 不受拼版端的
     //    pieceId 改動污染（F6「state 分離」，跟下面拼版件選擇刻意選不同片）。
@@ -359,6 +360,7 @@ describe('App：impositionState.pieceId 生命週期（spec F6「state 分離」
   it('天地盒選內襯(liner)後關閉「內襯墊片」(linerEnabled=false)：件下拉即時 fallback 回下盒(base)——不需切模式，ParamPanel 在拼版模式仍可調', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText(t('console.boxStyle')), { target: { value: 'telescope' } });
+    fireEvent.click(screen.getByLabelText(paramLabel(telescope, 'linerEnabled')));
     switchToImposition();
 
     const pieceSelect = screen.getByLabelText(t('imp.piece')) as HTMLSelectElement;
@@ -379,6 +381,7 @@ describe('App：impositionState.pieceId 生命週期（spec F6「state 分離」
     const boxSelect = screen.getByLabelText(t('console.boxStyle'));
 
     fireEvent.change(boxSelect, { target: { value: 'telescope' } });
+    fireEvent.click(screen.getByLabelText(paramLabel(telescope, 'linerEnabled')));
     switchToImposition();
 
     const pieceSelect = screen.getByLabelText(t('imp.piece')) as HTMLSelectElement;

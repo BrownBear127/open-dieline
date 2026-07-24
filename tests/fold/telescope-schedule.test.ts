@@ -25,7 +25,7 @@ function stepFor(
 
 describe('Telescope per-piece schedule', () => {
   it('scene 以 TELESCOPE_FOLD_WINDOWS 建立 base/lid/liner 三片 foldWindow', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const scene = buildTelescopeSceneSpec(params);
 
     expect(scene.pieces.map(({ pieceId, foldWindow }) => [pieceId, foldWindow]))
@@ -112,7 +112,7 @@ describe('Telescope per-piece schedule', () => {
   });
 
   it('liner 四腿在自己的單一窗下摺，off 態不建立 liner piece', () => {
-    const liner = model('liner');
+    const liner = model('liner', { linerEnabled: true });
     const legs = liner.panels.filter(({ id }) => id.startsWith('linerLeg'));
 
     expect(legs).toHaveLength(4);
@@ -134,7 +134,7 @@ describe('Telescope per-piece schedule', () => {
       'lid',
       { basePlatformWidth: 0, lidPlatformWidth: 5, lidHeight: 60 },
     ],
-    ['liner', 'liner', {}],
+    ['liner', 'liner', { linerEnabled: true }],
   ] as const)('%s：每個非 root panel 恰屬於一個 step', (_label, pieceId, overrides) => {
     const foldModel = model(pieceId, overrides);
     for (const panel of foldModel.panels.filter(({ parent }) => parent !== null)) {

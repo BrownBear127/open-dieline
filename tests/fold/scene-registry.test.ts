@@ -32,6 +32,7 @@ function sceneEntry(
   withSceneSpec: boolean,
 ): FoldSceneRegistryEntry {
   return {
+    worldUp: 'tube',
     capabilities,
     sceneSpec: withSceneSpec
       ? () => defineFoldSceneSpec({
@@ -53,6 +54,7 @@ describe('Fold scene capability registry', () => {
     ['ttb', triangularTube],
   ] as const)('wraps %s as one fully capable scene piece', (boxId, box) => {
     const entry = FOLD_SCENE_REGISTRY[boxId];
+    expect(entry?.worldUp).toBe('tube');
     expect(entry?.capabilities).toEqual({
       previewScene: true,
       sampleArtwork: true,
@@ -73,14 +75,15 @@ describe('Fold scene capability registry', () => {
   });
 
   it.each([
-    ['liner-on', {}, ['base', 'lid', 'liner']],
-    ['liner-off', { linerEnabled: false }, ['base', 'lid']],
+    ['liner-off-default', {}, ['base', 'lid']],
+    ['liner-on', { linerEnabled: true }, ['base', 'lid', 'liner']],
   ] as const)('registers telescope as preview-only (%s)', (
     _caseId,
     delta,
     expectedPieceIds,
   ) => {
     const entry = FOLD_SCENE_REGISTRY.telescope;
+    expect(entry?.worldUp).toBe('tray');
     expect(entry?.capabilities).toEqual({
       previewScene: true,
       sampleArtwork: false,
@@ -104,6 +107,19 @@ describe('Fold scene capability registry', () => {
     )).toThrow(/previewScene=true.*sceneSpec/);
   });
 
+  it.each([
+    ['missing', undefined],
+    ['invalid', 'upright'],
+  ])('fails loud when worldUp is %s', (_caseId, worldUp) => {
+    expect(() => registerFoldScene(
+      `__invalid-world-up-${_caseId}`,
+      {
+        ...sceneEntry({ ...NO_CAPABILITIES, previewScene: true }, true),
+        worldUp,
+      } as FoldSceneRegistryEntry,
+    )).toThrow(/worldUp.*tube.*tray/);
+  });
+
   it('fails loud when sceneSpec exists while previewScene=false', () => {
     expect(() => registerFoldScene(
       '__invalid-extra-scene',
@@ -114,6 +130,7 @@ describe('Fold scene capability registry', () => {
   it('validates every registered sceneSpec result at build time', () => {
     const boxId = '__invalid-window-on-build';
     registerFoldScene(boxId, {
+      worldUp: 'tube',
       capabilities: { ...NO_CAPABILITIES, previewScene: true },
       sceneSpec: () => ({
         pieces: [{

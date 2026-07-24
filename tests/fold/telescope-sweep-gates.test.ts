@@ -23,7 +23,7 @@ const LEGAL_ROWS: Array<{
   fired: string[];
 }> = [
   { caseId: 'M-01', delta: {}, fired: [] },
-  { caseId: 'M-02', delta: { linerEnabled: false }, fired: [] },
+  { caseId: 'M-02', delta: { linerEnabled: true }, fired: [] },
   { caseId: 'M-03', delta: { basePlatformWidth: 0 }, fired: [] },
   {
     caseId: 'M-04',
@@ -53,6 +53,7 @@ const LEGAL_ROWS: Array<{
       lidMarginY: 5,
       lidHeight: 17,
       linerFlapDepth: 5,
+      linerEnabled: true,
     },
     fired: [
       'gusset-relief-omitted',
@@ -96,7 +97,7 @@ const FORBIDDEN_ROWS = [
   },
   {
     caseId: 'M-13',
-    delta: { baseLength: 40, baseWidth: 30 },
+    delta: { baseLength: 40, baseWidth: 30, linerEnabled: true },
     invariantId: 'tongue-flap-fits',
   },
 ] as const;

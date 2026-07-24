@@ -15,6 +15,7 @@ const PREVIEW_ONLY_ID = '__preview-only-capability-test';
 const VALUES = resolveParams(reverseTuckEnd, {});
 
 registerFoldScene(PREVIEW_ONLY_ID, {
+  worldUp: 'tube',
   capabilities: {
     previewScene: true,
     sampleArtwork: false,
@@ -94,7 +95,7 @@ describe('FoldView atomic capability consumption', () => {
       canvas: document.createElement('canvas'),
       signature: 'must-not-enter-telescope-preview',
     };
-    const linerOn = resolveParams(telescope, {});
+    const linerOn = resolveParams(telescope, { linerEnabled: true });
     const linerOff = resolveParams(telescope, { linerEnabled: false });
     const view = render(
       <FoldView

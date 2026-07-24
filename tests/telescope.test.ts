@@ -1381,8 +1381,16 @@ describe('telescope: liner 導出鏈（deriveLinerFrame／generateLiner，2026-0
   });
 
   it('lidMarginX／lidMarginY 改變不影響 liner 片幾何尺寸（重定義核心語意：底面錨定＝下盒內淨，不再是上蓋內淨；F1 拆兩軸後兩軸都要驗）', () => {
-    const a = genTelescope({ lidMarginX: 13.5, lidMarginY: 18.5 });
-    const b = genTelescope({ lidMarginX: 20, lidMarginY: 40 });
+    const a = genTelescope({
+      linerEnabled: true,
+      lidMarginX: 13.5,
+      lidMarginY: 18.5,
+    });
+    const b = genTelescope({
+      linerEnabled: true,
+      lidMarginX: 20,
+      lidMarginY: 40,
+    });
     const dimsOf = (bd: { minX: number; maxX: number; minY: number; maxY: number }) => ({ w: bd.maxX - bd.minX, h: bd.maxY - bd.minY });
     const linerA = a.pieces!.find((p) => p.id === 'liner')!;
     const linerB = b.pieces!.find((p) => p.id === 'liner')!;
@@ -1391,8 +1399,8 @@ describe('telescope: liner 導出鏈（deriveLinerFrame／generateLiner，2026-0
 });
 
 describe('telescope: pieces 分組（linerEnabled 開關／pieces-identity 防對調）', () => {
-  it('linerEnabled=true（預設）→ pieces=[base,lid,liner]，各片 pathIds/textIds 非空，validatePieces 通過', () => {
-    const result = genTelescope();
+  it('linerEnabled=true（顯式 opt-in）→ pieces=[base,lid,liner]，各片 pathIds/textIds 非空，validatePieces 通過', () => {
+    const result = genTelescope({ linerEnabled: true });
     expect(result.pieces?.map((p) => p.id)).toEqual(['base', 'lid', 'liner']);
     for (const piece of result.pieces!) {
       expect(piece.pathIds.length, `${piece.id} pathIds 應非空`).toBeGreaterThan(0);
@@ -1401,8 +1409,8 @@ describe('telescope: pieces 分組（linerEnabled 開關／pieces-identity 防�
     expect(validatePieces(result)).toEqual({ ok: true });
   });
 
-  it('linerEnabled=false → pieces=[base,lid] 兩片，不產生任何 liner- 開頭的 path，validatePieces 通過', () => {
-    const result = genTelescope({ linerEnabled: false });
+  it('linerEnabled 未提供（預設 false）→ pieces=[base,lid] 兩片，不產生任何 liner- 開頭的 path，validatePieces 通過', () => {
+    const result = genTelescope();
     expect(result.pieces?.map((p) => p.id)).toEqual(['base', 'lid']);
     expect(result.paths.some((p) => p.id.startsWith('liner-')), '不應殘留任何 liner path').toBe(false);
     expect(validatePieces(result)).toEqual({ ok: true });
@@ -1492,14 +1500,17 @@ describe('telescope: 標註起點對齊後摺壁外線（Fix1 review：yEdge 改
 
 describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 liner-flange-fits，3 條參數域邊界）', () => {
   it('預設參數（flapDepth=15 < baseHeight=60，底面 176.8×121.8>0，flapDepth<底面邊長一半）通過', () => {
-    const params = resolveParams(telescope);
+    const params = resolveParams(telescope, { linerEnabled: true });
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     expect(inv.check(params, result)).toMatchObject({ ok: true });
   });
 
   it('條件 1——腳架深度超過下盒壁高（linerFlapDepth > baseHeight）→ 警告', () => {
-    const params = resolveParams(telescope, { baseHeight: 10 }); // flapDepth 預設 15 > 10
+    const params = resolveParams(telescope, {
+      linerEnabled: true,
+      baseHeight: 10,
+    }); // flapDepth 預設 15 > 10
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     const outcome = inv.check(params, result);
@@ -1508,7 +1519,10 @@ describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 
   });
 
   it('條件 1 邊界（非嚴格大於）：flapDepth 恰等於 baseHeight 時通過', () => {
-    const params = resolveParams(telescope, { baseHeight: 15 }); // = 預設 linerFlapDepth
+    const params = resolveParams(telescope, {
+      linerEnabled: true,
+      baseHeight: 15,
+    }); // = 預設 linerFlapDepth
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     expect(inv.check(params, result)).toMatchObject({ ok: true });
@@ -1517,7 +1531,11 @@ describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 
   it('條件 2——極端參數使底面非正值（padL/padW ≤ 0）→ 警告「底面不存在」（超出宣告 UI 範圍的防禦檢查）', () => {
     // resolveParams 不驗證 override 值域（只驗 key 存在），可用來直接構造超出宣告 min 的案例：
     // baseLength=1、linerFitGap=2 → baseInnerL=1−1.2=−0.2、padL=−0.2−4=−4.2<0。
-    const params = resolveParams(telescope, { baseLength: 1, linerFitGap: 2 });
+    const params = resolveParams(telescope, {
+      linerEnabled: true,
+      baseLength: 1,
+      linerFitGap: 2,
+    });
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     const outcome = inv.check(params, result);
@@ -1528,7 +1546,10 @@ describe('telescope: liner-flap-fits（2026-07-09 T7 gate 重定義——取代 
   it('條件 3——腳架深度超過底面邊長一半（翼片外緣反轉）→ 警告（單一 mm 參數 min/max 掃描會踩到的真實案例：baseWidth=30）', () => {
     // baseWidth=30（宣告 min）、其餘預設：padW=30−4×0.3−2×0.5=27.8，
     // flapDepth=15 > 27.8/2=13.9 → 翼片外緣＝27.8−30=−2.2<0，反轉。
-    const params = resolveParams(telescope, { baseWidth: 30 });
+    const params = resolveParams(telescope, {
+      linerEnabled: true,
+      baseWidth: 30,
+    });
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     const outcome = inv.check(params, result);
@@ -1643,8 +1664,8 @@ describe('telescope: notch-reduced／notch-omitted／platform-corner-omitted（U
     // 只排除 tongueFlap／linerFlap 兩個 tag——這兩者是 tongue-flap-fits／liner-flap-fits
     // 既有、已記錄在案、與本輪 Fix 2（uNotch/aGussetPeriphery）無關的獨立已知降級（見
     // BOUNDARY_EXEMPT_TAGS 對這兩條 invariant 的豁免仍保留，以及「豁免案例現狀記錄」
-    // 系列測試）；S3（baseWidth=30<33）會觸發 tongue-flap-fits，預設 linerEnabled=true
-    // 下 baseWidth=30 也會觸發 liner-flap-fits 條件 3（翼片外緣反轉）——兩者都是已知、
+    // 系列測試）；S3（baseWidth=30<33）會觸發 tongue-flap-fits；顯式開啟 liner 時，
+    // baseWidth=30 也會觸發 liner-flap-fits 條件 3（翼片外緣反轉）——兩者都是已知、
     // 已測試涵蓋的獨立退化，混進本測試的斷言範圍只會製造假失敗，不代表 Fix 2 沒修好。
     const cases: Array<[string, Record<string, number>]> = [
       ['S1（production-P 對應等效組）', { baseLength: 179, baseWidth: 124, basePlatformWidth: 5 }],
@@ -1748,12 +1769,9 @@ describe('telescope: tongue-crease-shrunk／tongue-crease-omitted／relief-omitt
 //
 // 與 tests/boxes/param-sweep.test.ts「S1-S7 矩陣」（Task 5，spec 原文明點的正式落地
 // 位置）的差異：本檔 warningSet() 用 resolveParams(telescope, overrides) 直接疊 schema
-// 預設，不像 param-sweep 版疊 PRODUCTION_P fixture（PRODUCTION_P.linerEnabled=false，
-// 本檔 schema 預設 linerEnabled=true）——這個差異只在 S3（baseWidth=30<33）顯現：
-// linerEnabled=true 下 baseWidth=30 額外頂到內襯翼片外緣反轉門檻，多觸發一個
-// liner-flap-fits（與上方「S1-S4：cut 自交零斷言」測試開頭註解「S3 會觸發
-// tongue-flap-fits，預設 linerEnabled=true 下 baseWidth=30 也會觸發 liner-flap-fits」
-// 逐字一致），S3 因此比 param-sweep 版多一項（六項，見下方）。其餘六組
+// 預設；S3 另顯式打開 liner，讓 baseWidth=30 額外頂到內襯翼片外緣反轉門檻，多觸發一個
+// liner-flap-fits（與上方「S1-S4：cut 自交零斷言」測試開頭註解一致），S3 因此比
+// param-sweep 版多一項（六項，見下方）。其餘六組
 // （S1/S2/S4/S5/S6/S7）與 param-sweep 版逐組交叉核對完全一致。
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1766,10 +1784,12 @@ describe('telescope: S1-S7 warning 矩陣（spec §驗收 4，B 款新增三條�
    * 排除在集合外——但 spec §驗收 4 表 S3 明列「＋既有 tongue-flap-fits（如觸發）」，可見
    * 既有 invariant 觸發與否本就是預期集合的一部分，舊篩選下這條既有 warning 意外出現或
    * 消失，矩陣仍全綠、測試偵測不到。見上方檔頭註解——本檔 overrides 疊在 schema 預設
-   * （linerEnabled=true）上，S3 因此比 param-sweep.test.ts 的 PRODUCTION_P 版
+   * （S3 顯式 linerEnabled=true）上，S3 因此比 param-sweep.test.ts 的 PRODUCTION_P 版
    * （linerEnabled=false）多觸發一項 liner-flap-fits，見下方 S3 區塊）。
    */
-  function warningSet(overrides: Record<string, number>): Set<string> {
+  function warningSet(
+    overrides: Record<string, number | boolean>,
+  ): Set<string> {
     const params = resolveParams(telescope, overrides);
     const result = telescope.generate(params);
     const fired = new Set<string>();
@@ -1787,8 +1807,12 @@ describe('telescope: S1-S7 warning 矩陣（spec §驗收 4，B 款新增三條�
     expect(warningSet({ baseLength: 60, baseWidth: 40 })).toEqual(new Set(['notch-reduced', 'tongue-crease-shrunk', 'gusset-relief-omitted']));
   });
 
-  it('S3（baseLength=40,baseWidth=30）：{notch-reduced, notch-omitted, tongue-crease-shrunk, gusset-relief-omitted, tongue-flap-fits, liner-flap-fits}（無 relief-omitted；後兩項為既有 module invariant，本檔 schema 預設 linerEnabled=true 下皆觸發——見上方檔頭與 warningSet() 註解，比 param-sweep.test.ts 版多一項 liner-flap-fits）', () => {
-    expect(warningSet({ baseLength: 40, baseWidth: 30 })).toEqual(new Set(['notch-reduced', 'notch-omitted', 'tongue-crease-shrunk', 'gusset-relief-omitted', 'tongue-flap-fits', 'liner-flap-fits']));
+  it('S3（baseLength=40,baseWidth=30,linerEnabled=true）：完整 warning 集合含 liner-flap-fits', () => {
+    expect(warningSet({
+      baseLength: 40,
+      baseWidth: 30,
+      linerEnabled: true,
+    })).toEqual(new Set(['notch-reduced', 'notch-omitted', 'tongue-crease-shrunk', 'gusset-relief-omitted', 'tongue-flap-fits', 'liner-flap-fits']));
   });
 
   it('S4（basePlatformWidth=2）：{platform-corner-omitted}', () => {
@@ -1889,7 +1913,7 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
   /** 兩種常見組態（含/不含 liner、厚壁/薄壁角撐）的 path tags 聯集——當「真實 tag 字典」，
    *  用來驗證不變式回傳的 tags 不是憑空字串（未命中任何 path 等於 canvas 高亮 no-op）。 */
   function realPathTagVocabulary(): Set<string> {
-    const withLiner = genTelescope();
+    const withLiner = genTelescope({ linerEnabled: true });
     const withoutLinerThinWalls = genTelescope({ linerEnabled: false, basePlatformWidth: 0, lidPlatformWidth: 0 });
     const all = [...withLiner.paths, ...withoutLinerThinWalls.paths];
     return new Set(all.flatMap((p) => p.tags ?? []));
@@ -1910,7 +1934,10 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
 
   it('liner-flap-fits：警告 tags 全部命中真實 path tag（2026-07-09 T7 gate 重定義，取代 liner-flange-fits）', () => {
     const vocab = realPathTagVocabulary();
-    const params = resolveParams(telescope, { baseHeight: 10 }); // flapDepth 預設 15 > baseHeight 10
+    const params = resolveParams(telescope, {
+      linerEnabled: true,
+      baseHeight: 10,
+    }); // flapDepth 預設 15 > baseHeight 10
     const result = telescope.generate(params);
     const inv = telescope.invariants.find((i) => i.id === 'liner-flap-fits')!;
     const outcome = inv.check(params, result);
@@ -2022,16 +2049,16 @@ describe('telescope: 不變式 tags 對應真實幾何（FX4——Canvas highlig
 });
 
 describe('telescope: 全部不變式在預設參數下通過（linerEnabled 開關兩態都驗）', () => {
-  it('linerEnabled=true（預設）', () => {
-    const params = resolveParams(telescope);
+  it('linerEnabled=true（顯式 opt-in）', () => {
+    const params = resolveParams(telescope, { linerEnabled: true });
     const result = telescope.generate(params);
     for (const inv of telescope.invariants) {
       expect(inv.check(params, result), inv.id).toMatchObject({ ok: true });
     }
   });
 
-  it('linerEnabled=false', () => {
-    const params = resolveParams(telescope, { linerEnabled: false });
+  it('linerEnabled=false（預設）', () => {
+    const params = resolveParams(telescope);
     const result = telescope.generate(params);
     for (const inv of telescope.invariants) {
       expect(inv.check(params, result), inv.id).toMatchObject({ ok: true });
@@ -2067,8 +2094,13 @@ describe('telescope: 假旋鈕（每個宣告參數都接線，spec §8；15 參
     // lidMargin 拆 lidMarginX/lidMarginY（+1）、F3 新增 rootJog/innerWallReduction/
     // wallTopCompensation（+3）——11+1+3＝15。
     expect(telescope.params, '11（舊）+1（lidMargin 拆兩軸）+3（F3 新增三補償）＝15').toHaveLength(15);
-    const base = normalizeSegments(genTelescope().paths.flatMap((p) => p.segments));
     for (const param of telescope.params) {
+      const baseOverrides = param.key === 'linerEnabled'
+        ? {}
+        : { linerEnabled: true };
+      const base = normalizeSegments(
+        genTelescope(baseOverrides).paths.flatMap((p) => p.segments),
+      );
       const alt =
         ALT_OVERRIDES[param.key] ??
         (param.unit === 'bool'
@@ -2076,7 +2108,10 @@ describe('telescope: 假旋鈕（每個宣告參數都接線，spec §8；15 參
           : param.unit === 'enum'
             ? param.options!.find((o) => o.value !== param.default)!.value
             : Math.min(param.max ?? 999, (param.default as number) + Math.max(param.step ?? 1, 1)));
-      const out = normalizeSegments(genTelescope({ [param.key]: alt }).paths.flatMap((s) => s.segments));
+      const out = normalizeSegments(genTelescope({
+        ...baseOverrides,
+        [param.key]: alt,
+      }).paths.flatMap((s) => s.segments));
       expect(out, `參數 ${param.key} 未接線`).not.toEqual(base);
     }
   });
@@ -2084,7 +2119,7 @@ describe('telescope: 假旋鈕（每個宣告參數都接線，spec §8；15 參
 
 describe('telescope: golden 快照（預設參數，t=0.3）', () => {
   it('golden 快照', () => {
-    const result = genTelescope();
+    const result = genTelescope({ linerEnabled: true });
     expect(normalizeSegments(result.paths.flatMap((p) => p.segments))).toMatchSnapshot();
   });
 });

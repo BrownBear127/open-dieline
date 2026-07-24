@@ -38,6 +38,13 @@ import type {
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
 import {
+  modelYToThree,
+  modelVertexToThree,
+  modelVertexToWorld,
+  SCENE_TO_WORLD_QUATERNIONS,
+  type FoldWorldUp,
+} from '../fold/world-orientation';
+import {
   PAPER_RECIPE_BASE_COLORS,
   type FoldRecipeName,
 } from './fold-paper-colors';
@@ -70,7 +77,6 @@ const SHADOW_TEXTURE_SIZE = 256;
 const SHADOW_PADDING_FACTOR = 1.18;
 const SHADOW_MIN_SPAN_FACTOR = 0.35;
 const SHADOW_LIFT_OFFSET_FACTOR = 0.003;
-const DIELINE_TO_THREE_Y = -1;
 const PAPER_TEXTURE_SIZE = 512;
 const PAPER_PATTERN_UNITS = 5;
 const ROUGHNESS_COORDINATE_SCALE = 1.5;
@@ -713,8 +719,7 @@ export const FOLD_RECIPES: Record<FoldRecipeName, FoldRecipe> = {
 export const FOLD_DEFAULT_RECIPE: 'kraft' = 'kraft';
 
 function mapDielineY(y: number): number {
-  if (y === 0) return 0;
-  return y * DIELINE_TO_THREE_Y;
+  return modelYToThree(y);
 }
 
 function writeThreeVertex(
@@ -738,7 +743,7 @@ function writePosition(
 }
 
 function toThreeVertex(vertex: Vec3): Vec3 {
-  return { x: vertex.x, y: mapDielineY(vertex.y), z: vertex.z };
+  return modelVertexToThree(vertex);
 }
 
 function normalizedFaceNormal(first: Vec3, second: Vec3, third: Vec3): Vec3 | null {
@@ -1243,8 +1248,8 @@ export interface CustomArtworkSource {
 
 export interface FoldSceneHandle {
   updatePose(t: number): void;
-  replaceModel(model: FoldModel, opts?: { thickness?: number }): void;
-  replaceScene(scene: ResolvedSceneSpec, opts?: { thickness?: number }): void;
+  replaceModel(model: FoldModel, opts?: FoldSceneReplaceOptions): void;
+  replaceScene(scene: ResolvedSceneSpec, opts?: FoldSceneReplaceOptions): void;
   setAutoRotate(on: boolean): void;
   applyRecipe(name: FoldRecipeName): void;
   applyArtwork(mode: ArtworkMode): void;
@@ -1252,6 +1257,11 @@ export interface FoldSceneHandle {
   removeCustomSource(): void;
   resize(width: number, height: number): void;
   dispose(): void;
+}
+
+export interface FoldSceneReplaceOptions {
+  thickness?: number;
+  worldUp?: FoldWorldUp;
 }
 
 export interface GeometryBounds {
@@ -1558,30 +1568,31 @@ function disposeContactShadow(shadow: ContactShadow): void {
 
 function boundsForGeometry(
   geometryByPanel: ReadonlyMap<string, Vec3[]>,
+  worldUp: FoldWorldUp,
 ): GeometryBounds | null {
   let bounds: GeometryBounds | null = null;
 
   for (const vertices of geometryByPanel.values()) {
     for (const vertex of vertices) {
-      const y = mapDielineY(vertex.y);
+      const world = modelVertexToWorld(vertex, worldUp);
       if (!bounds) {
         bounds = {
-          minX: vertex.x,
-          maxX: vertex.x,
-          minY: y,
-          maxY: y,
-          minZ: vertex.z,
-          maxZ: vertex.z,
+          minX: world.x,
+          maxX: world.x,
+          minY: world.y,
+          maxY: world.y,
+          minZ: world.z,
+          maxZ: world.z,
         };
         continue;
       }
 
-      bounds.minX = Math.min(bounds.minX, vertex.x);
-      bounds.maxX = Math.max(bounds.maxX, vertex.x);
-      bounds.minY = Math.min(bounds.minY, y);
-      bounds.maxY = Math.max(bounds.maxY, y);
-      bounds.minZ = Math.min(bounds.minZ, vertex.z);
-      bounds.maxZ = Math.max(bounds.maxZ, vertex.z);
+      bounds.minX = Math.min(bounds.minX, world.x);
+      bounds.maxX = Math.max(bounds.maxX, world.x);
+      bounds.minY = Math.min(bounds.minY, world.y);
+      bounds.maxY = Math.max(bounds.maxY, world.y);
+      bounds.minZ = Math.min(bounds.minZ, world.z);
+      bounds.maxZ = Math.max(bounds.maxZ, world.z);
     }
   }
 
@@ -1646,6 +1657,33 @@ export function cameraOrbitPosition(
     y: target.y + distance * Math.sin(elevation),
     z: target.z + horizontalDistance * Math.cos(azimuth),
   };
+}
+
+const TRAY_OPENING_ELEVATION_DEG = 75;
+const TRAY_ASSEMBLY_ELEVATION_DEG = 30;
+
+function smoothstepUnit(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function trayAssemblyStart(scene: ResolvedSceneSpec): number {
+  const starts = scene.pieces
+    .map(({ assemblyTrack }) => assemblyTrack[0]?.time)
+    .filter((time): time is number => time !== undefined);
+  return starts.length === 0 ? 1 : Math.min(...starts);
+}
+
+export function trayCameraElevation(
+  time: number,
+  assemblyStart: number,
+): number {
+  const normalized = assemblyStart > 0 ? time / assemblyStart : 1;
+  return mix(
+    TRAY_OPENING_ELEVATION_DEG,
+    TRAY_ASSEMBLY_ELEVATION_DEG,
+    smoothstepUnit(normalized),
+  );
 }
 
 
@@ -1714,13 +1752,14 @@ function sceneBoundsAt(
   scene: ResolvedSceneSpec,
   time: number,
   thickness: number,
+  worldUp: FoldWorldUp,
 ): GeometryBounds | null {
   let bounds: GeometryBounds | null = null;
   for (const piece of scene.pieces) {
     const { poseContext } = evaluatePieceRenderContext(piece, time, thickness);
     bounds = mergeBounds(
       bounds,
-      boundsForGeometry(poseContext.renderedVerticesByPanel),
+      boundsForGeometry(poseContext.renderedVerticesByPanel, worldUp),
     );
   }
   return bounds;
@@ -1745,13 +1784,17 @@ function cameraSweepTimes(scene: ResolvedSceneSpec): number[] {
 export function computeSceneCameraFrame(
   scene: ResolvedSceneSpec,
   thickness: number,
+  worldUp: FoldWorldUp = 'tube',
 ): CameraFrame | null {
-  const finalBounds = sceneBoundsAt(scene, 1, thickness);
+  const finalBounds = sceneBoundsAt(scene, 1, thickness, worldUp);
   if (finalBounds === null) return null;
 
   let sweepBounds: GeometryBounds | null = null;
   for (const time of cameraSweepTimes(scene)) {
-    sweepBounds = mergeBounds(sweepBounds, sceneBoundsAt(scene, time, thickness));
+    sweepBounds = mergeBounds(
+      sweepBounds,
+      sceneBoundsAt(scene, time, thickness, worldUp),
+    );
   }
   if (sweepBounds === null) return null;
 
@@ -1803,6 +1846,7 @@ export function createFoldScene(
     0.1,
     100,
   );
+  camera.up.set(0, 1, 0);
   camera.position.set(0, 1.5, 4);
 
   const controls = new OrbitControls(camera, canvas);
@@ -1830,9 +1874,13 @@ export function createFoldScene(
   modelRoot.name = 'fold-model-root';
   scene.add(modelRoot);
 
+  const sceneRoot = new Group();
+  sceneRoot.name = 'fold-scene-root';
+  modelRoot.add(sceneRoot);
+
   const panelRoot = new Group();
   panelRoot.name = 'fold-panel-root';
-  modelRoot.add(panelRoot);
+  sceneRoot.add(panelRoot);
 
   let contactShadow = createContactShadow();
   modelRoot.add(contactShadow.mesh);
@@ -1864,6 +1912,9 @@ export function createFoldScene(
   let currentScene: ResolvedSceneSpec | null = null;
   let currentThickness = 0;
   let currentT = 0;
+  let currentWorldUp: FoldWorldUp = 'tube';
+  let cameraElevationScheduleActive = false;
+  let cameraElevationScheduleEnd = 1;
   let frameId: number | null = null;
   let needsRender = true;
   let contextLost = false;
@@ -2097,7 +2148,10 @@ export function createFoldScene(
         line.geometry.computeBoundingSphere();
       }
     }
-    return boundsForGeometry(poseContext.renderedVerticesByPanel);
+    return boundsForGeometry(
+      poseContext.renderedVerticesByPanel,
+      currentWorldUp,
+    );
   };
 
   const updateScenePose = (): GeometryBounds | null => {
@@ -2109,6 +2163,27 @@ export function createFoldScene(
     if (bounds) updateContactShadow(bounds);
     needsRender = true;
     return bounds;
+  };
+
+  const updateScheduledCamera = (): void => {
+    if (!cameraElevationScheduleActive) return;
+    const target = {
+      x: controls.target.x,
+      y: controls.target.y,
+      z: controls.target.z,
+    };
+    const deltaX = camera.position.x - target.x;
+    const deltaZ = camera.position.z - target.z;
+    const azimuth = Math.atan2(deltaX, deltaZ) * 180 / Math.PI;
+    const position = cameraOrbitPosition(
+      target,
+      camera.position.distanceTo(controls.target),
+      azimuth,
+      trayCameraElevation(currentT, cameraElevationScheduleEnd),
+    );
+    camera.position.set(position.x, position.y, position.z);
+    controls.update();
+    needsRender = true;
   };
 
   const fitCamera = (frame: CameraFrame): void => {
@@ -2133,6 +2208,7 @@ export function createFoldScene(
     controls.minDistance = focusDiagonal * 0.2;
     controls.maxDistance = fitDiagonal * 6;
     controls.update();
+    updateScheduledCamera();
   };
 
   const updateLightRig = (): void => {
@@ -2366,6 +2442,7 @@ export function createFoldScene(
   const onControlsChange = (): void => markNeedsRender();
   const onControlsStart = (): void => {
     controls.autoRotate = false;
+    cameraElevationScheduleActive = false;
     opts.onUserInteract?.();
     markNeedsRender();
   };
@@ -2397,14 +2474,14 @@ export function createFoldScene(
     contactShadow = createContactShadow();
     modelRoot.add(contactShadow.mesh);
 
-    modelRoot.remove(panelRoot);
+    sceneRoot.remove(panelRoot);
     disposePanelTree();
     if (activeArtwork !== 'none') refreshArtworkAlbedo();
     if (currentScene) {
       for (const piece of currentScene.pieces) buildPieceTree(piece);
       updateScenePose();
     }
-    modelRoot.add(panelRoot);
+    sceneRoot.add(panelRoot);
 
     contextLost = false;
     markNeedsRender();
@@ -2415,16 +2492,31 @@ export function createFoldScene(
 
   const replaceScene = (
     nextScene: ResolvedSceneSpec,
-    replaceOpts: { thickness?: number } = {},
+    replaceOpts: FoldSceneReplaceOptions = {},
   ): void => {
     currentScene = nextScene;
     currentThickness = replaceOpts.thickness ?? 0;
+    currentWorldUp = replaceOpts.worldUp ?? 'tube';
+    cameraElevationScheduleActive = currentWorldUp === 'tray';
+    cameraElevationScheduleEnd = trayAssemblyStart(nextScene);
+    const orientation = SCENE_TO_WORLD_QUATERNIONS[currentWorldUp];
+    sceneRoot.quaternion.set(
+      orientation.x,
+      orientation.y,
+      orientation.z,
+      orientation.w,
+    );
+    sceneRoot.updateMatrix();
     disposePanelTree();
     if (activeArtwork !== 'none') refreshArtworkAlbedo();
     try {
       for (const piece of nextScene.pieces) buildPieceTree(piece);
       updateScenePose();
-      const frame = computeSceneCameraFrame(nextScene, currentThickness);
+      const frame = computeSceneCameraFrame(
+        nextScene,
+        currentThickness,
+        currentWorldUp,
+      );
       if (frame) fitCamera(frame);
       markNeedsRender();
     } catch (error) {
@@ -2440,6 +2532,7 @@ export function createFoldScene(
     updatePose(t) {
       currentT = Number.isFinite(t) ? t : 0;
       updateScenePose();
+      updateScheduledCamera();
       scheduleRender();
     },
     replaceModel(model, replaceOpts = {}) {
