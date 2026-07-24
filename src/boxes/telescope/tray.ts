@@ -231,9 +231,9 @@ const A_GUSSET_CHAIN_TL: ABLine[] = [...A_GUSSET_OUTER_TL, ...A_GUSSET_PLATFORM_
 const A_GUSSET_CHAIN_TR: ABLine[] = [...A_GUSSET_OUTER_TR, ...A_GUSSET_PLATFORM_RELIEF_TR, ...A_GUSSET_INNER_WALL_APPROACH_TR];
 
 /**
- * A 款四角角翼摺線：兩端直接取同手性 aGussetPeriphery 模板的既有頂點。
- * 64.4984 會經 snapALongAnchor 對齊現場 platformEnd；103.699 保留既有鏈的固定 nominal，
- * 確保新增 crease 與 cut 鏈精確接合而不改動既有 cut 幾何。
+ * A 款四角角翼摺線：兩端取自同手性 aGussetPeriphery 模板頂點。64.4984 經
+ * snapALongAnchor 對齊現場 platformEnd；103.699 是 cut 鏈共用的固定 nominal，
+ * 使 crease 與 cut 鏈精確接合。
  */
 const A_CORNER_FLAP_CREASE_TL: ABLine = {
   p1: { a: 64.4984, b: -4.5014 },
@@ -1472,7 +1472,7 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
       descriptors.push(buildBGussetPeriphery(cornerX, cornerY, sx, sy, longAnchors.distTongueFold, halfW, innerWallReduction, label));
     }
   }
-  // 既有 path id 順序不因新增角翼摺線而位移；新 descriptor 統一附加在尾端。
+  // path id 順序保持穩定；cornerFlap descriptor 固定附加在尾端。
   descriptors.push(...cornerFlapCreases);
 
   const paths: DielinePath[] = descriptors

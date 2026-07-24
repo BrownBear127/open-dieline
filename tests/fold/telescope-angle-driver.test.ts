@@ -15,7 +15,7 @@ describe('Telescope angle drivers', () => {
     [45, 90],
     [67.5, 116.40925966400458],
     [90, 135],
-  ])('ψ 閉式逐點重現 spike 取樣：φ=%d° → ψ=%d°', (phiDeg, psiDeg) => {
+  ])('ψ 閉式逐點對照解析取樣：φ=%d° → ψ=%d°', (phiDeg, psiDeg) => {
     expect(deg(telescopePsi((phiDeg * Math.PI) / 180))).toBeCloseTo(psiDeg, 12);
   });
 

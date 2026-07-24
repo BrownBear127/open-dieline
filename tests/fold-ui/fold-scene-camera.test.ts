@@ -18,8 +18,8 @@ const L = params.L as number;
 const W = params.W as number;
 const D = params.D as number;
 const thickness = params.thickness as number;
-// L1 修（Opus 審 3）：舊 computeCameraFrame 已是死碼——測試改釘 production 實走的
-// computeSceneCameraFrame（單片 scene 包裝＝replaceModel 相同路徑）。
+// 以 computeSceneCameraFrame 驗證單片 scene；此包裝與 replaceModel 使用
+// 相同場景路徑。
 const singlePieceScene = resolveFoldSceneSpec(
   {
     pieces: [
@@ -79,8 +79,8 @@ describe('computeSceneCameraFrame（單片包裝·production 路徑）', () => {
     };
 
     expect(frame.target).toEqual({ x: 0, y: 0, z: 0 });
-    // 新路徑中心由 renderedVerticesByPanel 聚合——與 worldGeometry 直算存在浮點
-    // 尾數差（~1e-14），逐軸 closeTo 取代嚴格相等。
+    // renderedVerticesByPanel 聚合值與 worldGeometry 直算存在 ~1e-14 浮點
+    // 尾差，逐軸用 closeTo。
     expect(frame.modelOffset.x).toBeCloseTo(-foldedCenter.x, 10);
     expect(frame.modelOffset.y).toBeCloseTo(-foldedCenter.y, 10);
     expect(frame.modelOffset.z).toBeCloseTo(-foldedCenter.z, 10);

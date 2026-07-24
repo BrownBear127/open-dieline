@@ -1,5 +1,5 @@
 // AC-T6 材質色 golden：三個既有盒型逐一切換三種紙色，直接讀 panel material
-// 的 color 與 map.image 像素。這補上 mesh buffer golden 刻意不涵蓋的 recipe 色彩路徑。
+// 的 color 與 map.image 像素。此測試覆蓋 mesh buffer golden 不涵蓋的 recipe 色彩路徑。
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {

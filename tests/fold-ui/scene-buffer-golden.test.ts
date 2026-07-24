@@ -145,7 +145,7 @@ function panelGeometryPayload(geometry: BufferGeometry) {
 
 function hashActivePanelMeshes(meshes: Mesh[]): SceneHashes {
   // Panel mesh 唯一使用兩個材質的陣列；contact shadow 是單一材質。刻意不讀 mesh.name
-  // 或 userData.panelId，確保 Spec 明列排除的 scene graph 名稱／map key 不會污染 golden。
+  // 或 userData.panelId，讓 golden 只反映 GPU 幾何，不含 scene graph 名稱／map key。
   const payloads = meshes
     .filter((mesh) => Array.isArray(mesh.material))
     .map((mesh) => panelGeometryPayload(mesh.geometry))

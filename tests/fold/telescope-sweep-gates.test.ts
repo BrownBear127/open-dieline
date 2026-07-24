@@ -1,4 +1,4 @@
-// normalized 慣例層：矩陣 membership、81 點 C 掃描、容差與 G3 cap 皆由 Spec v9 凍結。
+// normalized 慣例層固定矩陣 membership、81 點 C 掃描、容差與 G3 cap。
 // 觀測慣例層：閘門直接讀 FoldModel 的真 panel/FK 與 generator 現場幾何。
 import { describe, expect, it } from 'vitest';
 import { A_GUSSET_FIXED_NOMINAL_A_MM } from '@/boxes/telescope/tray';
@@ -121,7 +121,7 @@ function buildPiece(
   return { model: piece!.buildModel(params), params };
 }
 
-describe('Telescope §6.1 12 列矩陣', () => {
+describe('Telescope 12 列合法／禁止參數矩陣', () => {
   it.each(LEGAL_ROWS)(
     '$caseId：fired 精確匹配且所有 per-piece hard gates 通過',
     ({ caseId, delta, fired }) => {
@@ -275,7 +275,7 @@ describe('Telescope gate sabotage', () => {
     })).toBe(false);
   });
 
-  it('Opus Medium-2：zSpan 公式讀 generator 匯出的 nominal，不另寫 103.699 魔數', () => {
+  it('zSpan 公式讀 generator 匯出的 nominal，不另寫 103.699 魔數', () => {
     expect(A_GUSSET_FIXED_NOMINAL_A_MM).toBeGreaterThan(100);
   });
 });

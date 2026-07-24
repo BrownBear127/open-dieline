@@ -24,7 +24,7 @@ function stepFor(
 }
 
 describe('Telescope per-piece schedule', () => {
-  it('scene 以 §5 的 base/lid/liner 起點值建立三片 foldWindow', () => {
+  it('scene 以 TELESCOPE_FOLD_WINDOWS 建立 base/lid/liner 三片 foldWindow', () => {
     const params = resolveParams(telescope);
     const scene = buildTelescopeSceneSpec(params);
 

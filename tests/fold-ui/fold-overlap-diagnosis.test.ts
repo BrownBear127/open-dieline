@@ -677,7 +677,7 @@ it('ttsl: t=1 底部咬合四片＋頂部 topLid/topTuck/topDustP2/topDustP4/glu
   }
 });
 
-it('telescope: T11 手填 golden 覆蓋反摺、互卡、y 壁 extension 三明治與 jog 家族', () => {
+it('telescope: 手填 displacement golden 覆蓋反摺、互卡、y 壁 extension 三明治與 jog 家族', () => {
   const base = telescopePieceModel('base');
   const lid = telescopePieceModel('lid');
   for (const [model, targets] of [
