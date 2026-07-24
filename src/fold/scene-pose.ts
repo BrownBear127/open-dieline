@@ -9,6 +9,7 @@ import { foldPose } from './schedule';
 import type {
   FoldScenePiece,
   Quaternion,
+  ResolvedScenePiece,
   SceneKeyframe,
 } from './scene-spec';
 
@@ -137,14 +138,14 @@ function quaternionTransform(
   };
 }
 
-export function sceneFoldLocalT(piece: FoldScenePiece, time: number): number {
+export function sceneFoldLocalT(piece: SceneTiming, time: number): number {
   const [start, end] = piece.foldWindow;
   return clamp01((time - start) / (end - start));
 }
 
 /** foldWindow.t1 的隱含 identity anchor 會參與第一段內插；末幀後 hold。 */
 export function assemblyDeltaAt(
-  piece: FoldScenePiece,
+  piece: SceneTiming,
   time: number,
 ): Transform {
   const foldEnd = piece.foldWindow[1];
@@ -178,13 +179,13 @@ export interface EvaluatedScenePiecePose {
   worldGeometry: Map<string, Vec3[]>;
 }
 
-/** scene world = assemblyDelta(global t) ∘ FK(piece-local t)。 */
-export function evaluateScenePiecePose(
-  piece: FoldScenePiece,
-  params: ResolvedParams,
+type SceneTiming = Pick<FoldScenePiece, 'foldWindow' | 'assemblyTrack'>;
+
+function evaluateModelPose(
+  piece: SceneTiming,
+  model: ReturnType<FoldScenePiece['buildModel']>,
   time: number,
 ): EvaluatedScenePiecePose {
-  const model = piece.buildModel(params);
   const localT = sceneFoldLocalT(piece, time);
   const foldAngles = foldPose(localT, model);
   const localGeometry = evaluateFoldGeometry(model, foldAngles);
@@ -200,4 +201,21 @@ export function evaluateScenePiecePose(
       ]),
     ),
   };
+}
+
+/** scene world = assemblyDelta(global t) ∘ FK(piece-local t)。 */
+export function evaluateScenePiecePose(
+  piece: FoldScenePiece,
+  params: ResolvedParams,
+  time: number,
+): EvaluatedScenePiecePose {
+  return evaluateModelPose(piece, piece.buildModel(params), time);
+}
+
+/** runtime 版 evaluator：model 已於 replaceScene 前解析，不在 animation frame 重建。 */
+export function evaluateResolvedScenePiecePose(
+  piece: ResolvedScenePiece,
+  time: number,
+): EvaluatedScenePiecePose {
+  return evaluateModelPose(piece, piece.model, time);
 }

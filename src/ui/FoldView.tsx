@@ -12,8 +12,17 @@ import {
 } from 'react';
 import { dimensionKeys } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
-import type { FoldSceneRegistryEntry } from '@/fold/registry';
+import {
+  FOLD_SCENE_REGISTRY,
+  type FoldSceneRegistryEntry,
+} from '@/fold/registry';
+import {
+  resolveFoldSceneSpec,
+  type FoldSceneSpec,
+  type ResolvedSceneSpec,
+} from '@/fold/scene-spec';
 import type { FoldModel } from '@/fold/types';
+import { validateFoldModel } from '@/fold/validate';
 import { t } from '@/i18n/t';
 import {
   clearInitialFoldProgress,
@@ -38,6 +47,7 @@ import {
   type EditorSession,
 } from '@/ui/editor/editor-session';
 import type { FoldRecipeName } from '@/ui/fold-paper-colors';
+import { downloadTemplate } from '@/ui/fold-template';
 import type {
   ArtworkMode,
   createFoldScene,
@@ -88,18 +98,29 @@ const FOLD_CARD_RECIPES = [
 
 interface FoldModelRuntime {
   entries: Record<string, FoldSceneRegistryEntry>;
+  resolveSceneSpec: (spec: FoldSceneSpec, params: ResolvedParams) => ResolvedSceneSpec;
   validate: (model: FoldModel) => string[];
 }
 
 async function loadFoldModelRuntime(): Promise<FoldModelRuntime> {
-  const [registry, validation] = await Promise.all([
-    import('@/fold/registry'),
-    import('@/fold/validate'),
-  ]);
   return {
-    entries: registry.FOLD_SCENE_REGISTRY,
-    validate: validation.validateFoldModel,
+    entries: FOLD_SCENE_REGISTRY,
+    resolveSceneSpec: resolveFoldSceneSpec,
+    validate: validateFoldModel,
   };
+}
+
+function replaceResolvedScene(
+  handle: FoldSceneHandle,
+  scene: ResolvedSceneSpec,
+  thickness: number,
+): void {
+  const onlyPiece = scene.pieces.length === 1 ? scene.pieces[0] : undefined;
+  if (onlyPiece !== undefined) {
+    handle.replaceModel(onlyPiece.model, { thickness });
+    return;
+  }
+  handle.replaceScene(scene, { thickness });
 }
 
 export interface FoldViewProps {
@@ -311,27 +332,35 @@ export function FoldView({
   const editorSupported = registryEntry?.capabilities.editor === true;
   const customArtworkSupported = registryEntry?.capabilities.upload === true
     || registryEntry?.capabilities.editor === true;
-  const modelBuild = useMemo<{ model: FoldModel | undefined; failed: boolean }>(() => {
+  const modelBuild = useMemo<{
+    scene: ResolvedSceneSpec | undefined;
+    artworkModel: FoldModel | undefined;
+    failed: boolean;
+  }>(() => {
     if (!previewSceneSupported || registryEntry?.sceneSpec === undefined) {
-      return { model: undefined, failed: false };
+      return { scene: undefined, artworkModel: undefined, failed: false };
     }
     try {
       const sceneSpec = registryEntry.sceneSpec(values);
-      if (sceneSpec.pieces.length !== 1) {
-        throw new Error(
-          `FoldView single-piece runtime received ${sceneSpec.pieces.length} pieces before multi-piece scene support`,
-        );
-      }
+      const scene = modelRuntime!.resolveSceneSpec(sceneSpec, values);
+      const needsArtworkModel = registryEntry.capabilities.sampleArtwork
+        || registryEntry.capabilities.template
+        || registryEntry.capabilities.upload
+        || registryEntry.capabilities.editor;
       return {
-        model: sceneSpec.pieces[0]!.buildModel(values),
+        scene,
+        artworkModel: needsArtworkModel && scene.pieces.length === 1
+          ? scene.pieces[0]!.model
+          : undefined,
         failed: false,
       };
     } catch (error) {
       console.error(error);
-      return { model: undefined, failed: true };
+      return { scene: undefined, artworkModel: undefined, failed: true };
     }
-  }, [values, previewSceneSupported, registryEntry]);
-  const model = modelBuild.model;
+  }, [values, previewSceneSupported, registryEntry, modelRuntime]);
+  const resolvedScene = modelBuild.scene;
+  const model = modelBuild.artworkModel;
   const artworkSignature = useMemo(
     () => model === undefined ? null : artworkLayoutSignature(model),
     [model],
@@ -341,11 +370,15 @@ export function FoldView({
     [model],
   );
   const validationErrors = useMemo(
-    () => model === undefined ? [] : modelRuntime?.validate(model) ?? [],
-    [model, modelRuntime],
+    () => resolvedScene === undefined
+      ? []
+      : resolvedScene.pieces.flatMap(({ pieceId, model: pieceModel }) =>
+        (modelRuntime?.validate(pieceModel) ?? [])
+          .map((error) => `${pieceId}: ${error}`)),
+    [resolvedScene, modelRuntime],
   );
   const canCreateScene = previewSceneSupported
-    && model !== undefined
+    && resolvedScene !== undefined
     && validationErrors.length === 0;
   const staleEditor = currentEditorSession !== null
     && artworkSignature !== null
@@ -379,8 +412,8 @@ export function FoldView({
   const artworkSignatureRef = useRef(artworkSignature);
   artworkLayoutRef.current = artworkLayout;
   artworkSignatureRef.current = artworkSignature;
-  const modelRef = useRef(model);
-  modelRef.current = model;
+  const resolvedSceneRef = useRef(resolvedScene);
+  resolvedSceneRef.current = resolvedScene;
   const thickness = values.thickness as number;
   const thicknessRef = useRef(thickness);
   thicknessRef.current = thickness;
@@ -524,13 +557,11 @@ export function FoldView({
     }
   };
 
-  // 重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（main bundle 只做接線，
-  // 分包原則）。model 已在本元件算好（TEMPLATE 鈕只在 canCreateScene 為真時渲染，此時
-  // model 必已定義），連同 boxId/values 一併傳給 builder；lang 由 downloadTemplate 內部
-  // 讀 getLang()，不需在此額外傳遞。
+  // FoldView 本身是 lazy chunk；model 已在本元件算好，lang 由 downloadTemplate
+  // 內部讀 getLang()，不需在此額外傳遞。
   const handleTemplateDownload = (): void => {
     if (model === undefined) return;
-    void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate({ model, boxId, values }));
+    downloadTemplate({ model, boxId, values });
   };
 
   const handleUploadClick = (): void => {
@@ -788,10 +819,10 @@ export function FoldView({
   }, [artwork, artworkSignature, currentEditorSession]);
 
   useEffect(() => {
-    if (canCreateScene && model !== undefined) {
-      sceneRef.current?.replaceModel(model, { thickness });
+    if (canCreateScene && resolvedScene !== undefined && sceneRef.current !== null) {
+      replaceResolvedScene(sceneRef.current, resolvedScene, thickness);
     }
-  }, [canCreateScene, model, thickness]);
+  }, [canCreateScene, resolvedScene, thickness]);
 
   useEffect(() => {
     if (!canCreateScene) return;
@@ -841,9 +872,9 @@ export function FoldView({
       if (P3_TEST_HOOKS_ENABLED) clearInitialFoldProgress();
       scene = nextScene;
       sceneRef.current = nextScene;
-      const currentModel = modelRef.current;
-      if (currentModel !== undefined) {
-        nextScene.replaceModel(currentModel, { thickness: thicknessRef.current });
+      const currentScene = resolvedSceneRef.current;
+      if (currentScene !== undefined) {
+        replaceResolvedScene(nextScene, currentScene, thicknessRef.current);
       }
       if (customArtworkSupported && customSourceRef.current !== null) {
         nextScene.installCustomSource(customSourceRef.current);

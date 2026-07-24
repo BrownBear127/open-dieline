@@ -26,6 +26,17 @@ export interface FoldSceneSpec {
   pieces: FoldScenePiece[];
 }
 
+export interface ResolvedScenePiece {
+  pieceId: string;
+  model: FoldModel;
+  foldWindow: [number, number];
+  assemblyTrack: SceneKeyframe[];
+}
+
+export interface ResolvedSceneSpec {
+  pieces: ResolvedScenePiece[];
+}
+
 function validateFoldWindow(piece: FoldScenePiece): void {
   const [t0, t1] = piece.foldWindow;
   if (
@@ -113,5 +124,24 @@ export function defineFoldSceneSpec(spec: FoldSceneSpec): FoldSceneSpec {
         assemblyTrack: normalizeAssemblyTrack(piece),
       };
     }),
+  };
+}
+
+/** 將綁定 params 的 scene builder 一次求值，runtime 後續逐幀只讀已解析 model。 */
+export function resolveFoldSceneSpec(
+  spec: FoldSceneSpec,
+  params: ResolvedParams,
+): ResolvedSceneSpec {
+  return {
+    pieces: spec.pieces.map((piece) => ({
+      pieceId: piece.pieceId,
+      model: piece.buildModel(params),
+      foldWindow: [...piece.foldWindow],
+      assemblyTrack: piece.assemblyTrack.map((keyframe) => ({
+        time: keyframe.time,
+        position: { ...keyframe.position },
+        quaternion: { ...keyframe.quaternion },
+      })),
+    })),
   };
 }

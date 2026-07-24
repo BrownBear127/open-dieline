@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { telescope } from '@/boxes/telescope';
 import { triangularTube } from '@/boxes/triangular-tube';
 import { resolveParams } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
@@ -22,6 +23,7 @@ import type {
 } from '@/ui/fold-scene';
 
 const RTE_VALUES = resolveParams(reverseTuckEnd, {});
+const TELESCOPE_VALUES = resolveParams(telescope, {});
 const TTB_VALUES = resolveParams(triangularTube, {});
 
 interface FakeScene {
@@ -37,6 +39,7 @@ function createFakeScene(): FakeScene {
     const handle: FoldSceneHandle = {
       updatePose: vi.fn(),
       replaceModel: vi.fn(),
+      replaceScene: vi.fn(),
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),
@@ -695,7 +698,7 @@ describe('FoldView controls', () => {
 
   it('does not render controls for unsupported and WebGL fallback states', async () => {
     const fake = createFakeScene();
-    const unsupported = render(<FoldView boxId="telescope" values={{}} createScene={fake.createScene} />);
+    const unsupported = render(<FoldView boxId="__unsupported-box" values={{}} createScene={fake.createScene} />);
     expect(await screen.findByText(t('fold.unsupported'))).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: t('fold.controls.aria') })).not.toBeInTheDocument();
     unsupported.unmount();
@@ -706,13 +709,14 @@ describe('FoldView controls', () => {
     expect(screen.queryByRole('group', { name: t('fold.controls.aria') })).not.toBeInTheDocument();
   });
 
-  it('renders EDIT disabled for telescope while retaining the unsupported preview', async () => {
+  it('renders telescope preview controls with EDIT disabled', async () => {
     const fake = createFakeScene();
-    render(<FoldView boxId="telescope" values={{}} createScene={fake.createScene} />);
+    render(<FoldView boxId="telescope" values={TELESCOPE_VALUES} createScene={fake.createScene} />);
 
-    expect(await screen.findByText(t('fold.unsupported'))).toBeInTheDocument();
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
     expect(screen.getByRole('button', { name: t('fold.art.edit') })).toBeDisabled();
-    expect(fake.createScene).not.toHaveBeenCalled();
+    expect(screen.queryByText(t('fold.unsupported'))).not.toBeInTheDocument();
+    expect(fake.handles[0]!.replaceScene).toHaveBeenCalledOnce();
   });
 
   it('使用者拖轉（onUserInteract）後自轉按鈕同步關閉、可手動重開（final review F3）', async () => {

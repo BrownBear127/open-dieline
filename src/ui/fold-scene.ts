@@ -30,6 +30,11 @@ import {
   panelWorldTransform,
   worldGeometry,
 } from '../fold/pose3d';
+import { evaluateResolvedScenePiecePose } from '../fold/scene-pose';
+import type {
+  ResolvedScenePiece,
+  ResolvedSceneSpec,
+} from '../fold/scene-spec';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
 import {
@@ -893,11 +898,35 @@ export function panelSurfacePlan(
   };
 }
 
+function telescopePanelLayer(panelId: string): number | null {
+  if (/^wingX(?:Neg|Pos){2}$/.test(panelId)) return -6;
+  if (/^wingY(?:Neg|Pos){2}$/.test(panelId)) return -5;
+  if (/^wall[XY](?:Neg|Pos)-outer$/.test(panelId)) return -4;
+  if (/^wall[XY](?:Neg|Pos)-rim$/.test(panelId)) return -2;
+  if (/^flapNeg(?:Neg|Pos)$/.test(panelId)) return 9;
+  if (/^flapPos(?:Neg|Pos)$/.test(panelId)) return 10;
+  if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return 7;
+  if (/^wall[XY](?:Neg|Pos)-inner$/.test(panelId)) return 8;
+  if (/^wall[XY](?:Neg|Pos)-tongue$/.test(panelId)) return 9;
+  return null;
+}
+
 /** Keeps physical closure layers separate without changing their flat polygons. */
-export function panelOverlapPlan(panelId: string, thickness: number): PanelOverlapPlan {
+export function panelOverlapPlan(scopedPanelId: string, thickness: number): PanelOverlapPlan {
+  const panelId = scopedPanelId.includes(':')
+    ? scopedPanelId.slice(scopedPanelId.indexOf(':') + 1)
+    : scopedPanelId;
   // A full board thickness changes the physical layer; the extra gap prevents the two
   // touching solid faces from remaining coplanar. Zero-thickness card keeps the same gap.
   const layerOffset = Math.max(0, thickness) + SURFACE_GAP_MM;
+  const telescopeLayer = telescopePanelLayer(panelId);
+  if (telescopeLayer !== null) {
+    return {
+      normalOffset: telescopeLayer * layerOffset,
+      polygonOffsetUnits: -telescopeLayer,
+      renderOrder: telescopeLayer,
+    };
+  }
 
   const isTuck = panelId === 'topTuck' || panelId === 'bottomTuck';
   if (isTuck) {
@@ -1148,14 +1177,18 @@ function seamLinePositions(
   seam: NonNullable<FoldModel['seams']>[number],
   poseContext: PanelRenderPoseContext,
   surfaceDirection: -1 | 1,
+  assemblyDelta?: Transform,
 ): Float32Array {
   const panel = poseContext.model.panels.find(({ id }) => id === seam.ownerPanelId);
   if (!panel) throw new Error(`Unknown seam owner panel "${seam.ownerPanelId}"`);
   const normal = firstFaceNormal(renderedPanelVertices(panel, poseContext));
   if (!normal) throw new Error(`Cannot determine seam normal for panel "${panel.id}"`);
-  const points = expandPolylineSegments(
+  const localPoints = expandPolylineSegments(
     seam.points.map((point) => panelRenderPoint(panel.id, point, poseContext)),
   );
+  const points = assemblyDelta === undefined
+    ? localPoints
+    : localPoints.map((point) => applyTransform(assemblyDelta, point));
   const positions = new Float32Array(points.length * 3);
   const offset = SEAM_SURFACE_OFFSET_MM * surfaceDirection;
 
@@ -1209,6 +1242,7 @@ export interface CustomArtworkSource {
 export interface FoldSceneHandle {
   updatePose(t: number): void;
   replaceModel(model: FoldModel, opts?: { thickness?: number }): void;
+  replaceScene(scene: ResolvedSceneSpec, opts?: { thickness?: number }): void;
   setAutoRotate(on: boolean): void;
   applyRecipe(name: FoldRecipeName): void;
   applyArtwork(mode: ArtworkMode): void;
@@ -1639,6 +1673,130 @@ export function computeCameraFrame(model: FoldModel): CameraFrame | null {
   };
 }
 
+interface EvaluatedPieceRenderContext {
+  assemblyDelta: Transform;
+  poseContext: PanelRenderPoseContext;
+}
+
+function transformGeometryMap(
+  geometry: ReadonlyMap<string, Vec3[]>,
+  transform: Transform,
+): Map<string, Vec3[]> {
+  return new Map(
+    [...geometry].map(([panelId, vertices]) => [
+      panelId,
+      vertices.map((vertex) => applyTransform(transform, vertex)),
+    ]),
+  );
+}
+
+function evaluatePieceRenderContext(
+  piece: ResolvedScenePiece,
+  time: number,
+  thickness: number,
+  knownExteriorFaces?: ReadonlyMap<string, PhysicalPanelFace>,
+): EvaluatedPieceRenderContext {
+  const evaluated = evaluateResolvedScenePiecePose(piece, time);
+  const localContext = createPanelRenderPoseContext(
+    piece.model,
+    evaluated.foldAngles,
+    thickness,
+    knownExteriorFaces,
+  );
+  return {
+    assemblyDelta: evaluated.assemblyDelta,
+    poseContext: {
+      ...localContext,
+      worldGeometryByPanel: transformGeometryMap(
+        localContext.worldGeometryByPanel,
+        evaluated.assemblyDelta,
+      ),
+      renderedVerticesByPanel: transformGeometryMap(
+        localContext.renderedVerticesByPanel,
+        evaluated.assemblyDelta,
+      ),
+    },
+  };
+}
+
+function mergeBounds(
+  aggregate: GeometryBounds | null,
+  next: GeometryBounds | null,
+): GeometryBounds | null {
+  if (next === null) return aggregate;
+  if (aggregate === null) return { ...next };
+  aggregate.minX = Math.min(aggregate.minX, next.minX);
+  aggregate.maxX = Math.max(aggregate.maxX, next.maxX);
+  aggregate.minY = Math.min(aggregate.minY, next.minY);
+  aggregate.maxY = Math.max(aggregate.maxY, next.maxY);
+  aggregate.minZ = Math.min(aggregate.minZ, next.minZ);
+  aggregate.maxZ = Math.max(aggregate.maxZ, next.maxZ);
+  return aggregate;
+}
+
+function sceneBoundsAt(
+  scene: ResolvedSceneSpec,
+  time: number,
+  thickness: number,
+): GeometryBounds | null {
+  let bounds: GeometryBounds | null = null;
+  for (const piece of scene.pieces) {
+    const { poseContext } = evaluatePieceRenderContext(piece, time, thickness);
+    bounds = mergeBounds(
+      bounds,
+      boundsForGeometry(poseContext.renderedVerticesByPanel),
+    );
+  }
+  return bounds;
+}
+
+const CAMERA_SWEEP_INTERVALS = 100;
+
+function cameraSweepTimes(scene: ResolvedSceneSpec): number[] {
+  const times = new Set<number>([0, 1]);
+  for (let index = 0; index <= CAMERA_SWEEP_INTERVALS; index += 1) {
+    times.add(index / CAMERA_SWEEP_INTERVALS);
+  }
+  for (const piece of scene.pieces) {
+    times.add(piece.foldWindow[0]);
+    times.add(piece.foldWindow[1]);
+    for (const keyframe of piece.assemblyTrack) times.add(keyframe.time);
+  }
+  return [...times].sort((left, right) => left - right);
+}
+
+/** 多片場景以完整時間軸 sweep 合併取景，避免組裝軌中途越出 flat/final 外廓。 */
+export function computeSceneCameraFrame(
+  scene: ResolvedSceneSpec,
+  thickness: number,
+): CameraFrame | null {
+  const finalBounds = sceneBoundsAt(scene, 1, thickness);
+  if (finalBounds === null) return null;
+
+  let sweepBounds: GeometryBounds | null = null;
+  for (const time of cameraSweepTimes(scene)) {
+    sweepBounds = mergeBounds(sweepBounds, sceneBoundsAt(scene, time, thickness));
+  }
+  if (sweepBounds === null) return null;
+
+  const finalCenter = {
+    x: (finalBounds.minX + finalBounds.maxX) / 2,
+    y: (finalBounds.minY + finalBounds.maxY) / 2,
+    z: (finalBounds.minZ + finalBounds.maxZ) / 2,
+  };
+  const focusDiagonal = boundsDiagonal(finalBounds);
+  return {
+    target: { x: 0, y: 0, z: 0 },
+    modelOffset: {
+      x: -finalCenter.x,
+      y: -finalCenter.y,
+      z: -finalCenter.z,
+    },
+    fitDiagonal: Math.max(boundsDiagonal(sweepBounds), focusDiagonal),
+    focusDiagonal,
+  };
+}
+
 /**
  * Creates a FoldModel-driven Three.js scene with an on-demand render loop.
  */
@@ -1716,13 +1874,18 @@ export function createFoldScene(
     opacity: 1,
     transparent: false,
   });
-  const seamLines: Array<{
+  type SeamLinePair = {
     negative: LineSegments<BufferGeometry, LineBasicMaterial>;
     positive: LineSegments<BufferGeometry, LineBasicMaterial>;
-  }> = [];
+  };
+  interface PieceRuntime {
+    piece: ResolvedScenePiece;
+    exteriorFaceByPanel: Map<string, PhysicalPanelFace>;
+    seamLines: SeamLinePair[];
+  }
+  const pieceRuntimes = new Map<string, PieceRuntime>();
   const panelTriangulations = new Map<string, number[]>();
-  let exteriorFaceByPanel = new Map<string, PhysicalPanelFace>();
-  let currentModel: FoldModel | null = null;
+  let currentScene: ResolvedSceneSpec | null = null;
   let currentThickness = 0;
   let currentT = 0;
   let frameId: number | null = null;
@@ -1732,72 +1895,98 @@ export function createFoldScene(
   let sampleArtworkImage: HTMLImageElement | null = null;
   let sampleArtworkLoad: Promise<void> | null = null;
 
+  const panelKey = (pieceId: string, panelId: string): string =>
+    `${pieceId}:${panelId}`;
+
   const disposePanelTree = (): void => {
     for (const mesh of panelMeshes.values()) {
       mesh.geometry.dispose();
     }
     panelMeshes.clear();
-    for (const { negative, positive } of seamLines) {
-      negative.geometry.dispose();
-      positive.geometry.dispose();
+    for (const runtime of pieceRuntimes.values()) {
+      for (const { negative, positive } of runtime.seamLines) {
+        negative.geometry.dispose();
+        positive.geometry.dispose();
+      }
     }
-    seamLines.length = 0;
     panelRoot.clear();
+    pieceRuntimes.clear();
     for (const { artwork, paper } of panelMaterials.values()) {
       artwork.dispose();
       paper.dispose();
     }
     panelMaterials.clear();
     panelTriangulations.clear();
-    exteriorFaceByPanel.clear();
   };
 
   const createSeamLine = (
+    pieceId: string,
     seam: NonNullable<FoldModel['seams']>[number],
     seamIndex: number,
     surfaceDirection: -1 | 1,
     poseContext: PanelRenderPoseContext,
+    assemblyDelta: Transform,
   ): LineSegments<BufferGeometry, LineBasicMaterial> => {
+    const ownerPanelId = panelKey(pieceId, seam.ownerPanelId);
     const geometry = new BufferGeometry();
     geometry.setAttribute(
       'position',
-      new BufferAttribute(seamLinePositions(seam, poseContext, surfaceDirection), 3),
+      new BufferAttribute(
+        seamLinePositions(
+          seam,
+          poseContext,
+          surfaceDirection,
+          assemblyDelta,
+        ),
+        3,
+      ),
     );
     const line = new LineSegments(geometry, seamMaterial);
     const surface = surfaceDirection === 1 ? 'positive' : 'negative';
-    line.name = `fold-seam:${seamIndex}:${surface}`;
-    line.renderOrder = panelOverlapPlan(seam.ownerPanelId, currentThickness).renderOrder;
-    line.userData.ownerPanelId = seam.ownerPanelId;
+    line.name = `fold-seam:${pieceId}:${seamIndex}:${surface}`;
+    line.renderOrder = panelOverlapPlan(ownerPanelId, currentThickness).renderOrder;
+    line.userData.ownerPanelId = ownerPanelId;
     line.userData.sourcePathId = seam.sourcePathId;
     line.userData.surfaceDirection = surfaceDirection;
     return line;
   };
 
-  const buildPanelTree = (model: FoldModel): void => {
+  const buildPieceTree = (piece: ResolvedScenePiece): void => {
+    const { model, pieceId } = piece;
+    if (pieceRuntimes.has(pieceId)) {
+      throw new Error(`ResolvedSceneSpec piece id 重複：「${pieceId}」`);
+    }
+    const pieceRoot = new Group();
+    pieceRoot.name = `fold-piece:${pieceId}`;
+    panelRoot.add(pieceRoot);
+
     const diagnoses = diagnoseFoldedPanelFaces(model);
     const artworkFace = selectArtworkFace(model, diagnoses);
-    exteriorFaceByPanel = new Map(
+    const exteriorFaceByPanel = new Map(
       diagnoses.map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
     );
-    const pose = foldPose(currentT, model);
-    const poseContext = createPanelRenderPoseContext(
-      model,
-      pose,
+    const { assemblyDelta, poseContext } = evaluatePieceRenderContext(
+      piece,
+      currentT,
       currentThickness,
       exteriorFaceByPanel,
     );
+    const pieceTriangulations = new Map<string, number[]>();
     for (const panel of model.panels) {
-      panelTriangulations.set(panel.id, earClipIndices(panel.polygon));
+      const triangleIndices = earClipIndices(panel.polygon);
+      pieceTriangulations.set(panel.id, triangleIndices);
+      panelTriangulations.set(panelKey(pieceId, panel.id), triangleIndices);
     }
     const panelArtworkUvs = buildPanelArtworkUvs(
       model,
       currentThickness,
-      panelTriangulations,
+      pieceTriangulations,
     );
 
     for (const panel of model.panels) {
+      const scopedPanelId = panelKey(pieceId, panel.id);
       const geometry = new BufferGeometry();
-      const triangleIndices = panelTriangulations.get(panel.id)!;
+      const triangleIndices = pieceTriangulations.get(panel.id)!;
       const vertices = renderedPanelVertices(panel, poseContext);
       const positions = panelSolidPositions(vertices, triangleIndices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
@@ -1817,7 +2006,7 @@ export function createFoldScene(
       for (const group of surfacePlan.groups) {
         geometry.addGroup(group.start, group.count, group.materialIndex);
       }
-      const overlapPlan = panelOverlapPlan(panel.id, currentThickness);
+      const overlapPlan = panelOverlapPlan(scopedPanelId, currentThickness);
       const artworkMaterial = createCardMaterial(
         surfacePlan.artworkSide,
         overlapPlan.polygonOffsetUnits,
@@ -1838,22 +2027,45 @@ export function createFoldScene(
         paperBaseAlbedoTexture,
         paperBumpTexture,
       );
-      panelMaterials.set(panel.id, { artwork: artworkMaterial, paper: paperMaterial });
+      panelMaterials.set(scopedPanelId, {
+        artwork: artworkMaterial,
+        paper: paperMaterial,
+      });
 
       const mesh = new Mesh(geometry, [artworkMaterial, paperMaterial]);
-      mesh.name = `fold-panel:${panel.id}`;
+      mesh.name = `fold-panel:${scopedPanelId}`;
       mesh.renderOrder = overlapPlan.renderOrder;
-      mesh.userData.panelId = panel.id;
-      panelMeshes.set(panel.id, mesh);
-      panelRoot.add(mesh);
+      mesh.userData.panelId = scopedPanelId;
+      panelMeshes.set(scopedPanelId, mesh);
+      pieceRoot.add(mesh);
     }
 
+    const seamLines: SeamLinePair[] = [];
     for (const [seamIndex, seam] of (model.seams ?? []).entries()) {
-      const negative = createSeamLine(seam, seamIndex, -1, poseContext);
-      const positive = createSeamLine(seam, seamIndex, 1, poseContext);
+      const negative = createSeamLine(
+        pieceId,
+        seam,
+        seamIndex,
+        -1,
+        poseContext,
+        assemblyDelta,
+      );
+      const positive = createSeamLine(
+        pieceId,
+        seam,
+        seamIndex,
+        1,
+        poseContext,
+        assemblyDelta,
+      );
       seamLines.push({ negative, positive });
-      panelRoot.add(negative, positive);
+      pieceRoot.add(negative, positive);
     }
+    pieceRuntimes.set(pieceId, {
+      piece,
+      exteriorFaceByPanel,
+      seamLines,
+    });
   };
 
   const updateContactShadow = (bounds: GeometryBounds): void => {
@@ -1867,20 +2079,20 @@ export function createFoldScene(
     contactShadow.mesh.scale.set(placement.size.w, placement.size.h, 1);
   };
 
-  const updateModelPose = (): GeometryBounds | null => {
-    if (!currentModel) return null;
-
-    const pose = foldPose(currentT, currentModel);
-    const poseContext = createPanelRenderPoseContext(
-      currentModel,
-      pose,
+  const updatePiecePose = (runtime: PieceRuntime): GeometryBounds | null => {
+    const { piece, exteriorFaceByPanel } = runtime;
+    const { model, pieceId } = piece;
+    const { assemblyDelta, poseContext } = evaluatePieceRenderContext(
+      piece,
+      currentT,
       currentThickness,
       exteriorFaceByPanel,
     );
 
-    for (const panel of currentModel.panels) {
-      const mesh = panelMeshes.get(panel.id);
-      const triangleIndices = panelTriangulations.get(panel.id);
+    for (const panel of model.panels) {
+      const scopedPanelId = panelKey(pieceId, panel.id);
+      const mesh = panelMeshes.get(scopedPanelId);
+      const triangleIndices = panelTriangulations.get(scopedPanelId);
       if (!mesh || !triangleIndices) continue;
       const vertices = renderedPanelVertices(panel, poseContext);
 
@@ -1891,21 +2103,33 @@ export function createFoldScene(
       mesh.geometry.computeBoundingSphere();
     }
 
-    for (const [seamIndex, seam] of (currentModel.seams ?? []).entries()) {
-      const pair = seamLines[seamIndex];
+    for (const [seamIndex, seam] of (model.seams ?? []).entries()) {
+      const pair = runtime.seamLines[seamIndex];
       if (!pair) continue;
       for (const [surfaceDirection, line] of [
         [-1, pair.negative],
         [1, pair.positive],
       ] as const) {
         const attribute = line.geometry.getAttribute('position') as BufferAttribute;
-        attribute.copyArray(seamLinePositions(seam, poseContext, surfaceDirection));
+        attribute.copyArray(seamLinePositions(
+          seam,
+          poseContext,
+          surfaceDirection,
+          assemblyDelta,
+        ));
         attribute.needsUpdate = true;
         line.geometry.computeBoundingSphere();
       }
     }
+    return boundsForGeometry(poseContext.renderedVerticesByPanel);
+  };
 
-    const bounds = boundsForGeometry(poseContext.worldGeometryByPanel);
+  const updateScenePose = (): GeometryBounds | null => {
+    if (currentScene === null) return null;
+    let bounds: GeometryBounds | null = null;
+    for (const runtime of pieceRuntimes.values()) {
+      bounds = mergeBounds(bounds, updatePiecePose(runtime));
+    }
     if (bounds) updateContactShadow(bounds);
     needsRender = true;
     return bounds;
@@ -2001,8 +2225,13 @@ export function createFoldScene(
         customArtworkSource,
       );
     }
-    if (currentModel === null || sampleArtworkImage === null) return paperBaseAlbedoTexture;
-    const flatGeometry = worldGeometry(currentModel, foldPose(0, currentModel));
+    const artworkModel = currentScene?.pieces.length === 1
+      ? currentScene.pieces[0]!.model
+      : null;
+    if (artworkModel === null || sampleArtworkImage === null) {
+      return paperBaseAlbedoTexture;
+    }
+    const flatGeometry = worldGeometry(artworkModel, foldPose(0, artworkModel));
     return createSampleArtworkTexture(
       paperBaseAlbedoTexture.image as HTMLCanvasElement,
       flatGeometry,
@@ -2110,6 +2339,9 @@ export function createFoldScene(
 
   let devSetLook: ((name: FoldRecipeName) => void) | null = null;
   let devSetCameraOrbit: ((azimuthDeg: number, elevationDeg: number) => void) | null = null;
+  let devSetPanelVisible:
+    ((panelId: string, visible: boolean) => boolean)
+    | null = null;
   if (P3_TEST_HOOKS_ENABLED) {
     devSetLook = applyRecipe;
     devSetCameraOrbit = (azimuthDeg: number, elevationDeg: number) => {
@@ -2132,7 +2364,7 @@ export function createFoldScene(
     (window as unknown as Record<string, unknown>).__p3SetCameraOrbit = devSetCameraOrbit;
     // 視覺歸因儀器：逐片顯隱＋截圖 diff 可判定「畫面上這塊像素屬於哪片 panel」
     // （殘留輪廓的 owner 認定不靠肉眼猜）。
-    (window as unknown as Record<string, unknown>).__p3SetPanelVisible = (
+    devSetPanelVisible = (
       panelId: string,
       visible: boolean,
     ): boolean => {
@@ -2142,6 +2374,8 @@ export function createFoldScene(
       markNeedsRender();
       return true;
     };
+    (window as unknown as Record<string, unknown>).__p3SetPanelVisible =
+      devSetPanelVisible;
   }
 
   const resize = (width: number, height: number): void => {
@@ -2190,9 +2424,9 @@ export function createFoldScene(
     modelRoot.remove(panelRoot);
     disposePanelTree();
     if (activeArtwork !== 'none') refreshArtworkAlbedo();
-    if (currentModel) {
-      buildPanelTree(currentModel);
-      updateModelPose();
+    if (currentScene) {
+      for (const piece of currentScene.pieces) buildPieceTree(piece);
+      updateScenePose();
     }
     modelRoot.add(panelRoot);
 
@@ -2203,25 +2437,46 @@ export function createFoldScene(
   canvas.addEventListener('webglcontextlost', onContextLost);
   canvas.addEventListener('webglcontextrestored', onContextRestored);
 
+  const replaceScene = (
+    nextScene: ResolvedSceneSpec,
+    replaceOpts: { thickness?: number } = {},
+  ): void => {
+    currentScene = nextScene;
+    currentThickness = replaceOpts.thickness ?? 0;
+    disposePanelTree();
+    if (activeArtwork !== 'none') refreshArtworkAlbedo();
+    try {
+      for (const piece of nextScene.pieces) buildPieceTree(piece);
+      updateScenePose();
+      const frame = computeSceneCameraFrame(nextScene, currentThickness);
+      if (frame) fitCamera(frame);
+      markNeedsRender();
+    } catch (error) {
+      disposePanelTree();
+      currentScene = null;
+      throw error;
+    }
+  };
+
   scheduleRender();
 
   return {
     updatePose(t) {
       currentT = Number.isFinite(t) ? t : 0;
-      updateModelPose();
+      updateScenePose();
       scheduleRender();
     },
     replaceModel(model, replaceOpts = {}) {
-      currentModel = model;
-      currentThickness = replaceOpts.thickness ?? 0;
-      disposePanelTree();
-      if (activeArtwork !== 'none') refreshArtworkAlbedo();
-      buildPanelTree(model);
-      updateModelPose();
-      const frame = computeCameraFrame(model);
-      if (frame) fitCamera(frame);
-      markNeedsRender();
+      replaceScene({
+        pieces: [{
+          pieceId: 'single',
+          model,
+          foldWindow: [0, 1],
+          assemblyTrack: [],
+        }],
+      }, replaceOpts);
     },
+    replaceScene,
     setAutoRotate(on) {
       controls.autoRotate = on;
       markNeedsRender();
@@ -2248,6 +2503,14 @@ export function createFoldScene(
       ) {
         delete (window as unknown as Record<string, unknown>).__p3SetCameraOrbit;
       }
+      if (
+        P3_TEST_HOOKS_ENABLED
+        && devSetPanelVisible
+        && (window as unknown as Record<string, unknown>).__p3SetPanelVisible
+          === devSetPanelVisible
+      ) {
+        delete (window as unknown as Record<string, unknown>).__p3SetPanelVisible;
+      }
       cancelRenderLoop();
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
@@ -2264,7 +2527,7 @@ export function createFoldScene(
       disposeContactShadow(contactShadow);
       scene.clear();
       renderer.dispose();
-      currentModel = null;
+      currentScene = null;
     },
   };
 }

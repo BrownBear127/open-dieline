@@ -801,8 +801,11 @@ function auxiliaryFaceAreaLimit(params: ResolvedParams, pieceId: string): number
   );
 }
 
-function buildPieceModel(params: ResolvedParams, pieceId: string): FoldModel {
-  const generated = telescope.generate(params);
+function buildPieceModel(
+  params: ResolvedParams,
+  pieceId: string,
+  generated: GenerateResult,
+): FoldModel {
   const piece = generated.pieces?.find(({ id }) => id === pieceId);
   if (!piece) throw new Error(`Telescope generate() 找不到 piece「${pieceId}」`);
   const scoped = pieceResult(generated, piece);
@@ -1029,19 +1032,27 @@ export function buildTelescopeSceneSpec(params: ResolvedParams): FoldSceneSpec {
     }
   }
   assertBoxInvariants(telescope, params, generated);
-  if (!generated.pieces) {
+  const pieces = generated.pieces;
+  if (!pieces) {
     throw new Error('Telescope generate() 必須回傳 pieces');
   }
-  const linerEnabled = params.linerEnabled !== false;
-  const models = new Map(generated.pieces.map((piece) => [
+  const models = new Map(pieces.map((piece) => [
     piece.id,
-    buildPieceModel(params, piece.id),
+    buildPieceModel(params, piece.id, generated),
   ]));
+  const linerEnabled = params.linerEnabled !== false;
   const tracks = assemblyTracks(params, models, linerEnabled);
   return defineFoldSceneSpec({
-    pieces: generated.pieces.map((piece) => ({
+    pieces: pieces.map((piece) => ({
       pieceId: piece.id,
-      buildModel: (buildParams) => buildPieceModel(buildParams, piece.id),
+      // SceneSpec 已由這份 params 綁定；閉包直接重用同一批模型，避免每片再 generate。
+      buildModel: () => {
+        const model = models.get(piece.id);
+        if (!model) {
+          throw new Error(`Telescope generate() 找不到 piece「${piece.id}」`);
+        }
+        return model;
+      },
       foldWindow: linerEnabled
         ? [...TELESCOPE_FOLD_WINDOWS[
           piece.id as keyof typeof TELESCOPE_FOLD_WINDOWS

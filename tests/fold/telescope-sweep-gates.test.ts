@@ -10,6 +10,7 @@ import {
   exactSetMismatch,
   familyTopologyViolations,
   hookRootStripWithinBounds,
+  telescopeCollisionViolations,
   telescopeGateReport,
   trayWindowOrderViolations,
 } from '../helpers/telescope-gates';
@@ -177,6 +178,50 @@ describe('Telescope gate sabotage', () => {
 
     expect(telescopeGateReport(broken, params, 'base').violations)
       .toContainEqual(expect.stringContaining('flapWallCoplanarity'));
+  });
+
+  it('phase C flap 與 wall 非共面互穿仍由 G1 判定，不得 blanket skip', () => {
+    const { params } = buildPiece({}, 'base');
+    const broken: FoldModel = {
+      panels: [
+        {
+          id: 'wallXNeg-inner',
+          polygon: [
+            { x: -2, y: -2 },
+            { x: 2, y: -2 },
+            { x: 2, y: 2 },
+            { x: -2, y: 2 },
+          ],
+          parent: null,
+          foldAngle: 0,
+        },
+        {
+          id: 'flapNegNeg',
+          polygon: [
+            { x: -1, y: -1 },
+            { x: 1, y: -1 },
+            { x: 1, y: 1 },
+            { x: -1, y: 1 },
+          ],
+          parent: 'wallXNeg-inner',
+          hingeLine: {
+            a: { x: -1, y: 0 },
+            b: { x: 1, y: 0 },
+          },
+          foldAngle: Math.PI / 2,
+        },
+      ],
+      steps: [{
+        panelIds: ['flapNegNeg'],
+        t0: 0.82,
+        t1: 1,
+        ease: 'linear',
+      }],
+      dieline: [],
+    };
+
+    expect(telescopeCollisionViolations(broken, params, 'base'))
+      .toContainEqual(expect.stringContaining('G1:flap↔wall'));
   });
 
   it('相位窗重疊會 fail-loud', () => {

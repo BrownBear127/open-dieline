@@ -141,6 +141,7 @@ function createFakeScene() {
     const handle: FoldSceneHandle = {
       updatePose: vi.fn(),
       replaceModel: vi.fn(),
+      replaceScene: vi.fn(),
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),

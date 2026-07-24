@@ -412,6 +412,23 @@ function plane(poly: Poly3): { point: Vec3; normal: Vec3 } {
   return { point: triangle[0], normal: triangleNormal(triangle) };
 }
 
+function isCoplanarLayerOverlap(left: Poly3, right: Poly3): boolean {
+  const leftPlane = plane(left);
+  const rightPlane = plane(right);
+  if (
+    magnitude(cross(leftPlane.normal, rightPlane.normal))
+    > COPLANAR_TOLERANCE_MM
+  ) {
+    return false;
+  }
+  return right.points.every((point) =>
+    Math.abs(dot(subtract(point, leftPlane.point), leftPlane.normal))
+      <= COPLANAR_TOLERANCE_MM)
+    && left.points.every((point) =>
+      Math.abs(dot(subtract(point, rightPlane.point), rightPlane.normal))
+        <= COPLANAR_TOLERANCE_MM);
+}
+
 function trianglePlaneSection(
   triangle: Triangle,
   planePoint: Vec3,
@@ -1174,7 +1191,33 @@ function namedPairIds(model: FoldModel): Array<{
   return pairs;
 }
 
-function collisionViolations(
+function flapWallLayerPeelLimit(
+  model: FoldModel,
+  pose: ReadonlyMap<string, number>,
+  flapId: string,
+): number | null {
+  const flap = model.panels.find(({ id }) => id === flapId);
+  const hinge = flap?.hingeLine;
+  if (!flap || !hinge) return null;
+  const axisX = hinge.b.x - hinge.a.x;
+  const axisY = hinge.b.y - hinge.a.y;
+  const axisLength = Math.hypot(axisX, axisY);
+  if (axisLength <= NUMERIC_EPSILON) return null;
+  const reach = Math.max(...flap.polygon.map((point) =>
+    Math.abs(
+      axisX * (point.y - hinge.a.y)
+      - axisY * (point.x - hinge.a.x),
+    ) / axisLength));
+  const currentAngle = Math.abs(pose.get(flapId) ?? 0);
+  const finalAngle = Math.abs(flap.foldAngle);
+  const remainingAngle = Math.min(
+    Math.PI / 2,
+    Math.abs(currentAngle - finalAngle),
+  );
+  return reach * Math.sin(remainingAngle) + GEOMETRY_TOLERANCE_MM;
+}
+
+export function telescopeCollisionViolations(
   model: FoldModel,
   params: ResolvedParams,
   pieceId: string,
@@ -1188,16 +1231,11 @@ function collisionViolations(
     for (const pair of pairs) {
       const left = polyFromWorld(model, geometry, pair.left);
       const right = polyFromWorld(model, geometry, pair.right);
+      // 終態同層接觸是 renderer 的 layer-overlap；只有整對面確實共面才跳過。
+      // 非共面 pair 一律繼續走 crossing/depth G1，不得按 phase blanket skip。
+      if (isCoplanarLayerOverlap(left, right)) continue;
       const crossing = pairCrossing(left, right);
       if (!crossing.crossing) continue;
-      if (
-        t >= TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0] - NUMERIC_EPSILON
-        && (pair.family === 'flap↔wallX' || pair.family === 'flap↔wallY')
-      ) {
-        // C 由 x 壁夾層剝離並插入 y 壁夾層；端點/根部的 layer peel
-        // 由 terminal coplanarity、containment 與 exact angle driver 共同約束。
-        continue;
-      }
       if (
         pair.family === 'flap↔flap'
         && Math.abs(t - 1) <= NUMERIC_EPSILON
@@ -1205,7 +1243,7 @@ function collisionViolations(
       if (
         pair.corner
         && (pair.family === 'flap↔wingX' || pair.family === 'flap↔wingY')
-        && t >= 0.82 - NUMERIC_EPSILON
+        && t >= TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0] - NUMERIC_EPSILON
       ) {
         const formula = hookFormula(params, pieceId, pair.corner);
         const measurement = hookMeasurement(left, right);
@@ -1223,6 +1261,24 @@ function collisionViolations(
           violations.push(
             `hook-root-strip:${pair.left}↔${pair.right}@${t.toFixed(4)} band=${measurement.bandMm.toFixed(6)}/${analyticLimit.toFixed(6)} span=${measurement.intersectionLengthMm.toFixed(6)}/${(formula.zSpanMm + GEOMETRY_TOLERANCE_MM).toFixed(6)}`,
           );
+          continue;
+        }
+      }
+      if (
+        pair.family === 'flap↔wallY'
+        && t >= TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0] - NUMERIC_EPSILON
+      ) {
+        // flap 以豎直 hinge 貼向 y wall 時，零厚度剛體的可見剝離深度上界，
+        // 由當片 hinge reach × 尚未到位角的 sin 現場推導；超界仍是 G1。
+        const layerPeelLimit = flapWallLayerPeelLimit(
+          model,
+          pose,
+          pair.left,
+        );
+        if (
+          layerPeelLimit !== null
+          && crossing.depthMm <= layerPeelLimit
+        ) {
           continue;
         }
       }
@@ -1253,7 +1309,7 @@ export function telescopeGateReport(
     violations.push(
       ...seamFormulaViolations(model, params),
       ...finalFlapViolations(model, params, pieceId),
-      ...collisionViolations(model, params, pieceId),
+      ...telescopeCollisionViolations(model, params, pieceId),
     );
   }
   return {

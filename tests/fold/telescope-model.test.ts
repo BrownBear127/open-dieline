@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { telescope } from '@/boxes/telescope';
 import { resolveParams } from '@/core/registry';
 import type { GenerateResult, ResolvedParams } from '@/core/types';
@@ -33,6 +33,57 @@ const WALLS = [
   ['Y', 'Neg'],
   ['Y', 'Pos'],
 ] as const;
+const AC_T1_LEGAL_ROWS: ReadonlyArray<{
+  caseId: string;
+  delta: Overrides;
+}> = [
+  { caseId: 'M-01', delta: {} },
+  { caseId: 'M-02', delta: { linerEnabled: false } },
+  { caseId: 'M-03', delta: { basePlatformWidth: 0 } },
+  { caseId: 'M-04', delta: { lidPlatformWidth: 5 } },
+  {
+    caseId: 'M-15',
+    delta: { basePlatformWidth: 0, lidPlatformWidth: 5 },
+  },
+  { caseId: 'M-05', delta: { rootJog: 0 } },
+  { caseId: 'M-06', delta: { thickness: 0 } },
+  { caseId: 'M-07', delta: { thickness: 0.8 } },
+  {
+    caseId: 'M-08',
+    delta: { lidMarginX: 25, lidMarginY: 8 },
+  },
+  {
+    caseId: 'M-09',
+    delta: {
+      baseLength: 33,
+      baseWidth: 33,
+      baseHeight: 10,
+      lidMarginX: 5,
+      lidMarginY: 5,
+      lidHeight: 17,
+      linerFlapDepth: 5,
+    },
+  },
+  {
+    caseId: 'M-10',
+    delta: {
+      baseLength: 600,
+      baseWidth: 600,
+      baseHeight: 200,
+      lidMarginX: 60,
+      lidMarginY: 60,
+      lidHeight: 200,
+    },
+  },
+  {
+    caseId: 'M-16',
+    delta: {
+      basePlatformWidth: 0,
+      lidPlatformWidth: 5,
+      lidHeight: 60,
+    },
+  },
+];
 
 function trayParents(family: 'P0' | 'P+', chainFits = true): ParentRows {
   const rows: ParentRows = [[TELESCOPE_PANEL_IDS.floor, null]];
@@ -113,8 +164,10 @@ function dielineBoundarySignature(
     })).sort();
 }
 
-function guidePointBounds(model: FoldModel): [number, number, number, number] {
-  const points = model.dieline.flatMap(({ segments }) =>
+function dielinePointBounds(
+  paths: FoldModel['dieline'],
+): [number, number, number, number] {
+  const points = paths.flatMap(({ segments }) =>
     segments.flatMap((segment) => flattenSegment(segment, 0.05)));
   return [
     rounded(Math.min(...points.map(({ x }) => x))),
@@ -122,6 +175,10 @@ function guidePointBounds(model: FoldModel): [number, number, number, number] {
     rounded(Math.max(...points.map(({ x }) => x))),
     rounded(Math.max(...points.map(({ y }) => y))),
   ];
+}
+
+function guidePointBounds(model: FoldModel): [number, number, number, number] {
+  return dielinePointBounds(model.dieline);
 }
 
 function panelPointBounds(model: FoldModel): [number, number, number, number] {
@@ -182,6 +239,17 @@ describe('Telescope per-piece fold topology', () => {
 
     expect(buildTelescopeSceneSpec(resolved).pieces.map(({ pieceId }) => pieceId))
       .toEqual(['base', 'lid']);
+  });
+
+  it('同一 params 的 scene 與所有 piece model 只 generate 一次', () => {
+    const resolved = params();
+    const generate = vi.spyOn(telescope, 'generate');
+
+    const scene = buildTelescopeSceneSpec(resolved);
+    for (const piece of scene.pieces) piece.buildModel(resolved);
+
+    expect(generate).toHaveBeenCalledOnce();
+    generate.mockRestore();
   });
 
   it.each([
@@ -245,5 +313,33 @@ describe('Telescope AC-T1 flat-space identity', () => {
       expect(modelBoundarySignature(model).length).toBeGreaterThan(0);
       expect(panelPointBounds(model)).toEqual(guidePointBounds(model));
     },
+  );
+
+  it.each(AC_T1_LEGAL_ROWS)(
+    '$caseId：每片攤平 guide、boundary signature 與 2D 絕對版面 bounds 一致',
+    ({ delta }) => {
+      const resolved = params(delta);
+      const generated = telescope.generate(resolved);
+      const scene = buildTelescopeSceneSpec(resolved);
+
+      expect(scene.pieces.map(({ pieceId }) => pieceId))
+        .toEqual(generated.pieces!.map(({ id }) => id));
+      for (const scenePiece of scene.pieces) {
+        const source = sourcePiece(generated, scenePiece.pieceId);
+        const expectedGuide: FoldModel['dieline'] = generated.paths.flatMap(
+          ({ id, type, segments }) =>
+            source.pathIds.includes(id) && (type === 'cut' || type === 'crease')
+              ? [{ id, type, segments }]
+              : [],
+        );
+        const model = scenePiece.buildModel(resolved);
+
+        expect(model.dieline).toEqual(expectedGuide);
+        expect(dielineBoundarySignature(model.dieline))
+          .toEqual(dielineBoundarySignature(expectedGuide));
+        expect(guidePointBounds(model)).toEqual(dielinePointBounds(expectedGuide));
+      }
+    },
+    30_000,
   );
 });

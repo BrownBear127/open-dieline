@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { telescope } from '@/boxes/telescope';
 import { triangularTube } from '@/boxes/triangular-tube';
 import { tuckTopSnapLock } from '@/boxes/tuck-top-snap-lock';
 import { resolveParams } from '@/core/registry';
@@ -71,8 +72,29 @@ describe('Fold scene capability registry', () => {
     expect(spec.pieces[0]!.buildModel(params).panels.length).toBeGreaterThan(0);
   });
 
-  it('does not register telescope before T8', () => {
-    expect(FOLD_SCENE_REGISTRY.telescope).toBeUndefined();
+  it.each([
+    ['liner-on', {}, ['base', 'lid', 'liner']],
+    ['liner-off', { linerEnabled: false }, ['base', 'lid']],
+  ] as const)('registers telescope as preview-only (%s)', (
+    _caseId,
+    delta,
+    expectedPieceIds,
+  ) => {
+    const entry = FOLD_SCENE_REGISTRY.telescope;
+    expect(entry?.capabilities).toEqual({
+      previewScene: true,
+      sampleArtwork: false,
+      template: false,
+      upload: false,
+      editor: false,
+    });
+
+    const params = resolveParams(telescope, delta);
+    const spec = entry!.sceneSpec!(params);
+    expect(spec.pieces.map(({ pieceId }) => pieceId)).toEqual(expectedPieceIds);
+    for (const piece of spec.pieces) {
+      expect(piece.buildModel(params).panels.length).toBeGreaterThan(0);
+    }
   });
 
   it('fails loud when previewScene=true has no sceneSpec', () => {

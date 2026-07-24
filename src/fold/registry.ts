@@ -1,5 +1,6 @@
 import type { ResolvedParams } from '../core/types';
 import { buildRteFoldModel } from './models/reverse-tuck-end';
+import { buildTelescopeSceneSpec } from './models/telescope';
 import { buildTtbFoldModel } from './models/triangular-tube';
 import { buildTtslFoldModel } from './models/tuck-top-snap-lock';
 import {
@@ -84,3 +85,14 @@ function registerSinglePiece(
 registerSinglePiece('rte', buildRteFoldModel);
 registerSinglePiece('ttsl', buildTtslFoldModel);
 registerSinglePiece('ttb', buildTtbFoldModel);
+
+registerFoldScene('telescope', {
+  capabilities: {
+    previewScene: true,
+    sampleArtwork: false,
+    template: false,
+    upload: false,
+    editor: false,
+  },
+  sceneSpec: buildTelescopeSceneSpec,
+});

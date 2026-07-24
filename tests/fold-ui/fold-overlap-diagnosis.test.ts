@@ -5,10 +5,12 @@ import { expect, it } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { triangularTube } from '@/boxes/triangular-tube';
 import { tuckTopSnapLock } from '@/boxes/tuck-top-snap-lock';
+import { telescope } from '@/boxes/telescope';
 import { resolveParams } from '@/core/registry';
 import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import { buildTtbFoldModel } from '@/fold/models/triangular-tube';
 import { buildTtslFoldModel } from '@/fold/models/tuck-top-snap-lock';
+import { buildTelescopeSceneSpec } from '@/fold/models/telescope';
 import { worldGeometry, type Vec3 } from '@/fold/pose3d';
 import { foldPose } from '@/fold/schedule';
 import type { FoldModel } from '@/fold/types';
@@ -219,6 +221,14 @@ it('enumerates both dust overlaps for each unsliced lid when tuckLock is disable
  * panelOverlapPlan 任何分支認得時的預設值（見 fold-scene.ts:886 頂端註解）。 */
 const FALLBACK_OVERLAP_PLAN = { normalOffset: 0, polygonOffsetUnits: 0, renderOrder: 0 };
 
+function telescopePieceModel(pieceId: string): FoldModel {
+  const params = resolveParams(telescope, {});
+  const piece = buildTelescopeSceneSpec(params).pieces
+    .find((candidate) => candidate.pieceId === pieceId);
+  if (!piece) throw new Error(`找不到 telescope piece ${pieceId}`);
+  return piece.buildModel(params);
+}
+
 it('assigns non-fallback, correctly ordered overlap plans to every ttsl panel that geometrically overlaps another', () => {
   const model = buildTtslFoldModel(resolveParams(tuckTopSnapLock, { thickness: 0 }));
 
@@ -393,6 +403,134 @@ it('assigns non-fallback, correctly ordered overlap plans to every ttb panel tha
   }
 });
 
+it('enumerates every completed telescope overlap before assigning render layers', () => {
+  const models = {
+    base: telescopePieceModel('base'),
+    lid: telescopePieceModel('lid'),
+  };
+  const pairsByPiece = {
+    base: overlappingPairs(models.base),
+    lid: overlappingPairs(models.lid),
+  };
+  expect(pairsByPiece).toEqual({
+    base: [
+      'flapNegNeg/flapPosNeg',
+      'flapNegPos/flapPosPos',
+      'wallXNeg-inner/wallXNeg-outer',
+      'wallXNeg-inner/wallXNeg-rim',
+      'wallXNeg-inner/wallXNeg-tongue',
+      'wallXNeg-inner/wingXNegNeg',
+      'wallXNeg-inner/wingXNegPos',
+      'wallXNeg-inner/wingYNegNeg',
+      'wallXNeg-inner/wingYNegPos',
+      'wallXNeg-outer/wallXNeg-tongue',
+      'wallXNeg-outer/wingXNegNeg',
+      'wallXNeg-outer/wingXNegPos',
+      'wallXNeg-outer/wingYNegNeg',
+      'wallXNeg-outer/wingYNegPos',
+      'wallXNeg-tongue/wingXNegNeg',
+      'wallXNeg-tongue/wingXNegPos',
+      'wallXNeg-tongue/wingYNegNeg',
+      'wallXNeg-tongue/wingYNegPos',
+      'wallXPos-inner/wallXPos-outer',
+      'wallXPos-inner/wallXPos-rim',
+      'wallXPos-inner/wallXPos-tongue',
+      'wallXPos-inner/wingXPosNeg',
+      'wallXPos-inner/wingXPosPos',
+      'wallXPos-inner/wingYPosNeg',
+      'wallXPos-inner/wingYPosPos',
+      'wallXPos-outer/wallXPos-tongue',
+      'wallXPos-outer/wingXPosNeg',
+      'wallXPos-outer/wingXPosPos',
+      'wallXPos-outer/wingYPosNeg',
+      'wallXPos-outer/wingYPosPos',
+      'wallXPos-tongue/wingXPosNeg',
+      'wallXPos-tongue/wingXPosPos',
+      'wallXPos-tongue/wingYPosNeg',
+      'wallXPos-tongue/wingYPosPos',
+      'wallYNeg-inner/wallYNeg-tongue',
+      'wallYPos-inner/wallYPos-tongue',
+      'wingXNegNeg/wingYNegNeg',
+      'wingXNegPos/wingYNegPos',
+      'wingXPosNeg/wingYPosNeg',
+      'wingXPosPos/wingYPosPos',
+    ],
+    lid: [
+      'gussetExtNegNeg/wingYNegNeg',
+      'gussetExtNegPos/wingYNegPos',
+      'gussetExtPosNeg/wingYPosNeg',
+      'gussetExtPosPos/wingYPosPos',
+      'wallXNeg-inner/wallXNeg-outer',
+      'wallXNeg-inner/wallXNeg-tongue',
+      'wallXNeg-inner/wingXNegNeg',
+      'wallXNeg-inner/wingXNegPos',
+      'wallXNeg-inner/wingYNegNeg',
+      'wallXNeg-inner/wingYNegPos',
+      'wallXNeg-outer/wallXNeg-tongue',
+      'wallXNeg-outer/wingXNegNeg',
+      'wallXNeg-outer/wingXNegPos',
+      'wallXNeg-outer/wingYNegNeg',
+      'wallXNeg-outer/wingYNegPos',
+      'wallXPos-inner/wallXPos-outer',
+      'wallXPos-inner/wallXPos-tongue',
+      'wallXPos-inner/wingXPosNeg',
+      'wallXPos-inner/wingXPosPos',
+      'wallXPos-inner/wingYPosNeg',
+      'wallXPos-inner/wingYPosPos',
+      'wallXPos-outer/wallXPos-tongue',
+      'wallXPos-outer/wingXPosNeg',
+      'wallXPos-outer/wingXPosPos',
+      'wallXPos-outer/wingYPosNeg',
+      'wallXPos-outer/wingYPosPos',
+      'wallYNeg-inner/wallYNeg-outer',
+      'wallYNeg-inner/wallYNeg-tongue',
+      'wallYNeg-outer/wallYNeg-tongue',
+      'wallYPos-inner/wallYPos-outer',
+      'wallYPos-inner/wallYPos-tongue',
+      'wallYPos-outer/wallYPos-tongue',
+      'wingXNegNeg/wingYNegNeg',
+      'wingXNegPos/wingYNegPos',
+      'wingXPosNeg/wingYPosNeg',
+      'wingXPosPos/wingYPosPos',
+    ],
+  });
+
+  for (const [pieceId, pairs] of Object.entries(pairsByPiece)) {
+    for (const pair of pairs) {
+      const [firstId, secondId] = pair.split('/') as [string, string];
+      const firstPlan = panelOverlapPlan(`${pieceId}:${firstId}`, 0);
+      const secondPlan = panelOverlapPlan(`${pieceId}:${secondId}`, 0);
+      expect(firstPlan, `${pieceId}:${firstId}`).not.toEqual(FALLBACK_OVERLAP_PLAN);
+      expect(secondPlan, `${pieceId}:${secondId}`).not.toEqual(FALLBACK_OVERLAP_PLAN);
+      expect(firstPlan, `${pieceId}:${pair}`).not.toEqual(secondPlan);
+    }
+  }
+
+  for (const ySign of ['Neg', 'Pos']) {
+    const outer = panelOverlapPlan(`base:wallY${ySign}-outer`, 0);
+    const xNeg = panelOverlapPlan(`base:flapNeg${ySign}`, 0);
+    const xPos = panelOverlapPlan(`base:flapPos${ySign}`, 0);
+    const inner = panelOverlapPlan(`base:wallY${ySign}-inner`, 0);
+    expect(outer).not.toEqual(xNeg);
+    expect(inner).not.toEqual(xNeg);
+    expect(outer).not.toEqual(xPos);
+    expect(inner).not.toEqual(xPos);
+    expect(xNeg.normalOffset).toBeLessThan(xPos.normalOffset);
+    expect(xNeg.renderOrder).toBeLessThan(xPos.renderOrder);
+    expect(outer).not.toEqual(inner);
+    expect(outer.renderOrder).not.toBe(inner.renderOrder);
+  }
+
+  for (const corner of ['NegNeg', 'NegPos', 'PosNeg', 'PosPos']) {
+    const xSign = corner.startsWith('Neg') ? 'Neg' : 'Pos';
+    const outer = panelOverlapPlan(`lid:wallX${xSign}-outer`, 0);
+    const extension = panelOverlapPlan(`lid:gussetExt${corner}`, 0);
+    const inner = panelOverlapPlan(`lid:wallX${xSign}-inner`, 0);
+    expect(extension).not.toEqual(outer);
+    expect(extension).not.toEqual(inner);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // render 位移：驗證 `panelRenderVertices`
 // （fold-scene.ts:988）在實際渲染頂點上的位移等於 overlapPlan 宣告的 normalOffset。
@@ -441,6 +579,15 @@ const GOLDEN_DISPLACEMENT_MULTIPLIER: Record<string, number> = {
   endEndWingBottom: 2,
   bottomLid: 1,
   bottomTuck: 2,
+  'wallXNeg-outer': 4,
+  'wallXNeg-rim': 2,
+  'wallXNeg-inner': 8,
+  'wallXNeg-tongue': 9,
+  wingXNegNeg: 6,
+  wingYNegNeg: 5,
+  flapNegNeg: 9,
+  flapPosNeg: 10,
+  gussetExtNegNeg: 7,
 };
 
 function goldenDisplacementMm(panelId: string): number {
@@ -527,6 +674,37 @@ it('ttsl: t=1 底部咬合四片＋頂部 topLid/topTuck/topDustP2/topDustP4/glu
 
   for (const panelId of targets) {
     expectRenderDisplacementMatchesGolden(model, panelId, pose, geometry, faces);
+  }
+});
+
+it('telescope: T9 手填 golden 覆蓋反摺、互卡、extension 與 jog 家族', () => {
+  const base = telescopePieceModel('base');
+  const lid = telescopePieceModel('lid');
+  for (const [model, targets] of [
+    [base, [
+      'wallXNeg-outer',
+      'wallXNeg-rim',
+      'wallXNeg-inner',
+      'wallXNeg-tongue',
+      'wingXNegNeg',
+      'wingYNegNeg',
+      'flapNegNeg',
+      'flapPosNeg',
+    ]],
+    [lid, ['gussetExtNegNeg']],
+  ] as const) {
+    const pose = foldPose(1, model);
+    const geometry = worldGeometry(model, pose);
+    const faces = exteriorFaceMap(model);
+    for (const panelId of targets) {
+      expectRenderDisplacementMatchesGolden(
+        model,
+        panelId,
+        pose,
+        geometry,
+        faces,
+      );
+    }
   }
 });
 
