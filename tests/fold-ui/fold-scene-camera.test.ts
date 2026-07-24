@@ -6,10 +6,11 @@ import { worldGeometry } from '@/fold/pose3d';
 import { foldPose } from '@/fold/schedule';
 import {
   cameraOrbitPosition,
-  computeCameraFrame,
+  computeSceneCameraFrame,
   shadowPlacement,
   type GeometryBounds,
 } from '@/ui/fold-scene';
+import { resolveFoldSceneSpec } from '@/fold/scene-spec';
 
 const params = resolveParams(reverseTuckEnd, {});
 const model = buildRteFoldModel(params);
@@ -17,6 +18,22 @@ const L = params.L as number;
 const W = params.W as number;
 const D = params.D as number;
 const thickness = params.thickness as number;
+// L1 修（Opus 審 3）：舊 computeCameraFrame 已是死碼——測試改釘 production 實走的
+// computeSceneCameraFrame（單片 scene 包裝＝replaceModel 相同路徑）。
+const singlePieceScene = resolveFoldSceneSpec(
+  {
+    pieces: [
+      {
+        pieceId: 'model',
+        buildModel: () => model,
+        foldWindow: [0, 1],
+        assemblyTrack: [],
+      },
+    ],
+  },
+  params,
+);
+const computeFrame = () => computeSceneCameraFrame(singlePieceScene, thickness);
 
 function boundsAt(t: number): GeometryBounds {
   const geometry = worldGeometry(model, foldPose(t, model));
@@ -51,9 +68,9 @@ function boundsDiagonal(bounds: GeometryBounds): number {
   );
 }
 
-describe('computeCameraFrame', () => {
+describe('computeSceneCameraFrame（單片包裝·production 路徑）', () => {
   it('normalizes the completed box center to the stable scene origin', () => {
-    const frame = computeCameraFrame(model)!;
+    const frame = computeFrame()!;
     const foldedBounds = boundsAt(1);
     const foldedCenter = {
       x: (foldedBounds.minX + foldedBounds.maxX) / 2,
@@ -62,11 +79,11 @@ describe('computeCameraFrame', () => {
     };
 
     expect(frame.target).toEqual({ x: 0, y: 0, z: 0 });
-    expect(frame.modelOffset).toEqual({
-      x: -foldedCenter.x,
-      y: -foldedCenter.y,
-      z: -foldedCenter.z,
-    });
+    // 新路徑中心由 renderedVerticesByPanel 聚合——與 worldGeometry 直算存在浮點
+    // 尾數差（~1e-14），逐軸 closeTo 取代嚴格相等。
+    expect(frame.modelOffset.x).toBeCloseTo(-foldedCenter.x, 10);
+    expect(frame.modelOffset.y).toBeCloseTo(-foldedCenter.y, 10);
+    expect(frame.modelOffset.z).toBeCloseTo(-foldedCenter.z, 10);
 
     const tolerance = Math.max(2 * thickness, 1);
     expect(Math.abs(foldedCenter.x - L / 2)).toBeLessThanOrEqual(tolerance);
@@ -75,7 +92,7 @@ describe('computeCameraFrame', () => {
   });
 
   it('取景對角線涵蓋攤平全紙、聚焦對角線貼近盒體（近縮放不被大紙鎖死）', () => {
-    const frame = computeCameraFrame(model)!;
+    const frame = computeFrame()!;
 
     // 攤平外廓直接由 2D 多邊形計算（t=0 世界幾何＝多邊形原位·y 取負·z=0），
     // 與實作的 worldGeometry 路徑獨立。

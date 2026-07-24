@@ -1646,32 +1646,6 @@ export function cameraOrbitPosition(
   };
 }
 
-/**
- * 相機框架與「當下 pose」解耦：軸心永遠是盒體中心，不隨 replaceModel 當下的
- * t 漂移（舊行為在 scene 初始 t=0 時把軸心定在攤平大紙中心，自轉變成繞行）。
- */
-export function computeCameraFrame(model: FoldModel): CameraFrame | null {
-  const foldedBounds = boundsForGeometry(worldGeometry(model, foldPose(1, model)));
-  const flatBounds = boundsForGeometry(worldGeometry(model, foldPose(0, model)));
-  if (!foldedBounds || !flatBounds) return null;
-
-  const focusDiagonal = boundsDiagonal(foldedBounds);
-  const foldedCenter = {
-    x: (foldedBounds.minX + foldedBounds.maxX) / 2,
-    y: (foldedBounds.minY + foldedBounds.maxY) / 2,
-    z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
-  };
-  return {
-    target: { x: 0, y: 0, z: 0 },
-    modelOffset: {
-      x: -foldedCenter.x,
-      y: -foldedCenter.y,
-      z: -foldedCenter.z,
-    },
-    fitDiagonal: Math.max(boundsDiagonal(flatBounds), focusDiagonal),
-    focusDiagonal,
-  };
-}
 
 interface EvaluatedPieceRenderContext {
   assemblyDelta: Transform;

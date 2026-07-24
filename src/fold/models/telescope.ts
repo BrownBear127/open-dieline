@@ -1045,8 +1045,20 @@ export function buildTelescopeSceneSpec(params: ResolvedParams): FoldSceneSpec {
   return defineFoldSceneSpec({
     pieces: pieces.map((piece) => ({
       pieceId: piece.id,
-      // SceneSpec 已由這份 params 綁定；閉包直接重用同一批模型，避免每片再 generate。
-      buildModel: () => {
+      // SceneSpec 已由這份 params 綁定；同 params 呼叫重用同一批模型（避免每片再
+      // generate）。契約=回傳「該 params」的模型：呼叫端帶不同 params 時重建，
+      // 不得靜默回傳綁定 params 的 stale 模型。
+      buildModel: (callParams: ResolvedParams) => {
+        if (callParams && callParams !== params) {
+          const rebuilt = buildTelescopeSceneSpec(callParams);
+          const match = rebuilt.pieces.find(
+            (candidate) => candidate.pieceId === piece.id,
+          );
+          if (!match) {
+            throw new Error(`Telescope 重建後找不到 piece「${piece.id}」`);
+          }
+          return match.buildModel(callParams);
+        }
         const model = models.get(piece.id);
         if (!model) {
           throw new Error(`Telescope generate() 找不到 piece「${piece.id}」`);
