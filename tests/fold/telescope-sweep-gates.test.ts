@@ -248,7 +248,7 @@ describe('Telescope gate sabotage', () => {
       .toContainEqual(expect.stringContaining('finalEnvelope'));
   });
 
-  // T15f：180° 反摺的旋向。分兩拍各一條——prefoldX 的 x 內壁（判別軸＝出紙面 z）、
+  // 180° 反摺的旋向：兩拍各一條——prefoldX 的 x 內壁（判別軸＝出紙面 z）、
   // closeY 的 y 內壁（判別軸＝水平 y）。兩者判別軸不同，所以必須各驗一次，
   // 不能只驗一個就宣稱「180° 拍都守住了」。
   const flipHalfTurn = (model: FoldModel, pattern: RegExp): FoldModel => ({

@@ -116,7 +116,7 @@ describe('Telescope per-piece schedule', () => {
       raiseY: [0.64, 0.84],
       closeY: [0.84, 1],
     });
-    // 第三拍在兩家族同位＝raiseX 之後、raiseY 之前（Spec §4.6 R11-04 對稱條款）。
+    // 第三拍在兩家族同位＝raiseX 之後、raiseY 之前（Spec §4.6：兩個角鎖家族共用同一條斷言）。
     const { raiseX, extWrap, raiseY } = TELESCOPE_TRAY_WINDOWS.plain;
     expect(extWrap[0]).toBe(raiseX[1]);
     expect(extWrap[1]).toBe(raiseY[0]);
@@ -152,7 +152,7 @@ describe('Telescope per-piece schedule', () => {
 
     expect(baseFlaps).toHaveLength(0);
     expect(lidFlaps).toHaveLength(4);
-    // 家族由 panel 存在性決定（Spec §4.6 R6-01 panel-existence 條件），非參數旗標。
+    // 家族由 panel 存在性決定（Spec §4.6），非參數旗標。
     expect(stepFor(lid, 'flapNegNeg').at(0)).toMatchObject({
       t0: telescopeInterlockSubWindows().first[0],
       t1: telescopeInterlockSubWindows().first[1],
