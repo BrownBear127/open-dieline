@@ -393,7 +393,12 @@ describe('Telescope gate sabotage', () => {
     })).toBe(false);
   });
 
-  it('zSpan 公式讀 generator 匯出的 nominal，不另寫 103.699 魔數', () => {
-    expect(A_GUSSET_FIXED_NOMINAL_A_MM).toBeGreaterThan(100);
+  it('A 款鉤葉 nominal a 錨仍是 generator 與閘門共用的同一個值', () => {
+    // ⚠ 這條原本叫「zSpan 公式讀 generator 匯出的 nominal，不另寫 103.699 魔數」，
+    // 斷言卻只是 `> 100`——任何大於 100 的值都綠，擋不住它自稱要擋的東西。
+    // 「閘門不另寫魔數」其實由 import 結構保證（telescope-gates.ts 直接 import 本常數），
+    // 測試加不了東西。這裡改為守真正還會漂移的一件事：generator 的線段模板與
+    // 閘門公式必須引用**同一個**常數，值也必須仍等於刀模上的那個錨點。
+    expect(A_GUSSET_FIXED_NOMINAL_A_MM).toBe(103.699);
   });
 });

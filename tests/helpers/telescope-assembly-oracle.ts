@@ -232,9 +232,19 @@ export function telescopeAssemblyOracleViolations(
     );
   }
 
-  const baseRim = Math.max(...[...base]
-    .filter(([panelId]) => panelId !== 'floor')
-    .flatMap(([, points]) => points.map(({ z }) => z)));
+  // 下盒壁頂＝**具名面**（外壁上緣），不是「除底板外全片最高點」。
+  // 兩者在預設值下同為 60.0000 而看不出差別，但內壁凸出壁頂的參數列會分歧——
+  // 實測 M-09／M-10 的 `wallX*-inner` 高出壁頂 4.5mm，全片 max 會把基準讀高 4.5mm。
+  // 目前 AC-T4b 只跑 default 兩態所以不咬，但把量測對象釘在具名面才不會在
+  // 擴列或幾何演化時靜默量錯面（生產端用的是 `baseRim = baseHeight`）。
+  const baseOuterWalls = [...base]
+    .filter(([panelId]) => /^wall[XY](?:Neg|Pos)-outer$/.test(panelId))
+    .flatMap(([, points]) => points);
+  if (baseOuterWalls.length === 0) {
+    violations.push('缺少下盒外壁，無法定出壁頂基準');
+    return violations;
+  }
+  const baseRim = Math.max(...baseOuterWalls.map(({ z }) => z));
   // 上蓋底板 panel 平面＝落座平面（seatPlane）；接觸面與外頂面由 model 層
   // 的面別約定導出（Spec §4.7）——oracle 不得自行從落座 z 反推面別。
   const lidSeatPlane = lidFloor.reduce((sum, { z }) => sum + z, 0)

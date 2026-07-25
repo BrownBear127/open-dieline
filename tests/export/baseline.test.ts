@@ -135,6 +135,18 @@ describe('A2 匯出基線 byte-identical', () => {
     expect(ALLOWED_GENERATED_AT_COMMITS).toContain(manifest.generatedAtCommit);
   });
 
+  it('manifest 涵蓋且僅涵蓋 CASES 會產出的檔案', () => {
+    // 白名單只檢查 `generatedAtCommit` 這個字串在清單裡，**不綁定哪些檔案該變**——
+    // 該欄位可以被手改（實測 `b5d89c9` 就只改了字串與註解、九個基線檔一字未動），
+    // 於是「宣告的 commit」與「檔案實際生成於哪個 commit」可以無聲脫節。
+    // 這條至少釘住集合：manifest 的鍵必須恰好等於 CASES × 三種格式，
+    // 少一個＝有 case 沒被基線守著，多一個＝留了沒人生成的殘檔。
+    const expected = CASES
+      .flatMap(({ name }) => [`${name}.svg`, `${name}.manufacturing.svg`, `${name}.dxf`])
+      .sort();
+    expect(Object.keys(manifest.files).sort()).toEqual(expected);
+  });
+
   for (const c of CASES) {
     it(`${c.name}：SVG（一般＋manufacturing）與 DXF 逐 byte 等於基線`, () => {
       for (const [fname, content] of Object.entries(artifacts(c.name, c.make()))) {
