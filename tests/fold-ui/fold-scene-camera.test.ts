@@ -140,9 +140,21 @@ describe('cameraPlacement（預設取景以折後盒體定距）', () => {
   it('縮遠仍看得完整張攤平紙——far/maxDistance 續由 fitDiagonal 決定', () => {
     const placement = cameraPlacement(frame);
 
-    // 攤平時整張紙要進得了畫面，可視距離上限必須涵蓋攤平外廓；
+    // 攤平時整張紙要進得了畫面 ⇒ 可到達的最遠視距，必須至少等於
+    // **app 自己用來取景攤平外廓的那個距離**（同一組 fit/elevation 常數）。
+    // ⚠ 原本寫的是 `> fitDiagonal`，那只是不等式護欄不是契約：把 maxDistance
+    // 改吃 focusDiagonal（= 1411mm）仍然大於 fitDiagonal（994.5mm）而照過，
+    // 但取景攤平紙需要 2008mm——使用者實際上已經縮不遠到看完整張紙了。
+    const flatFramingDistance = (f: typeof frame) => f.fitDiagonal * Math.hypot(2, 0.28);
+    expect(placement.maxDistance).toBeGreaterThanOrEqual(flatFramingDistance(frame));
+    // 判別性：RTE 的攤平紙只比盒體大一點，fit/focus 比撐不出差異。契約對**任何**
+    // frame 都要成立，所以另取一個攤平外廓遠大於盒體的 frame（telescope 實際是 4.23×）。
+    const wideFlat = { ...frame, fitDiagonal: frame.focusDiagonal * 10 };
+    expect(
+      cameraPlacement(wideFlat).maxDistance,
+      '攤平紙遠大於盒體時，縮遠上限仍必須到得了取景攤平紙的距離',
+    ).toBeGreaterThanOrEqual(flatFramingDistance(wideFlat));
     // far 也要蓋得住「相機退到最遠 ＋ 紙張本身深度」。
-    expect(placement.maxDistance).toBeGreaterThan(frame.fitDiagonal);
     expect(placement.far).toBeGreaterThan(placement.maxDistance + frame.fitDiagonal);
     // 近端不被大紙鎖死的原契約不變。
     expect(placement.minDistance).toBeCloseTo(frame.focusDiagonal * 0.2, 10);

@@ -20,31 +20,48 @@ import {
 
 type Overrides = Record<string, number | boolean>;
 
+/**
+ * 每片預期的**角鎖家族**。值取自實測（逐列 dump），不是推測。
+ *
+ * 為什麼要逐列宣告：閘門在域內沒有目標物時會靜默回空集，報告上與「跑過且通過」同值；
+ * 而「空集須先證 count=0」只擋得住偵測邏輯壞掉（正則改壞卻仍有 panel），
+ * 擋不住「這一列本來該有這族、結果整族沒生成」——那時 count 真的是 0，證明照樣通過。
+ * 只有把預期寫成資料，家族憑空消失才會有訊號。
+ */
+type CornerLock = 'flap' | 'extension' | 'none';
+
 const LEGAL_ROWS: Array<{
   caseId: string;
   delta: Overrides;
   fired: string[];
+  corners: Record<string, CornerLock>;
 }> = [
-  { caseId: 'M-01', delta: {}, fired: [] },
-  { caseId: 'M-02', delta: { linerEnabled: true }, fired: [] },
-  { caseId: 'M-03', delta: { basePlatformWidth: 0 }, fired: [] },
+  { caseId: 'M-01', delta: {}, fired: [], corners: { base: 'flap', lid: 'extension' } },
+  { caseId: 'M-02', delta: { linerEnabled: true }, fired: [], corners: { base: 'flap', lid: 'extension', liner: 'none' } },
+  { caseId: 'M-03', delta: { basePlatformWidth: 0 }, fired: [], corners: { base: 'extension', lid: 'extension' } },
   {
     caseId: 'M-04',
     delta: { lidPlatformWidth: 5 },
     fired: ['gusset-relief-omitted'],
+    corners: { base: 'flap', lid: 'none' },
   },
   {
     caseId: 'M-15',
     delta: { basePlatformWidth: 0, lidPlatformWidth: 5 },
     fired: ['gusset-relief-omitted'],
+    corners: { base: 'extension', lid: 'none' },
   },
-  { caseId: 'M-05', delta: { rootJog: 0 }, fired: [] },
-  { caseId: 'M-06', delta: { thickness: 0 }, fired: [] },
-  { caseId: 'M-07', delta: { thickness: 0.8 }, fired: [] },
+  { caseId: 'M-05', delta: { rootJog: 0 }, fired: [], corners: { base: 'flap', lid: 'extension' } },
+  { caseId: 'M-06', delta: { thickness: 0 }, fired: [], corners: { base: 'flap', lid: 'extension' } },
+  { caseId: 'M-07', delta: { thickness: 0.8 }, fired: [], corners: { base: 'flap', lid: 'extension' } },
   {
     caseId: 'M-08',
-    delta: { lidMarginX: 25, lidMarginY: 8 },
+    // 兩軸放大量不等（本列的用意）。原值 25/8 的 X 已超出 schema max=10——
+    // `resolveParams` 不 clamp，那一列因此在測一個 UI 到不了的狀態。
+    // 改取兩端內的不等值，順帶各碰一次 max 與近 min。
+    delta: { lidMarginX: 10, lidMarginY: 2 },
     fired: [],
+    corners: { base: 'flap', lid: 'extension' },
   },
   {
     caseId: 'M-09',
@@ -63,6 +80,7 @@ const LEGAL_ROWS: Array<{
       'notch-omitted',
       'tongue-crease-shrunk',
     ],
+    corners: { base: 'none', lid: 'extension', liner: 'none' },
   },
   {
     caseId: 'M-10',
@@ -70,11 +88,14 @@ const LEGAL_ROWS: Array<{
       baseLength: 600,
       baseWidth: 600,
       baseHeight: 200,
-      lidMarginX: 60,
-      lidMarginY: 60,
+      // 原值 60/60 同樣超出上蓋放大量 schema max=10（本列自稱「六參數皆取 schema max」，
+      // 其中兩個其實在範圍外）。放大量改取實際 max。
+      lidMarginX: 10,
+      lidMarginY: 10,
       lidHeight: 200,
     },
     fired: ['gusset-relief-omitted'],
+    corners: { base: 'none', lid: 'extension' },
   },
   {
     caseId: 'M-16',
@@ -84,6 +105,7 @@ const LEGAL_ROWS: Array<{
       lidHeight: 60,
     },
     fired: [],
+    corners: { base: 'extension', lid: 'flap' },
   },
 ];
 
@@ -128,7 +150,7 @@ function buildPiece(
 describe('Telescope 12 列合法／禁止參數矩陣', () => {
   it.each(LEGAL_ROWS)(
     '$caseId：fired 精確匹配且所有 per-piece hard gates 通過',
-    ({ caseId, delta, fired }) => {
+    ({ caseId, delta, fired, corners }) => {
       expect(exactSetMismatch(firedFor(delta), fired), caseId).toEqual([]);
       const params = resolveParams(telescope, delta);
       const scene = buildTelescopeSceneSpec(params);
@@ -136,9 +158,31 @@ describe('Telescope 12 列合法／禁止參數矩陣', () => {
       for (const piece of scene.pieces) {
         const model = piece.buildModel(params);
         const report = telescopeGateReport(model, params, piece.pieceId);
-        const flapCount = model.panels.filter(({ id }) => id.startsWith('flap')).length;
-        if (!report.flapGatesApplicable) {
-          expect(flapCount, `${caseId}/${piece.pieceId} 空集須先證 count=0`).toBe(0);
+        // ① 角鎖家族逐列對預期——閘門空跑（域內無目標物）與「跑過且通過」在報告上同值，
+        //    而 count=0 的證明只擋得住偵測邏輯壞掉。家族憑空消失只有靠宣告過的預期才看得見。
+        const countOf = (prefix: string) => model.panels
+          .filter(({ id }) => id.startsWith(prefix)).length;
+        const expectedCorner = corners[piece.pieceId];
+        expect(expectedCorner, `${caseId}/${piece.pieceId} 未宣告預期角鎖家族`).toBeDefined();
+        expect(
+          [countOf('flap'), countOf('gussetExt')],
+          `${caseId}/${piece.pieceId} 角鎖家族應為 ${expectedCorner}`,
+        ).toEqual({ flap: [4, 0], extension: [0, 4], none: [0, 0] }[expectedCorner!]);
+        // ② 旗標必須與實際家族一致（旗標本身也可能算錯）。
+        expect(report.flapGatesApplicable, `${caseId}/${piece.pieceId} flap 旗標`)
+          .toBe(expectedCorner === 'flap');
+        expect(report.extensionGatesApplicable, `${caseId}/${piece.pieceId} 延伸段旗標`)
+          .toBe(expectedCorner === 'extension');
+        // ③ ±180° 反摺閘門空跑時，同樣先證該片真的沒有半圈反摺 panel。
+        if (!report.halfTurnGatesApplicable) {
+          expect(
+            model.panels.filter((panel) => (
+              panel.parent !== null
+              && panel.angleFn === undefined
+              && Math.abs(Math.abs(panel.foldAngle) - Math.PI) < 1e-9
+            )).length,
+            `${caseId}/${piece.pieceId} ±180° 反摺空集須先證 count=0`,
+          ).toBe(0);
         }
         expect(
           report.violations,
@@ -156,6 +200,29 @@ describe('Telescope 12 列合法／禁止參數矩陣', () => {
       expect(() => buildTelescopeSceneSpec(params)).toThrow(invariantId);
     },
   );
+
+  it('矩陣每個 override 都必須落在 schema 宣告範圍內', () => {
+    // `resolveParams` 不 clamp，所以超範圍的 override 會被照單全收——
+    // 那一列就變成在測一個 UI 產生不了的狀態（M-08 的 lidMarginX=25 曾如此，
+    // 直到上蓋放大量 schema 由 [5,60] 改成 [1,10] 才顯露）。
+    const declared = new Map(telescope.params.map((param) => [param.key, param]));
+    for (const { caseId, delta } of LEGAL_ROWS) {
+      for (const [key, value] of Object.entries(delta)) {
+        const param = declared.get(key);
+        expect(param, `${caseId}: 未宣告的參數 ${key}`).toBeDefined();
+        if (typeof value !== 'number') continue;
+        const { min, max } = param as { min?: number; max?: number };
+        if (typeof min === 'number') {
+          expect(value, `${caseId}: ${key}=${value} 低於 schema min=${min}`)
+            .toBeGreaterThanOrEqual(min);
+        }
+        if (typeof max === 'number') {
+          expect(value, `${caseId}: ${key}=${value} 高於 schema max=${max}`)
+            .toBeLessThanOrEqual(max);
+        }
+      }
+    }
+  });
 
   it('warning fired 多一條或少一條都會被 exact matcher 拒絕', () => {
     const expected = ['gusset-relief-omitted'];

@@ -63,6 +63,17 @@ function phaseSweepTimes(model: FoldModel): number[] {
 
 export interface TelescopeGateReport {
   flapGatesApplicable: boolean;
+  /**
+   * 該片是否有 `gussetExt` 家族——沒有的話 `finalExtensionViolations` 整條 early-return。
+   * 沒有這個旗標時，「延伸段閘門通過」與「這一列根本沒有延伸段」在報告裡同值
+   * （實測 25 個 piece-row 裡有 4 列處於後者），呼叫端無從分辨。
+   */
+  extensionGatesApplicable: boolean;
+  /**
+   * 該片是否有 ±180° 反摺 panel——沒有的話 `halfTurnDirectionViolations` 回空集。
+   * 實測 25 個 piece-row 裡有 13 列如此（全部 P+ 片與兩列 liner）。
+   */
+  halfTurnGatesApplicable: boolean;
   violations: string[];
 }
 
@@ -1776,6 +1787,13 @@ export function telescopeGateReport(
   pieceId: string,
 ): TelescopeGateReport {
   const flapCount = model.panels.filter(({ id }) => id.startsWith('flap')).length;
+  const extensionCount = model.panels
+    .filter(({ id }) => id.startsWith('gussetExt')).length;
+  const halfTurnCount = model.panels.filter((panel) => (
+    panel.parent !== null
+    && panel.angleFn === undefined
+    && Math.abs(Math.abs(panel.foldAngle) - Math.PI) < 1e-9
+  )).length;
   const violations = [
     ...familyTopologyViolations(model),
     ...oneStepViolations(model),
@@ -1797,6 +1815,8 @@ export function telescopeGateReport(
   }
   return {
     flapGatesApplicable: flapCount === 4,
+    extensionGatesApplicable: extensionCount > 0,
+    halfTurnGatesApplicable: halfTurnCount > 0,
     violations: [...new Set(violations)],
   };
 }
