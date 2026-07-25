@@ -428,13 +428,22 @@ it('enumerates every completed telescope overlap before assigning render layers'
   //     舌片隨內壁內移故亦不再貼上外壁。
   //  6. 移除兩片的 `wallY-*/wallY-tongue`──短邊壁舌片改 −90° 橫躺盒底（實測 z 恆 0.80），
   //     不再與 y 壁任何一層共面。
-  //  lid 的 `wallX-*` 各對保留：lid platformWidth 預設 0 ⇒ 無 rim panel ⇒ 長邊壁頂仍是 180° 對摺。
+  //  lid 的 `wallX-inner/wallX-outer` 保留：lid platformWidth 預設 0 ⇒ 無 rim ⇒ 兩葉 180° 對摺共面。
+  // ⚠ v15.8 三次變動（x 壁舌片由 180° 改 −90°·四面同構）。逐項對照：
+  //  7. 移除兩片的 `wallX-inner/wallX-tongue` 與 lid 的 `wallX-outer/wallX-tongue`
+  //     ──x 舌片不再貼回內壁，離開壁面平面故不再共面交疊。
+  //  8. 新增 base 的 `wallX-tongue/wallY-tongue` ×4──四片舌片現在同高躺在盒底
+  //     （實測 z 恆 0.80），角落區互相交疊。
+  //     lid 不出現對應 pair：其角落窗口僅 6.0×4.3mm（base 為 11.0×10.5mm），
+  //     完全落在舌片輪廓的切角內，包絡框相交但多邊形不相交。
   expect(pairsByPiece).toEqual({
     base: [
       'flapNegNeg/flapPosNeg',
       'flapNegPos/flapPosPos',
-      'wallXNeg-inner/wallXNeg-tongue',
-      'wallXPos-inner/wallXPos-tongue',
+      'wallXNeg-tongue/wallYNeg-tongue',
+      'wallXNeg-tongue/wallYPos-tongue',
+      'wallXPos-tongue/wallYNeg-tongue',
+      'wallXPos-tongue/wallYPos-tongue',
       'wallYNeg-outer/wingYNegNeg',
       'wallYNeg-outer/wingYPosNeg',
       'wallYPos-outer/wingYNegPos',
@@ -446,11 +455,7 @@ it('enumerates every completed telescope overlap before assigning render layers'
       'gussetExtPosNeg/wingXPosNeg',
       'gussetExtPosPos/wingXPosPos',
       'wallXNeg-inner/wallXNeg-outer',
-      'wallXNeg-inner/wallXNeg-tongue',
-      'wallXNeg-outer/wallXNeg-tongue',
       'wallXPos-inner/wallXPos-outer',
-      'wallXPos-inner/wallXPos-tongue',
-      'wallXPos-outer/wallXPos-tongue',
       'wallYNeg-inner/wallYNeg-outer',
       'wallYNeg-inner/wingYNegNeg',
       'wallYNeg-inner/wingYPosNeg',
@@ -572,7 +577,7 @@ const GOLDEN_DISPLACEMENT_MULTIPLIER: Record<string, number> = {
   'wallXNeg-outer': 0,
   'wallXNeg-rim': 0,
   'wallXNeg-inner': 2,
-  'wallXNeg-tongue': 3,
+  'wallXNeg-tongue': 2,
   'wallYNeg-outer': 0,
   'wallYNeg-inner': 2,
   wingXNegNeg: 1,

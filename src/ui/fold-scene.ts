@@ -942,7 +942,9 @@ function telescopeDrawRank(panelId: string): number | null {
   // wallY outer / extension / wallY inner 三明治（piece 前綴由呼叫端保留）。
   if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return 7;
   if (/^wall[XY](?:Neg|Pos)-inner$/.test(panelId)) return 8;
-  if (/^wall[XY](?:Neg|Pos)-tongue$/.test(panelId)) return 9;
+  // x/y 舌片在盒底角落互相交疊，繪製先後不留給 Three.js 的內部排序決定。
+  if (/^wallX(?:Neg|Pos)-tongue$/.test(panelId)) return 9;
+  if (/^wallY(?:Neg|Pos)-tongue$/.test(panelId)) return 11;
   return null;
 }
 
@@ -958,7 +960,9 @@ function telescopeDrawRank(panelId: string): number | null {
  *   0  外壁／壁頂平台／盤底／內襯    最外一張紙，基準面
  *  −1  角撐 wing                     貼在外壁內側
  *  −2  內壁／後摺角翼 flapPos／延伸段 gussetExt
- *  −3  舌片／先摺角翼 flapNeg        最內
+ *  −3  y 舌片／先摺角翼 flapNeg      最內
+ * （x 舌片與 y 舌片同高躺在盒底、角落互相交疊，須分層：x 壁先摺、y 壁最後落下
+ *  ⇒ y 舌片壓在 x 舌片之上，故 x 取 −2、y 取 −3。）
  *
  * 分層只需在**名義上共面且真的交疊**的片之間成立（交疊清單見
  * fold-overlap-diagnosis 的 golden，實測而非推測）。名義即分屬不同平面的片
@@ -975,7 +979,8 @@ function telescopeStackIndex(panelId: string): number {
   if (/^flapPos(?:Neg|Pos)$/.test(panelId)) return -2;
   // 延伸段在 extWrap 拍最後才繞角包上相鄰 y 壁 ⇒ 疊在自身角撐（−1）內側。
   if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return -2;
-  if (/^wall[XY](?:Neg|Pos)-tongue$/.test(panelId)) return -3;
+  if (/^wallX(?:Neg|Pos)-tongue$/.test(panelId)) return -2;
+  if (/^wallY(?:Neg|Pos)-tongue$/.test(panelId)) return -3;
   // 同壁兩翼錯階互卡（§4.6）：flapNeg 先摺 ⇒ 被 flapPos 包在裡面。
   if (/^flapNeg(?:Neg|Pos)$/.test(panelId)) return -3;
   return 0;

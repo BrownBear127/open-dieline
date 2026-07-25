@@ -304,9 +304,10 @@ function panelAngles(result: GenerateResult, rootId: string): PanelAngleSpec[] {
       const rimId = id.replace(/-inner$/, '-rim');
       foldAngle = panelIdSet.has(rimId) ? QUARTER_TURN : Math.PI;
     } else if (/^wall[XY](?:Neg|Pos)-tongue$/.test(id)) {
-      // 短邊壁舌片往**反方向** 90°：由內壁下緣橫出、卡進盒內（刀模標號「3」）。
-      // 長邊壁維持 180° 貼回內壁（構造不同·帶插片且被角撐包覆·不動）。
-      foldAngle = id.startsWith('wallY') ? -QUARTER_TURN : Math.PI;
+      // 舌片一律往**反方向** 90°：由內壁下緣橫出、卡進盒內（刀模標號「3」）。
+      // ⚠ v15.8 前 x 壁（左右）寫 180°＝貼回內壁，與 y 壁（上下）不同摺向；
+      // 對照生產刀模後確認四面同構——刀模上左右那兩條與上下那兩條是同一種摺法。
+      foldAngle = -QUARTER_TURN;
     } else if (id.startsWith('wingX')) {
       // 錯階摺序終態＝角撐被短邊壁收走（生產摺序 5）；非舊「壓貼長壁」的 180°/90°。
       foldAngle = QUARTER_TURN;
