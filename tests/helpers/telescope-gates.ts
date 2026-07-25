@@ -794,6 +794,115 @@ function directionViolations(model: FoldModel): string[] {
   return violations;
 }
 
+/**
+ * ±180° 反摺的**旋向**閘門（Spec §4.6 零厚度盲點條款·AC-T7 ②）。
+ *
+ * 180° 旋轉的終態與旋向無關（R(+π) 與 R(−π) 是同一個旋轉矩陣），零厚度下
+ * **所有終態閘門對摺向反轉全盲**——實測把 `wallX*-inner` 的 `foldAngle` 由 +π 改成 −π：
+ * 終態逐頂點差 **0.000000mm**、中段逐頂點差 **88.4mm**。上方的 G2 `directionViolations`
+ * 也擋不住：它拿 pose 角度跟**同一個** `foldAngle` 的正負號比，宣告一起翻就一起綠
+ * （自指）。故本閘門必須錨在宣告以外的量。
+ *
+ * 判準＝**反摺必須從盒體內部掃過去**：取該 panel 所屬拍的中點，其質心須落在
+ * 該片 **t=1 外廓包絡**內。包絡由既有終態閘門（AC-T4b／finalEnvelope／碰撞）獨立守著，
+ * 不是本閘門自造的量。實測：正確方向 `wallX*-inner` 中段 z=+33.48（包絡內）、
+ * 反轉後 z=−33.48（包絡外）；`wallY*-inner` 中段 y=132.83（內）、反轉後 75.57（外）。
+ * 注意兩者的**判別軸不同**（前者出紙面、後者水平），所以不能寫成單軸斷言。
+ *
+ * ⚠ **域外（誠實記錄·實測）**：`wing[XY]` 的姿態由閉式 driver 經 `angleFn` 驅動，
+ * 宣告的 `foldAngle: Math.PI` **不參與運動**——翻轉它逐頂點差恆 0.000000mm，
+ * 旋向對它不可觀測，因此排除（判準＝`angleFn` 存在即排除，非按 id 硬排）。
+ * 這也意味著 wing 的那個 `foldAngle` 宣告是裝飾性的，改它不會有任何效果。
+ */
+export function halfTurnDirectionViolations(model: FoldModel): string[] {
+  const HALF_TURN_EPSILON = 1e-9;
+  const OBSERVABLE_MM = 0.5;
+  const targets = model.panels.filter((panel) => (
+    panel.parent !== null
+    && panel.angleFn === undefined
+    && Math.abs(Math.abs(panel.foldAngle) - Math.PI) < HALF_TURN_EPSILON
+  ));
+  if (targets.length === 0) return [];
+
+  const terminal = worldGeometry(model, foldPose(1, model));
+  let count = 0;
+  const witness = { x: 0, y: 0, z: 0 };
+  for (const vertices of terminal.values()) {
+    for (const vertex of vertices) {
+      witness.x += vertex.x;
+      witness.y += vertex.y;
+      witness.z += vertex.z;
+      count += 1;
+    }
+  }
+  witness.x /= count;
+  witness.y /= count;
+  witness.z /= count;
+
+  const centroidOf = (vertices: Vec3[]): Vec3 => vertices.reduce(
+    (sum, vertex) => ({
+      x: sum.x + vertex.x / vertices.length,
+      y: sum.y + vertex.y / vertices.length,
+      z: sum.z + vertex.z / vertices.length,
+    }),
+    { x: 0, y: 0, z: 0 },
+  );
+
+  const violations: string[] = [];
+  for (const panel of targets) {
+    const step = model.steps.find(({ panelIds }) => panelIds.includes(panel.id));
+    if (step === undefined) {
+      violations.push(`halfTurnDirection:${panel.id} 找不到所屬拍`);
+      continue;
+    }
+    const mid = (step.t0 + step.t1) / 2;
+    const geometry = worldGeometry(model, foldPose(mid, model));
+    const childVertices = geometry.get(panel.id);
+    const parentVertices = geometry.get(panel.parent!);
+    if (!childVertices?.length || !parentVertices?.length) {
+      violations.push(`halfTurnDirection:${panel.id} 中段無幾何`);
+      continue;
+    }
+    const normal = firstFaceNormal(parentVertices);
+    if (normal === null) {
+      violations.push(`halfTurnDirection:${panel.id} 父面板 ${panel.parent} 法向退化`);
+      continue;
+    }
+    const anchor = centroidOf(parentVertices);
+    const signed = (point: Vec3): number => (
+      (point.x - anchor.x) * normal.x
+      + (point.y - anchor.y) * normal.y
+      + (point.z - anchor.z) * normal.z
+    );
+    const childSide = signed(centroidOf(childVertices));
+    const witnessSide = signed(witness);
+    if (Math.abs(witnessSide) < OBSERVABLE_MM) {
+      // 參照退化必須 fail-loud：witness 落在父面板平面上時無法定義「內側」，
+      // 靜默放行等同這條閘門在該列不存在。
+      violations.push(
+        `halfTurnDirection:${panel.id}@t=${mid.toFixed(4)} 內側參照退化`
+        + `（終態質心距父面板平面僅 ${witnessSide.toFixed(4)}mm）`,
+      );
+      continue;
+    }
+    if (Math.abs(childSide) < OBSERVABLE_MM) {
+      violations.push(
+        `halfTurnDirection:${panel.id}@t=${mid.toFixed(4)} 中段位移僅 `
+        + `${childSide.toFixed(4)}mm＝旋向不可觀測（拍中點取樣落在共面姿態上？）`,
+      );
+      continue;
+    }
+    if (Math.sign(childSide) !== Math.sign(witnessSide)) {
+      violations.push(
+        `halfTurnDirection:${panel.id}@t=${mid.toFixed(4)} 中段掃向盒外`
+        + `（沿父面板 ${panel.parent} 法向：panel ${childSide.toFixed(4)}mm、`
+        + `盒內側 ${witnessSide.toFixed(4)}mm，異號＝旋向反了）`,
+      );
+    }
+  }
+  return violations;
+}
+
 function rateViolations(model: FoldModel): string[] {
   const violations: string[] = [];
   const samples = 400;
@@ -1671,6 +1780,7 @@ export function telescopeGateReport(
     ...familyTopologyViolations(model),
     ...oneStepViolations(model),
     ...directionViolations(model),
+    ...halfTurnDirectionViolations(model),
     ...rateViolations(model),
     ...silhouetteViolations(model, params, pieceId),
   ];

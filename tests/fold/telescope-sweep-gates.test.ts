@@ -6,9 +6,12 @@ import { telescope } from '@/boxes/telescope';
 import { resolveParams } from '@/core/registry';
 import { buildTelescopeSceneSpec } from '@/fold/models/telescope';
 import type { FoldModel } from '@/fold/types';
+import { foldPose } from '@/fold/schedule';
+import { worldGeometry } from '@/fold/pose3d';
 import {
   exactSetMismatch,
   familyTopologyViolations,
+  halfTurnDirectionViolations,
   hookRootStripWithinBounds,
   telescopeCollisionViolations,
   telescopeGateReport,
@@ -176,6 +179,53 @@ describe('Telescope gate sabotage', () => {
 
     expect(telescopeGateReport(broken, params, 'lid').violations)
       .toContainEqual(expect.stringContaining('finalEnvelope'));
+  });
+
+  // T15f：180° 反摺的旋向。分兩拍各一條——prefoldX 的 x 內壁（判別軸＝出紙面 z）、
+  // closeY 的 y 內壁（判別軸＝水平 y）。兩者判別軸不同，所以必須各驗一次，
+  // 不能只驗一個就宣稱「180° 拍都守住了」。
+  const flipHalfTurn = (model: FoldModel, pattern: RegExp): FoldModel => ({
+    ...model,
+    panels: model.panels.map((panel) => (
+      pattern.test(panel.id) && Math.abs(Math.abs(panel.foldAngle) - Math.PI) < 1e-9
+        ? { ...panel, foldAngle: -panel.foldAngle }
+        : panel
+    )),
+  });
+
+  it.each([
+    ['prefoldX 的 x 內壁', /^wallX(?:Neg|Pos)-inner$/],
+    ['closeY 的 y 內壁', /^wallY(?:Neg|Pos)-inner$/],
+  ] as const)('%s 旋向反轉 → halfTurnDirection 紅（lid 無壁頂平台 ⇒ 內葉為 180° 反摺）', (_label, pattern) => {
+    const { model } = buildPiece({}, 'lid');
+    const broken = flipHalfTurn(model, pattern);
+
+    expect(halfTurnDirectionViolations(model)).toEqual([]);
+    expect(halfTurnDirectionViolations(broken))
+      .toContainEqual(expect.stringContaining('halfTurnDirection'));
+  });
+
+  it('旋向反轉時**終態**閘門全部照綠——這正是本條存在的理由', () => {
+    const { model, params } = buildPiece({}, 'lid');
+    const broken = flipHalfTurn(model, /^wall[XY](?:Neg|Pos)-inner$/);
+
+    // 終態逐頂點完全相同：R(+π) 與 R(−π) 是同一個旋轉。
+    const before = worldGeometry(model, foldPose(1, model));
+    const after = worldGeometry(broken, foldPose(1, broken));
+    for (const [id, vertices] of before) {
+      const flipped = after.get(id)!;
+      for (const [index, vertex] of vertices.entries()) {
+        expect(Math.hypot(
+          vertex.x - flipped[index]!.x,
+          vertex.y - flipped[index]!.y,
+          vertex.z - flipped[index]!.z,
+        ), `${id}[${index}] 終態位移`).toBeLessThan(1e-9);
+      }
+    }
+    // 其餘閘門（含既有 G2 摺向）也照綠——G2 拿 pose 角度跟同一個 foldAngle 比號（自指）。
+    const surviving = telescopeGateReport(broken, params, 'lid').violations
+      .filter((violation) => !violation.startsWith('halfTurnDirection'));
+    expect(surviving).toEqual([]);
   });
 
   it('角度偏移會被 flapWallCoplanarity 抓到', () => {
