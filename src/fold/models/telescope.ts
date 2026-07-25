@@ -33,7 +33,6 @@ const ROLE_FRAGMENT_TOLERANCE_MM = 30;
 const MIN_AUXILIARY_FACE_AREA_MM2 = 50;
 const AUXILIARY_FACE_WIDTH_MM = 1;
 const QUARTER_TURN = Math.PI / 2;
-const THREE_QUARTER_TURN = (3 * Math.PI) / 4;
 
 const AXIS_SIGNS = ['XNeg', 'XPos', 'YNeg', 'YPos'] as const;
 const CORNERS = ['NegNeg', 'NegPos', 'PosNeg', 'PosPos'] as const;
@@ -57,29 +56,48 @@ export const TELESCOPE_ASSEMBLY_WINDOWS = {
   lidOff: [0.7, 0.775, 0.85, 0.925, 1],
 } as const;
 
+/**
+ * per-piece 段序＝生產摺序（刀模編號 1→5），兩軸壁錯階而非同窗：
+ * 1 prefoldX 左右內壁反摺 → 2 raiseX 左右壁立起（角撐隨之對摺貼平長壁）
+ * → 3 interlock 角翼繞角互卡（P+）／extWrap 角撐延伸段包上相鄰 y 壁（P0）
+ * → 4 raiseY 前後壁立起 90°（角撐同時被收上短邊壁·刀模標號「1」的三個箭頭）
+ * → 5 closeY 前後內壁反摺 180° 蓋住角撐、舌片反向 90° 卡進盒內（標號「2」「3」）。
+ *
+ * ⚠ 短邊壁**不做預摺**（v15.3·對照生產刀模）：舌片是往盒內卡的，壁還躺著時
+ * 這個動作沒有物理意義；且角撐必須先落到 y 外壁上、內壁才蓋下來，才形成
+ * 「角撐被雙層壁夾住」的結構。長邊壁維持預摺後立起（構造不同·不動）。
+ */
 export const TELESCOPE_TRAY_WINDOWS = {
   flapped: {
-    pretuck: [0, 0.08],
-    prefoldX: [0.08, 0.18],
-    prefoldY: [0.18, 0.3],
-    phaseA: [0.3, 0.65],
-    phaseB: [0.65, 0.82],
-    phaseC: [0.82, 1],
+    prefoldX: [0, 0.16],
+    raiseX: [0.16, 0.44],
+    interlock: [0.44, 0.62],
+    raiseY: [0.62, 0.84],
+    closeY: [0.84, 1],
   },
   plain: {
-    prefoldX: [0, 0.15],
-    prefoldY: [0.15, 0.3],
-    phaseA: [0.3, 0.65],
-    phaseB: [0.65, 0.82],
-    phaseCExt: [0.82, 1],
+    prefoldX: [0, 0.18],
+    raiseX: [0.18, 0.48],
+    extWrap: [0.48, 0.64],
+    raiseY: [0.64, 0.84],
+    closeY: [0.84, 1],
   },
 } as const;
 
-export interface TelescopeFlapDriverWindows {
-  pretuckEnd: number;
-  phaseCStart: number;
-  phaseCMid: number;
-  phaseCEnd: number;
+/**
+ * 互卡拍內的兩個子窗（§4.6 v15.2）：同一面 y 壁的左右兩翼**不得同窗**。
+ *
+ * 鉤式互扣在實體上是依序的——先摺一片，再讓另一片的鉤滑過它。v14 的
+ * 「四翼同窗鏡像同時內擺」在零厚度剛體下必然互穿（實測沿壁重疊拍末 30.996mm、
+ * G1 深度峰值 10.644358mm）。依 x 號分批：`flapNeg*` 先、`flapPos*` 後。
+ */
+export function telescopeInterlockSubWindows(): {
+  first: readonly [number, number];
+  second: readonly [number, number];
+} {
+  const [start, end] = TELESCOPE_TRAY_WINDOWS.flapped.interlock;
+  const middle = (start + end) / 2;
+  return { first: [start, middle], second: [middle, end] };
 }
 
 function intervalProgress(value: number, start: number, end: number): number {
@@ -88,75 +106,135 @@ function intervalProgress(value: number, start: number, end: number): number {
   return (value - start) / (end - start);
 }
 
-/** 五摺線頂點的 inward branch 閉式；輸入牆角 φ、輸出翼角 ψ（rad）。 */
-export function telescopePsi(phi: number): number {
-  return 2 * Math.atan((1 + Math.SQRT2) * Math.tan(phi / 2));
+const clampUnit = (value: number): number => Math.min(1, Math.max(-1, value));
+
+/**
+ * 錯階摺疊的角撐閉式解（rootJog=0 理想角落·與盒尺寸無關）。
+ *
+ * 第一段（左右壁 φx 由 0 轉到 90°，前後壁平躺）：ψx = 0、ψy = φx
+ *   ——x 翼隨長壁立起維持共面，y 翼繞自身鉸同步轉起，角撐沿 45° 對角對摺貼平長壁。
+ * 第二段（前後壁 φy 由 0 轉到 90°，左右壁鎖 90°）：
+ *   sin ψy = cos φy/(1 + sin φy)、cos ψx = cos φy − sin ψy·sin φy
+ *   ——角撐由長壁面被掃起、終態貼上短邊壁（生產摺序 5「包覆角撐」）。
+ *   等價形式 (1−sin φy)/cos φy 在 φy=90° 為 0/0，禁用；上式全域數值穩定。
+ *
+ * 該方程組有兩支解（角撐往盒內／往盒外折），在 φy=0 處重合＝分岔點；
+ * **取往盒內支**（ψy = π − arcsin(...)、ψx = +arccos(...)），否則終態四角
+ * 外突於盒體包絡 50.58mm（縫仍閉合＝縫閘門看不到·需包絡判準才唯一定解）。
+ *
+ * 兩段在 (φx=90°, φy=0) 交界處連續（ψx=0、ψy=90°）。
+ */
+export function telescopeStaggeredWingAngles(
+  stage: 'raiseX' | 'raiseY',
+  phi: number,
+): { psiX: number; psiY: number } {
+  if (stage === 'raiseX') return { psiX: 0, psiY: phi };
+  // 盒內支最簡式：ψx = arccos(cos φy/(1+sin φy))、ψy = ψx + 90°。
+  // 由 arccos(s) = π/2 − arcsin(s) 可得 ψx + π/2 ≡ π − arcsin(s)，與兩式版逐位元同。
+  const psiX = Math.acos(clampUnit(Math.cos(phi) / (1 + Math.sin(phi))));
+  return { psiX, psiY: psiX + QUARTER_TURN };
 }
 
 /**
- * phase A 與 phase B 合在同一 panel driver：
- * A 依 ψ(φ) 同步立壁，B 讓 X 翼壓貼左右壁、Y 翼反向退至 90°。
+ * raiseY 拍的前後壁二面角排程（Spec §4.4A v15.1 平方根奇點條款）。
+ *
+ * 閉式在小角極限為 ψx ≈ √(2·φy)，故 `dψx/dφy` 在 φy→0 無界（實測 φy=0.01°
+ * 時 53.5 度/度）。φy 若對拍內進度線性排程，角撐在 raiseY 拍首的角速度隨之
+ * 無界——production 400 取樣實測 base 43.1753、lid 45.2694 °/0.01t，G3 必紅。
+ * 取 φy = 90°·u² 讓拍首導數為零，ψx 隨 u 近似線性。
+ *
+ * **前後壁與角撐必須共用本函式**：閉式吃的是 y 壁的實際二面角，兩邊排程若
+ * 不一致，角撐就相對於壁轉錯量。⚠ 此脫鉤**不會被縫閘門抓到**（實測對角縫
+ * 仍為健康值 √2·rootJog），終態也仍然閉合——錯的只有中段軌跡。守門的是
+ * `telescope-angle-driver` 的耦合斷言：由 pose 直讀壁角、再驗角撐是其函數。
+ */
+export function telescopeRaiseYWallAngle(beatProgress: number): number {
+  const u = Math.min(1, Math.max(0, beatProgress));
+  return QUARTER_TURN * u * u;
+}
+
+/**
+ * 單一 panel driver 覆蓋兩個立壁段與其間的靜止段。
+ * stepLocalT 為「wing step（raiseX 起 → raiseY 迄）」的局部進度。
  */
 export function createTelescopeWingAngleFn(
   axis: 'X' | 'Y',
-  phaseASplit: number,
+  raiseXEnd: number,
+  raiseYStart: number,
 ): (stepLocalT: number) => number {
-  if (!(phaseASplit > 0 && phaseASplit < 1)) {
-    throw new Error('Telescope wing phaseASplit 必須落在 0 與 1 之間');
+  if (!(raiseXEnd > 0 && raiseXEnd <= raiseYStart && raiseYStart < 1)) {
+    throw new Error('Telescope wing 段界必須依 raiseX → hold → raiseY 嚴格排序');
   }
   return (stepLocalT) => {
-    if (stepLocalT <= phaseASplit) {
-      const phi = QUARTER_TURN * intervalProgress(
-        stepLocalT,
-        0,
-        phaseASplit,
-      );
-      return telescopePsi(phi);
+    if (stepLocalT <= raiseXEnd) {
+      const phiX = QUARTER_TURN * intervalProgress(stepLocalT, 0, raiseXEnd);
+      const { psiX, psiY } = telescopeStaggeredWingAngles('raiseX', phiX);
+      return axis === 'X' ? psiX : psiY;
     }
-    const pressProgress = intervalProgress(stepLocalT, phaseASplit, 1);
-    const direction = axis === 'X' ? 1 : -1;
-    return THREE_QUARTER_TURN
-      + direction * (Math.PI / 4) * pressProgress;
+    if (stepLocalT <= raiseYStart) {
+      // 角翼互卡／內壁反摺期間，角撐保持第一段終態（貼平長壁）。
+      return axis === 'X' ? 0 : QUARTER_TURN;
+    }
+    const phiY = telescopeRaiseYWallAngle(
+      intervalProgress(stepLocalT, raiseYStart, 1),
+    );
+    const { psiX, psiY } = telescopeStaggeredWingAngles('raiseY', phiY);
+    return axis === 'X' ? psiX : psiY;
   };
 }
 
-/** pretuck→hold→C tuck-seq 合在單一 panel driver；xNeg 先、xPos 後。 */
-export function createTelescopeFlapAngleFn(
-  xSign: 'Neg' | 'Pos',
-  windows: TelescopeFlapDriverWindows,
-): (stepLocalT: number) => number {
-  const {
-    pretuckEnd,
-    phaseCStart,
-    phaseCMid,
-    phaseCEnd,
-  } = windows;
-  if (!(
-    0 < pretuckEnd
-    && pretuckEnd <= phaseCStart
-    && phaseCStart < phaseCMid
-    && phaseCMid < phaseCEnd
-    && phaseCEnd <= 1
-  )) {
-    throw new Error('Telescope flap windows 必須依 pretuck→C 前半→C 後半嚴格排序');
-  }
-
-  return (stepLocalT) => {
-    if (stepLocalT <= pretuckEnd) {
-      return Math.PI * intervalProgress(stepLocalT, 0, pretuckEnd);
-    }
-    const foldStart = xSign === 'Neg' ? phaseCStart : phaseCMid;
-    const foldEnd = xSign === 'Neg' ? phaseCMid : phaseCEnd;
-    if (stepLocalT <= foldStart) return Math.PI;
-    return Math.PI
-      - QUARTER_TURN * intervalProgress(stepLocalT, foldStart, foldEnd);
-  };
+/**
+ * 上蓋落座時，**真正壓在下盒壁頂上的那個面**距其底板平面多深。
+ *
+ * 落座高度由「上蓋在下盒壁頂正上方的**最低**面」決定，而那不一定是底板：
+ * 內壁自壁頂反摺後短了一個 `innerWallReduction`，其末端連同舌片形成一圈
+ * **朝盒內的唇邊**，就懸在底板下方 `innerWallReduction` 處、正好蓋在下盒壁頂上。
+ * 原式只算 `thickness`（把底板內面當接觸面），使唇邊比下盒壁頂低
+ * `innerWallReduction − thickness`（預設 0.5mm）而切進下盒內壁——症狀是必須把
+ * `lidMarginY` 撐到 15mm 才能讓唇邊水平躲開，看起來像「長向放大量有硬底限」，
+ * 其實是落座高度算錯。實測：唇邊落差恆等於 `innerWallReduction`（0.8→0.800、
+ * 1.2→1.200），且與紙厚無關。
+ */
+export function telescopeLidSeatDrop(
+  thickness: number,
+  innerWallReduction: number,
+): number {
+  return Math.max(thickness, innerWallReduction);
 }
 
-/** P0 extension 在 B 後繞自身鉸包上相鄰 y 壁。 */
-export function telescopeExtensionAngle(stepLocalT: number): number {
-  const [start, end] = TELESCOPE_TRAY_WINDOWS.plain.phaseCExt;
-  return QUARTER_TURN * intervalProgress(stepLocalT, start, end);
+/**
+ * 上蓋落座的三個高度基準（Spec §4.7）。零厚度模型只有一個 panel 平面，
+ * 但物理上有三個面，AC-T4b（接觸）與 AC-T8a（外高）量的不是同一個。
+ *
+ * 約定：**上蓋底板的 panel 平面代表其外表面**，材料向盒內佔一個紙厚。
+ *
+ * - `seatPlane`      assemblyTrack 落座的 panel 平面（nominal）
+ *                    ＝ baseRim + {@link telescopeLidSeatDrop} + {@link TELESCOPE_SEAT_GAP_MM}
+ * - `floorInner`     上蓋底板內面 ＝ seatPlane − thickness
+ * - `contactPlane`   **真正壓在下盒壁頂上的面** ＝ seatPlane − seatDrop
+ *                    （v15.7：內壁唇邊比底板低 innerWallReduction，通常它才是接觸面；
+ *                    AC-T4b 量的是這個，不是 floorInner）
+ * - `closedOuterTop` 閉合盒外頂面 ＝ seatPlane
+ *
+ * 消費端**必須**經由本函式取面，不得自行從 assemblyTrack 落座 z 反推面別
+ * （原缺陷即 oracle 直讀落座 z 當作接觸面）。
+ */
+export function telescopeLidPlanes(
+  seatPlane: number,
+  thickness: number,
+  innerWallReduction = 0,
+): {
+  seatPlane: number;
+  floorInner: number;
+  contactPlane: number;
+  closedOuterTop: number;
+} {
+  return {
+    seatPlane,
+    floorInner: seatPlane - thickness,
+    contactPlane: seatPlane - telescopeLidSeatDrop(thickness, innerWallReduction),
+    closedOuterTop: seatPlane,
+  };
 }
 
 function point(horizontal: number, vertical: number): Pt {
@@ -216,18 +294,24 @@ function panelAngles(result: GenerateResult, rootId: string): PanelAngleSpec[] {
     } else if (/^wall[XY](?:Neg|Pos)-outer$/.test(id)) {
       foldAngle = QUARTER_TURN;
     } else if (/^wall[XY](?:Neg|Pos)-rim$/.test(id)) {
-      foldAngle = id.startsWith('wallX') ? 0 : QUARTER_TURN;
-    } else if (/^wall[XY](?:Neg|Pos)-inner$/.test(id)) {
-      const rimId = id.replace(/-inner$/, '-rim');
-      foldAngle = id.startsWith('wallY') && panelIdSet.has(rimId)
-        ? QUARTER_TURN
-        : Math.PI;
-    } else if (/^wall[XY](?:Neg|Pos)-tongue$/.test(id)) {
-      foldAngle = Math.PI;
-    } else if (id.startsWith('wingX')) {
-      foldAngle = Math.PI;
-    } else if (id.startsWith('wingY')) {
+      // 壁頂平台，**四面同構**（v15.4）：刀模四面各有兩條 rim crease
+      // （`fold:wall*-outer>wall*-rim` 與 `fold:wall*-rim>wall*-inner`·皆 type=crease），
+      // 段寬同為 platformWidth。原碼長邊壁給 0°＝當平台不存在，使長邊壁比短邊壁
+      // 高出一個 platformWidth（實測 pw=5 時 64.50 vs 60.00），角翼隨父鏈浮出盒口。
       foldAngle = QUARTER_TURN;
+    } else if (/^wall[XY](?:Neg|Pos)-inner$/.test(id)) {
+      // 有平台時內壁只需再轉 90° 即垂下；無平台時是壁頂 180° 對摺。
+      const rimId = id.replace(/-inner$/, '-rim');
+      foldAngle = panelIdSet.has(rimId) ? QUARTER_TURN : Math.PI;
+    } else if (/^wall[XY](?:Neg|Pos)-tongue$/.test(id)) {
+      // 短邊壁舌片往**反方向** 90°：由內壁下緣橫出、卡進盒內（刀模標號「3」）。
+      // 長邊壁維持 180° 貼回內壁（構造不同·帶插片且被角撐包覆·不動）。
+      foldAngle = id.startsWith('wallY') ? -QUARTER_TURN : Math.PI;
+    } else if (id.startsWith('wingX')) {
+      // 錯階摺序終態＝角撐被短邊壁收走（生產摺序 5）；非舊「壓貼長壁」的 180°/90°。
+      foldAngle = QUARTER_TURN;
+    } else if (id.startsWith('wingY')) {
+      foldAngle = Math.PI;
     } else if (id.startsWith('flap')) {
       foldAngle = -QUARTER_TURN;
     } else if (id.startsWith('gussetExt')) {
@@ -263,26 +347,23 @@ function traySteps(panelIds: string[]): FoldStep[] {
       matching(/^wallX(?:Neg|Pos)-(?:rim|inner|tongue)$/),
       windows.prefoldX,
     ),
+    step(matching(/^wallX(?:Neg|Pos)-outer$/), windows.raiseX),
+    // 短邊壁：先立壁（角撐同拍被收上來），內壁與舌片在其後才動。
+    step(matching(/^wallY(?:Neg|Pos)-outer$/), windows.raiseY),
     step(
       matching(/^wallY(?:Neg|Pos)-(?:rim|inner|tongue)$/),
-      windows.prefoldY,
+      windows.closeY,
     ),
-    step(matching(/^wall[XY](?:Neg|Pos)-outer$/), windows.phaseA),
     step(
       matching(/^wing[XY]/),
-      [windows.phaseA[0], windows.phaseB[1]],
+      [windows.raiseX[0], windows.raiseY[1]],
     ),
-    !hasFlaps
-      ? step(matching(/^gussetExt/), [
-        TELESCOPE_TRAY_WINDOWS.plain.prefoldX[0],
-        TELESCOPE_TRAY_WINDOWS.plain.phaseCExt[1],
-      ])
-      : null,
+    // 同壁左右翼錯開先後（§4.6 v15.2）——四翼仍在同一拍內完成。
     hasFlaps
-      ? step(matching(/^flap/), [
-        TELESCOPE_TRAY_WINDOWS.flapped.pretuck[0],
-        TELESCOPE_TRAY_WINDOWS.flapped.phaseC[1],
-      ])
+      ? step(matching(/^flapNeg/), telescopeInterlockSubWindows().first)
+      : step(matching(/^gussetExt/), TELESCOPE_TRAY_WINDOWS.plain.extWrap),
+    hasFlaps
+      ? step(matching(/^flapPos/), telescopeInterlockSubWindows().second)
       : null,
   ];
   return steps.filter((candidate): candidate is FoldStep => candidate !== null);
@@ -299,19 +380,10 @@ function withTrayAngleDrivers(model: FoldModel): FoldModel {
   const windows = hasFlaps
     ? TELESCOPE_TRAY_WINDOWS.flapped
     : TELESCOPE_TRAY_WINDOWS.plain;
-  const phaseASplit = (
-    (windows.phaseA[1] - windows.phaseA[0])
-    / (windows.phaseB[1] - windows.phaseA[0])
-  );
-  const flapWindows: TelescopeFlapDriverWindows = {
-    pretuckEnd: TELESCOPE_TRAY_WINDOWS.flapped.pretuck[1],
-    phaseCStart: TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0],
-    phaseCMid: (
-      TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0]
-      + TELESCOPE_TRAY_WINDOWS.flapped.phaseC[1]
-    ) / 2,
-    phaseCEnd: TELESCOPE_TRAY_WINDOWS.flapped.phaseC[1],
-  };
+  // wing step 橫跨 raiseX → hold → raiseY；換算兩個段界在該 step 的局部座標。
+  const wingSpan = windows.raiseY[1] - windows.raiseX[0];
+  const raiseXEnd = (windows.raiseX[1] - windows.raiseX[0]) / wingSpan;
+  const raiseYStart = (windows.raiseY[0] - windows.raiseX[0]) / wingSpan;
 
   return {
     ...model,
@@ -319,35 +391,19 @@ function withTrayAngleDrivers(model: FoldModel): FoldModel {
       if (panel.id.startsWith('wingX')) {
         return {
           ...panel,
-          angleFn: createTelescopeWingAngleFn('X', phaseASplit),
+          angleFn: createTelescopeWingAngleFn('X', raiseXEnd, raiseYStart),
         };
       }
       if (panel.id.startsWith('wingY')) {
         return {
           ...panel,
-          angleFn: createTelescopeWingAngleFn('Y', phaseASplit),
+          angleFn: createTelescopeWingAngleFn('Y', raiseXEnd, raiseYStart),
         };
       }
-      if (panel.id.startsWith('flap')) {
-        const xSign = panel.id.slice('flap'.length).startsWith('Neg')
-          ? 'Neg'
-          : 'Pos';
-        const magnitudeDriver = createTelescopeFlapAngleFn(xSign, flapWindows);
-        return {
-          ...panel,
-          // canonical hinge 方向下負角才由 x 內壁掃入盒內；180° 時兩符號同姿態。
-          angleFn: (stepLocalT) => -magnitudeDriver(stepLocalT),
-        };
-      }
-      if (panel.id.startsWith('gussetExt')) {
-        return {
-          ...panel,
-          // canonical hinge 方向下負角才由 x 內壁端部掃向 y 壁內側。
-          angleFn: (stepLocalT) => {
-            const angle = telescopeExtensionAngle(stepLocalT);
-            return angle === 0 ? 0 : -angle;
-          },
-        };
+      // 前後壁與角撐共用 raiseY 排程（§4.4A 奇點條款）；該 step 的局部進度
+      // 就是拍內進度，不需換算。
+      if (/^wallY(?:Neg|Pos)-outer$/.test(panel.id)) {
+        return { ...panel, angleFn: telescopeRaiseYWallAngle };
       }
       return panel;
     }),
@@ -863,6 +919,21 @@ function buildPieceModel(
 
 const ASSEMBLY_CLEARANCE_MM = 20;
 
+/**
+ * 上蓋落座間隙（v15.6）。
+ *
+ * 實體上上蓋底板內面就是**壓在**下盒壁頂上、兩面接觸；但零厚度渲染裡「完全同高」
+ * 對深度測試是無解的平手局——兩者同為 z=60.000 時俯視實測有 610px 下盒像素穿出
+ * 上蓋（null-control=0·全部落在上蓋剪影內·成因分離：戳穿 0 片／深度精度
+ * 0 片／精確共面 6 片）。
+ *
+ * 與 `fold-scene.ts` 的 `SURFACE_GAP_MM` **同值同語義**（「兩個接觸的實體面不得
+ * 保持共面」），差別只在作用範圍：那個管片內疊層，這個管片與片之間。
+ * 兩者刻意不互相 import——渲染層不該被幾何層依賴，數值一致由 AC-T4b 的具名
+ * 期望值（`lidFloorInner − baseRim = TELESCOPE_SEAT_GAP_MM`）綁住。
+ */
+export const TELESCOPE_SEAT_GAP_MM = 0.05;
+
 function quaternion(
   axisX: number,
   axisY: number,
@@ -935,13 +1006,16 @@ function lidAssemblyTrack(
   targetCenter: PieceCenter,
   baseRim: number,
   lidHeight: number,
+  thickness: number,
+  innerWallReduction: number,
 ): SceneKeyframe[] {
   const lift = baseRim + lidHeight + ASSEMBLY_CLEARANCE_MM;
   const finalPosition = position(
     targetCenter.horizontal - sourceCenter.horizontal,
     // x 軸 180° 會把 absolute y 變成 -y，translation 需補回目標中心。
     targetCenter.vertical + sourceCenter.vertical,
-    baseRim,
+    baseRim + telescopeLidSeatDrop(thickness, innerWallReduction)
+      + TELESCOPE_SEAT_GAP_MM,
   );
   return [
     keyframe(times[0], position(0, 0, 0), IDENTITY_QUATERNION),
@@ -1001,10 +1075,10 @@ function assemblyTracks(
   const platformWidth = numericParam(params, 'basePlatformWidth');
   const wallTopCompensation = numericParam(params, 'wallTopCompensation');
   const lidHeight = numericParam(params, 'lidHeight');
-  const baseRim = Math.max(
-    baseHeight,
-    baseHeight - wallTopCompensation + platformWidth,
-  );
+  // 下盒壁頂＝baseHeight。原碼另取 `baseHeight − wallTopCompensation + platformWidth`
+  // 的較大者（預設 64.5）＝**遷就 rim 摺角 bug 造成的長邊壁凸出**（v15.4 已修源頭）；
+  // 該補償項連帶把上蓋抬高一個 platformWidth，AC-T4b 卻因兩邊同錯而恆綠。
+  const baseRim = baseHeight;
   const lidTimes = linerEnabled
     ? TELESCOPE_ASSEMBLY_WINDOWS.lid
     : TELESCOPE_ASSEMBLY_WINDOWS.lidOff;
@@ -1016,6 +1090,8 @@ function assemblyTracks(
       baseCenter,
       baseRim,
       lidHeight,
+      numericParam(params, 'thickness'),
+      numericParam(params, 'innerWallReduction'),
     )],
   ]);
 

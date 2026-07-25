@@ -1,5 +1,6 @@
 import type { ResolvedParams } from '@/core/types';
 import { evaluateScenePiecePose } from '@/fold/scene-pose';
+import { telescopeLidPlanes } from '@/fold/models/telescope';
 import type {
   FoldScenePiece,
   FoldSceneSpec,
@@ -9,6 +10,13 @@ import type { Vec3 } from '@/fold/pose3d';
 import { earClipIndices } from '@/ui/triangulate';
 
 const ORACLE_TOLERANCE_MM = 0.05;
+/**
+ * 上蓋落座間隙的**契約值**（AC-T4b）。刻意寫死、**不從 `TELESCOPE_SEAT_GAP_MM` 匯入**
+ * ——期望值若從被測常數動態取得，兩邊永遠相等，閘門對「間隙被改掉」完全無感
+ * （實測：把該常數歸零，本檔與 AC-T8a 全數照過）。改動生產常數時必須同步改這裡，
+ * 那次同步就是刻意的人為確認動作。
+ */
+const SEAT_GAP_CONTRACT_MM = 0.05;
 const VECTOR_TOLERANCE = 1e-6;
 const ASSEMBLY_SAMPLES_PER_BEAT = 12;
 
@@ -149,6 +157,8 @@ function nearlyEqual(
  * 終態期望只由具名面、params 與 generator 尺寸公式建立；此函式不讀
  * assemblyTrack 的任何 keyframe／終點。
  */
+export { SEAT_GAP_CONTRACT_MM };
+
 export function telescopeAssemblyOracleViolations(
   scene: FoldSceneSpec,
   params: ResolvedParams,
@@ -209,26 +219,46 @@ export function telescopeAssemblyOracleViolations(
   const baseRim = Math.max(...[...base]
     .filter(([panelId]) => panelId !== 'floor')
     .flatMap(([, points]) => points.map(({ z }) => z)));
-  const lidFloorInner = lidFloor.reduce((sum, { z }) => sum + z, 0)
+  // 上蓋底板 panel 平面＝落座平面（seatPlane）；接觸面與外頂面由 model 層
+  // 的面別約定導出（Spec §4.7）——oracle 不得自行從落座 z 反推面別。
+  const lidSeatPlane = lidFloor.reduce((sum, { z }) => sum + z, 0)
     / lidFloor.length;
+  const thickness = typeof params.thickness === 'number' ? params.thickness : 0;
+  const innerWallReduction = typeof params.innerWallReduction === 'number'
+    ? params.innerWallReduction
+    : 0;
+  const { contactPlane: lidContactPlane } = telescopeLidPlanes(
+    lidSeatPlane,
+    thickness,
+    innerWallReduction,
+  );
   const lidOuterWalls = [...lid]
     .filter(([panelId]) => /^wall[XY](?:Neg|Pos)-outer$/.test(panelId))
     .flatMap(([, points]) => points);
   const lidRim = Math.min(...lidOuterWalls.map(({ z }) => z));
   const lidHeight = params.lidHeight;
+  // v15.6：期望值由 0 改為落座間隙。實體上兩面接觸（差 0），但零厚度渲染裡完全同高
+  // 是深度測試的無解平手局（俯視實測 610px 下盒像素穿出上蓋）。
+  // ⚠ 這**不是放寬容差**——容差仍是 ORACLE_TOLERANCE_MM，改的是具名期望值本身，
+  // 且期望值取獨立契約常數（見 SEAT_GAP_CONTRACT_MM），不從生產常數動態推導。
+  // v15.7：量測對象由 `floorInner` 改為 `contactPlane`。上蓋內壁反摺後短一個
+  // innerWallReduction，其末端唇邊懸在底板下方、正好蓋住下盒壁頂——**它才是接觸面**。
+  // 量錯面的症狀是唇邊切進下盒內壁 0.5mm，卻要靠把 lidMarginY 撐到 15mm 才躲得開。
   nearlyEqual(
     violations,
-    '③ lidFloorInner-baseRim',
-    lidFloorInner - baseRim,
-    0,
+    '③ lidContactPlane-baseRim',
+    lidContactPlane - baseRim,
+    SEAT_GAP_CONTRACT_MM,
   );
   if (typeof lidHeight !== 'number') {
     violations.push('③ 缺少 lidHeight');
   } else {
+    // 面別分離：③ 接觸＝面對面（lidFloorInner vs baseRim）；
+    // ③b 幾何＝平面對平面（lidRim 與 seatPlane 同屬上蓋 panel 樹）。
     nearlyEqual(
       violations,
-      '③ lidRim-lidFloorInner',
-      lidRim - lidFloorInner,
+      '③b lidRim-lidSeatPlane',
+      lidRim - lidSeatPlane,
       -lidHeight,
     );
   }

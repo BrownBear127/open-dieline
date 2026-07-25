@@ -10,6 +10,11 @@ import {
 import { TELESCOPE_TRAY_WINDOWS } from '@/fold/models/telescope';
 import { foldPose } from '@/fold/schedule';
 import type { FoldModel, Pt } from '@/fold/types';
+import {
+  diagnoseFoldedPanelFaces,
+  firstFaceNormal,
+  panelOverlapPlan,
+} from '@/ui/fold-scene';
 import { earClipIndices } from '@/ui/triangulate';
 
 const GEOMETRY_TOLERANCE_MM = 0.05;
@@ -1188,10 +1193,11 @@ function finalExtensionViolations(model: FoldModel): string[] {
   if (extensionIds.length === 0) return [];
 
   const violations: string[] = [];
-  const phaseBEnd = TELESCOPE_TRAY_WINDOWS.plain.phaseB[1];
+  // 延伸段在包覆拍開始前必須恆為 identity（§4.6 extensionBeforeWrapIdentity）。
+  const wrapStart = TELESCOPE_TRAY_WINDOWS.plain.extWrap[0];
   const earlyMotion = new Set<string>();
   for (let sample = 0; sample <= SWEEP_SAMPLES; sample += 1) {
-    const t = phaseBEnd * sample / SWEEP_SAMPLES;
+    const t = wrapStart * sample / SWEEP_SAMPLES;
     const pose = foldPose(t, model);
     for (const extensionId of extensionIds) {
       const angle = pose.get(extensionId) ?? 0;
@@ -1201,7 +1207,7 @@ function finalExtensionViolations(model: FoldModel): string[] {
       ) {
         earlyMotion.add(extensionId);
         violations.push(
-          `extensionBeforeCExtIdentity:${extensionId}@${t.toFixed(4)}=${angle}`,
+          `extensionBeforeWrapIdentity:${extensionId}@${t.toFixed(4)}=${angle}`,
         );
       }
     }
@@ -1333,10 +1339,84 @@ function namedPairIds(model: FoldModel): Array<{
   return pairs;
 }
 
+/**
+ * 貼向 y 壁的層間剝離上界＝`reach × sin(離就位還差的角) + 容差`。
+ *
+ * ⚠ 驅動角不一定是被量那片自己的（v15.2 錯階段序重取）：角翼在 interlock 拍
+ * 就已轉到 −90° 定住，最後的貼合是 y 壁在 raiseY 拍轉完成的。只讀角翼自身殘餘
+ * 角會得到 0，把純粹「壁還沒轉完」的殘餘誤判成 G1（M-05 rootJog=0 實證）。
+ * 故取「被量片」與「共量的壁」兩者殘餘角的較大者。t=1 時兩者皆 0，上界退化
+ * 為純容差——**不會掩蓋真碰撞**。
+ */
+function closeYWindow(model: FoldModel): Window {
+  return model.panels.some(({ id }) => id.startsWith('flap'))
+    ? TELESCOPE_TRAY_WINDOWS.flapped.closeY
+    : TELESCOPE_TRAY_WINDOWS.plain.closeY;
+}
+
+function isInsideCloseY(model: FoldModel, t: number): boolean {
+  const [start, end] = closeYWindow(model);
+  return t > start + NUMERIC_EPSILON && t < end - NUMERIC_EPSILON;
+}
+
+/**
+ * closeY 蓋合路線閘門（v15.4·取代 depth 成為此拍的判別條件）。
+ *
+ * 內壁必須「繞過盒口、從盒外上方盪入」，而不是從盒內或盒底方向掃上來。
+ * 兩條路線的接觸深度同量級（depth 不可分），但**中段姿態正交可分**：
+ * 走對路線時，內壁在拍中段整片高於盒口平面；走錯時則不會。
+ * 另斷言終態確實回到壁面（避免「高著就不下來」通過本條）。
+ */
+function closeYRouteViolations(model: FoldModel): string[] {
+  const violations: string[] = [];
+  const [start, end] = closeYWindow(model);
+  const finalGeometry = worldGeometry(
+    model,
+    foldPose(1, model),
+    { applyVertexClamp: false },
+  );
+  for (const sign of ['Neg', 'Pos'] as const) {
+    const innerId = `wallY${sign}-inner`;
+    const outerId = `wallY${sign}-outer`;
+    if (!finalGeometry.has(innerId) || !finalGeometry.has(outerId)) continue;
+    const rim = Math.max(...finalGeometry.get(outerId)!.map(({ z }) => z));
+
+    // 中段：內壁全片須高於盒口（＝走盒外上方那條路）。
+    const mid = (start + end) / 2;
+    const midPoints = worldGeometry(
+      model,
+      foldPose(mid, model),
+      { applyVertexClamp: false },
+    ).get(innerId)!;
+    const lowest = Math.min(...midPoints.map(({ z }) => z));
+    if (lowest < rim - GEOMETRY_TOLERANCE_MM) {
+      violations.push(
+        `closeYRoute:${innerId}@${mid.toFixed(4)} 最低點 z=${lowest.toFixed(6)}`
+        + ` < 盒口 ${rim.toFixed(6)}（未走盒外上方路線）`,
+      );
+    }
+    // 終態：必須真的落回壁面（不得停在盒口之上）。
+    // ⚠ 量**形心**不量最高頂點：內壁輪廓可有超出鉸線的小塊（M-10 實測 2.202mm），
+    // 摺完自然翹在盒口上方，那是輪廓特徵不是「沒蓋合」。形心對兩者可分——
+    // 沒蓋合時形心仍在盒口高度，蓋合後形心落到壁高中段。
+    const finalPoints = finalGeometry.get(innerId)!;
+    const centroidZ = finalPoints.reduce((sum, { z }) => sum + z, 0)
+      / finalPoints.length;
+    if (centroidZ > rim - GEOMETRY_TOLERANCE_MM) {
+      violations.push(
+        `closeYRoute:${innerId}@1 終態形心 z=${centroidZ.toFixed(6)}`
+        + ` 未低於盒口 ${rim.toFixed(6)}（未蓋合）`,
+      );
+    }
+  }
+  return violations;
+}
+
 function wallLayerPeelLimit(
   model: FoldModel,
   pose: ReadonlyMap<string, number>,
   panelId: string,
+  coPanelId?: string,
 ): number | null {
   const panel = model.panels.find(({ id }) => id === panelId);
   const hinge = panel?.hingeLine;
@@ -1350,13 +1430,128 @@ function wallLayerPeelLimit(
       axisX * (point.y - hinge.a.y)
       - axisY * (point.x - hinge.a.x),
     ) / axisLength));
-  const currentAngle = Math.abs(pose.get(panelId) ?? 0);
-  const finalAngle = Math.abs(panel.foldAngle);
+  const remainingFor = (id: string): number => {
+    const candidate = model.panels.find((entry) => entry.id === id);
+    if (!candidate) return 0;
+    return Math.abs(
+      Math.abs(pose.get(id) ?? 0) - Math.abs(candidate.foldAngle),
+    );
+  };
   const remainingAngle = Math.min(
     Math.PI / 2,
-    Math.abs(currentAngle - finalAngle),
+    Math.max(
+      remainingFor(panelId),
+      coPanelId === undefined ? 0 : remainingFor(coPanelId),
+    ),
   );
   return reach * Math.sin(remainingAngle) + GEOMETRY_TOLERANCE_MM;
+}
+
+/** 真實紙盒壁的最大疊層數＝外壁＋角撐＋內壁 ＝ 3 張紙。
+ * `normalOffset` 是**實體位移**，位移超過真實疊層深度就不再是「表現疊層」，
+ * 而是把紙搬到別的地方去（修正前實測最大 3.500mm ＝ 11.7 倍紙厚）。 */
+const RENDER_STACK_MAX_LAYERS = 3;
+/** 兩片的外法向要多平行才值得比內外——角撐/角翼摺到壁面上後與該壁同向；
+ * 舌片橫躺盒底時法向朝下，與壁不同族，不該互比。 */
+const RENDER_STACK_PARALLEL_DOT = 0.99;
+/** 與 fold-scene.ts 的 SURFACE_GAP_MM 同值。獨立寫一份當 oracle——期望值不從
+ * 被測函式動態推導，才不會跟著錯值一起漂移（沿用本檔既有慣例）。 */
+const RENDER_SURFACE_GAP_MM = 0.05;
+
+interface RenderStackEntry {
+  panelId: string;
+  /** 外法向單位向量（遠離盒心）＝ 面法向 × exteriorDirection。 */
+  outward: Vec3;
+  /** 名義幾何（真實紙面）沿外法向的位置——**外部 ground truth**，非由層號推得。 */
+  nominalPos: number;
+  normalOffset: number;
+}
+
+/**
+ * 顯示層位移的兩條物理約束（AC-T9 家族）。
+ *
+ * 為什麼需要這條閘門：`normalOffset` 與 `renderOrder` 曾共用同一組層號，而層號是
+ * **繪製順序 rank**（跨度 16 階）。當它同時被當成實體位移，位移量級（±3.5mm）
+ * 就與真實層距（platformWidth 5mm）同量級，足以把本該收在裡面的角翼推到外壁
+ * 之外——畫面上看到的薄片外露。
+ *
+ * 兩條判準：
+ *  ① **位移預算**：|normalOffset| ≤ 3 層。純量級，抓「排序 rank 當位移」這類錯誤。
+ *  ② **順序不得反轉**：對外法向近乎平行、且**名義幾何本身就分得開**的兩片，
+ *     位移後的內外順序必須與名義一致。名義幾何由摺疊運動學決定、不由層號表決定，
+ *     ⇒ 這條的參照物在被測設計之外，閘門不會與設計自洽地一起錯。
+ *     名義上共面的兩片不設約束：它們的先後本來就只能由層號表宣告。
+ *
+ * ⚠ **兩條並不正交**（sabotage 實測·別高估 ②）：把角撐 −1 與先摺角翼 −3 對調
+ * （量級仍在預算內、只有順序錯），②**沒有命中**——名義間隙 4.5mm 遠大於 2 層
+ * 位移 0.7mm，符號翻不過來。②實質上只在「位移量級接近名義間隙」時才有判別力，
+ * 亦即多半由①一併涵蓋。**「合法量級下的層序錯」目前無機器判準**：零厚度模型裡
+ * 共面兩片的內外純屬宣告，沒有可量的外部錨。此限制屬已知，不得以①的綠燈代表
+ * 層序已驗證。交疊片之間「plan 必須相異」另由 fold-overlap-diagnosis 逐 pair 守住。
+ */
+export function renderStackViolations(
+  model: FoldModel,
+  pieceId: string,
+  thickness = 0.3,
+): string[] {
+  const violations: string[] = [];
+  const pose = foldPose(1, model);
+  // 位移方向取名義（未收束）幾何，與 panelRenderVertices 的 normalReference 同源。
+  const nominal = worldGeometry(model, pose, { applyVertexClamp: false });
+  const exteriorFaces = new Map(
+    diagnoseFoldedPanelFaces(model).map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
+  );
+  const layerOffset = Math.max(0, thickness) + RENDER_SURFACE_GAP_MM;
+  const budget = RENDER_STACK_MAX_LAYERS * layerOffset + GEOMETRY_TOLERANCE_MM;
+
+  const entries: RenderStackEntry[] = [];
+  for (const panel of model.panels) {
+    const points = nominal.get(panel.id) ?? [];
+    if (points.length < 3) continue;
+    const normal = firstFaceNormal(points);
+    if (!normal) continue;
+    const { normalOffset } = panelOverlapPlan(`${pieceId}:${panel.id}`, thickness);
+    if (Math.abs(normalOffset) > budget) {
+      violations.push(
+        `renderStack:budget ${pieceId}:${panel.id} |normalOffset|=`
+        + `${Math.abs(normalOffset).toFixed(3)}mm > ${budget.toFixed(3)}mm`
+        + `（${RENDER_STACK_MAX_LAYERS} 層 × ${layerOffset.toFixed(3)}mm）`,
+      );
+    }
+    const outward = scale(normal, exteriorFaces.get(panel.id) === 'front' ? 1 : -1);
+    const centroid = scale(
+      points.reduce((acc, point) => add(acc, point), { x: 0, y: 0, z: 0 }),
+      1 / points.length,
+    );
+    entries.push({
+      panelId: panel.id,
+      outward,
+      nominalPos: dot(centroid, outward),
+      normalOffset,
+    });
+  }
+
+  for (let left = 0; left < entries.length; left += 1) {
+    for (let right = left + 1; right < entries.length; right += 1) {
+      const a = entries[left]!;
+      const b = entries[right]!;
+      const alignment = dot(a.outward, b.outward);
+      if (alignment < RENDER_STACK_PARALLEL_DOT) continue;
+      // 兩片投影到同一條軸（a 的外法向）才可比。
+      const bNominalOnA = b.nominalPos * alignment;
+      const nominalGap = a.nominalPos - bNominalOnA;
+      if (Math.abs(nominalGap) <= GEOMETRY_TOLERANCE_MM) continue;
+      const renderedGap = (a.nominalPos + a.normalOffset)
+        - (bNominalOnA + b.normalOffset);
+      if (Math.sign(nominalGap) === Math.sign(renderedGap)) continue;
+      violations.push(
+        `renderStack:inversion ${pieceId} ${a.panelId} vs ${b.panelId}`
+        + ` 名義 ${nominalGap.toFixed(3)}mm → 渲染 ${renderedGap.toFixed(3)}mm（內外顛倒）`,
+      );
+    }
+  }
+
+  return violations;
 }
 
 export function telescopeCollisionViolations(
@@ -1385,7 +1580,7 @@ export function telescopeCollisionViolations(
       if (
         pair.corner
         && (pair.family === 'flap↔wingX' || pair.family === 'flap↔wingY')
-        && t >= TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0] - NUMERIC_EPSILON
+        && t >= TELESCOPE_TRAY_WINDOWS.flapped.interlock[0] - NUMERIC_EPSILON
       ) {
         const formula = hookFormula(params, pieceId, pair.corner);
         const measurement = hookMeasurement(left, right);
@@ -1406,16 +1601,30 @@ export function telescopeCollisionViolations(
           continue;
         }
       }
+      // ── closeY 內壁蓋合：深度**不是**判準（v15.4） ──
+      // 短邊內壁在 closeY 拍由盒外上方繞過盒口盪入、蓋住已就位的角部件（實體照片
+      // 04→07 拆解序證實）。零厚度剛體下，內壁與角部件終態相距僅一個 rootJog，
+      // 掃掠必然穿過——且**正確與錯誤的掃法穿透深度同量級**，depth 對兩者不可分。
+      // 故此拍此 pair 不以 depth 判定；判別力改由 `closeYRouteViolations()` 的
+      // 「翻越盒口路線」斷言承擔（正交量：中段的 z 與離牆距離，非接觸深度）。
+      // 僅豁免拍內部；拍端點（角部件就位前／內壁到位後）照常走 G1。
+      if (
+        /↔wallY$/.test(pair.family)
+        && /-inner$/.test(pair.right)
+        && isInsideCloseY(model, t)
+      ) continue;
       if (
         pair.family === 'flap↔wallY'
-        && t >= TELESCOPE_TRAY_WINDOWS.flapped.phaseC[0] - NUMERIC_EPSILON
+        && t >= TELESCOPE_TRAY_WINDOWS.flapped.interlock[0] - NUMERIC_EPSILON
       ) {
         // flap 以豎直 hinge 貼向 y wall 時，零厚度剛體的可見剝離深度上界，
         // 由當片 hinge reach × 尚未到位角的 sin 現場推導；超界仍是 G1。
+        // 共量的壁＝該 pair 右側所屬的 y 外壁（raiseY 拍才轉完）。
         const layerPeelLimit = wallLayerPeelLimit(
           model,
           pose,
           pair.left,
+          pair.right.replace(/-(?:inner|rim|tongue)$/, '-outer'),
         );
         if (
           layerPeelLimit !== null
@@ -1426,12 +1635,14 @@ export function telescopeCollisionViolations(
       }
       if (
         pair.family === 'extension↔wallY'
-        && t >= TELESCOPE_TRAY_WINDOWS.plain.phaseCExt[0] - NUMERIC_EPSILON
+        && t >= TELESCOPE_TRAY_WINDOWS.plain.extWrap[0] - NUMERIC_EPSILON
       ) {
+        // 共量的壁＝該 pair 右側所屬的 y 外壁（raiseY 拍才轉完）。
         const layerPeelLimit = wallLayerPeelLimit(
           model,
           pose,
           pair.left,
+          pair.right.replace(/-(?:inner|rim|tongue)$/, '-outer'),
         );
         if (
           layerPeelLimit !== null
@@ -1469,6 +1680,8 @@ export function telescopeGateReport(
       ...finalFlapViolations(model, params, pieceId),
       ...finalExtensionViolations(model),
       ...finalEnvelopeViolations(model, params, pieceId),
+      ...closeYRouteViolations(model),
+      ...renderStackViolations(model, pieceId),
       ...telescopeCollisionViolations(model, params, pieceId),
     );
   }

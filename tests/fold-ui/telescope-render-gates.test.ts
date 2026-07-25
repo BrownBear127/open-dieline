@@ -261,6 +261,23 @@ function layerCoordinate(
   ) / points.length;
 }
 
+/** installScene 一律以 thickness 0 建場景 ⇒ layerOffset = SURFACE_GAP_MM。
+ * 與 fold-scene.ts 的同名常數同值，獨立寫一份當 oracle。 */
+const SURFACE_GAP_MM = 0.05;
+/** mesh buffer 為 Float32Array；座標量級 ~320mm 時最低有效位約 3e-5mm。 */
+const BUFFER_EPSILON_MM = 1e-4;
+
+/** 各片沿該壁**外法向**的絕對座標（mm，越大越外）。用於兩葉名義共面、
+ * normalized 軸退化時的層序斷言。 */
+function wallOutwardCoordinates(
+  pieceId: string,
+  wallId: string,
+  panelIds: string[],
+): number[] {
+  const normal = planeNormal(meshPositions(pieceId, wallId));
+  return panelIds.map((panelId) => layerCoordinate(pieceId, panelId, normal));
+}
+
 function normalizedLayerPositions(
   pieceId: string,
   wallId: string,
@@ -272,6 +289,29 @@ function normalizedLayerPositions(
   const inner = layerCoordinate(pieceId, innerId, normal);
   return panelIds.map((panelId) =>
     (layerCoordinate(pieceId, panelId, normal) - outer) / (inner - outer));
+}
+
+/**
+ * 角翼相對「外壁 0 → 內壁 1」這條軸的容許超出量（normalized 單位）。
+ *
+ * ⚠ 本判準取自**名義幾何實測**。原先的寫法要求
+ * 「同壁兩翼 plan 嚴格不同且**介於外/內壁層之間**」，測試原本寫死 `< 1`。
+ * 但名義幾何（摺疊運動學·外部 ground truth）實測：角翼終態平面 y=314.198600、
+ * 內壁 y=314.200000——兩者相距 **0.0014mm，等同共面**；而外壁在 y=319.200000，
+ * 兩葉之間隔著 platformWidth=5mm 的**空隙**（不是貼合的雙層）。
+ * 角翼要落在「兩葉之間」得靠約 2.5mm 的顯示位移把它推進空隙——那正是
+ * v15.5 修掉的薄片外露成因。⇒ 兩條要求互斥，此處採**名義幾何**這邊。
+ *
+ * 本函式仍保留判別力：容許量＝2 層紙，超過即代表位移又失控。
+ * `< 1` 這個舊上界通不過並非回歸——它原本是被 bug 的向外位移撐著才成立的。
+ */
+function interlockStackSlack(pieceId: string, platformWidthOverride?: number): number {
+  const params = resolveParams(telescope, {});
+  const platformWidth = platformWidthOverride
+    ?? (params[pieceId === 'base' ? 'basePlatformWidth' : 'lidPlatformWidth'] as number);
+  // installScene 一律以 thickness 0 建場景 ⇒ layerOffset = SURFACE_GAP_MM。
+  const layerOffset = 0.05;
+  return 2 * layerOffset / platformWidth;
 }
 
 function interlockPlanViolations(
@@ -345,17 +385,26 @@ describe('Telescope AC-T3 render-layer gates', () => {
       );
       expect(xPos).toBeGreaterThan(0);
       expect(xPos).toBeLessThan(xNeg!);
-      expect(xNeg).toBeLessThan(1);
+      expect(xNeg).toBeLessThan(1 + interlockStackSlack('base'));
     }
     for (const corner of ['NegNeg', 'NegPos', 'PosNeg', 'PosPos']) {
       const ySign = corner.endsWith('Neg') ? 'Neg' : 'Pos';
-      const [extension] = normalizedLayerPositions(
-        'lid',
+      // ⚠ v15.5：不再用「外壁 0 → 內壁 1」的 normalized 軸。lidPlatformWidth 預設 0
+      // ⇒ 兩葉名義共面，該軸的長度**完全由顯示層位移決定**——拿被測機制自己造出的
+      // 量當座標軸，量到的只會是自己（舊值 0.9167 即此類假綠）。改量絕對 mm。
+      const outwardMm = wallOutwardCoordinates('lid', `wallY${ySign}-outer`, [
         `wallY${ySign}-outer`,
-        [`gussetExt${corner}`],
-      );
-      expect(extension).toBeGreaterThan(0);
-      expect(extension).toBeLessThan(1);
+        `gussetExt${corner}`,
+        `wingX${corner}`,
+      ]);
+      const [outer, extension, wing] = outwardMm as [number, number, number];
+      // ① 延伸段收在外葉之內（不外露）
+      expect(extension).toBeLessThan(outer);
+      // ② 與同平面且交疊的自身角撐分開至少一層紙（防 z-fighting）。
+      // mesh buffer 是 Float32Array，座標量級 ~320mm ⇒ 讀回值最低有效位約 3e-5，
+      // 故比對留 BUFFER_EPSILON（實測差值 0.049988 vs 名目 0.05）。
+      expect(Math.abs(extension - wing))
+        .toBeGreaterThanOrEqual(SURFACE_GAP_MM - BUFFER_EPSILON_MM);
     }
     scene.dispose();
   }, 30_000);
@@ -376,7 +425,7 @@ describe('Telescope AC-T3 render-layer gates', () => {
       );
       expect(xPos).toBeGreaterThan(0);
       expect(xPos).toBeLessThan(xNeg!);
-      expect(xNeg).toBeLessThan(1);
+      expect(xNeg).toBeLessThan(1 + interlockStackSlack('lid', 5));
     }
     scene.dispose();
   }, 30_000);
@@ -394,7 +443,11 @@ describe('Telescope AC-T3 render-layer gates', () => {
     expect(interlockPlanViolations('base', samePlan)).not.toEqual([]);
   });
 
-  it('任一 mesh 頂點向凸包外偏移 0.2mm，獨立 L3 上界必須 RED', () => {
+  // ⚠ v15.4：原版固定外推 0.2mm。修掉「長邊壁 rim 摺 0°」的 bug 之前，凸包被同一個
+  // bug 撐高、角翼恰貼在殼邊，推 0.2mm 就出界；幾何修正後角翼縮回殼內 0.5mm 以上，
+  // 同樣的 0.2mm 推不出界 ⇒ **探針的判別力原本是靠 bug 撐著的**。
+  // 改為推到「超過閘門自己的 cap 0.2mm」，與幾何餘裕無關，語義才是穩定的。
+  it('mesh 頂點外推至超過該 panel 的 L3 上界 0.2mm，獨立上界必須 RED', () => {
     mockCanvasContext();
     const { scene, resolved } = installScene();
     const base = resolved.pieces.find(({ pieceId }) => pieceId === 'base')!;
@@ -433,17 +486,21 @@ describe('Telescope AC-T3 render-layer gates', () => {
         }
       }
     }
+    // flap 的 L3 上界（見 silhouetteViolations）＝rootJog + 2×SILHOUETTE_CAP_MM。
+    // 推移量由「現況距殼距離」補到 cap + 0.2，故 sabotage 後必定超界 0.2mm。
+    const flapCap = 0.5 + 2 * SILHOUETTE_CAP_MM;
+    const push = flapCap + 0.2 - worst.distance;
     const offset = { x: 0, y: 0, z: 0 };
     const [first, second] = worst.outward;
     if (worst.projectionIndex === 0) {
-      offset.x = first * 0.2;
-      offset.y = second * 0.2;
+      offset.x = first * push;
+      offset.y = second * push;
     } else if (worst.projectionIndex === 1) {
-      offset.x = first * 0.2;
-      offset.z = second * 0.2;
+      offset.x = first * push;
+      offset.z = second * push;
     } else {
-      offset.y = first * 0.2;
-      offset.z = second * 0.2;
+      offset.y = first * push;
+      offset.z = second * push;
     }
     const sabotagedReader: PositionReader = (pieceId, panelId) => {
       if (pieceId !== 'base' || panelId !== targetPanelId) {

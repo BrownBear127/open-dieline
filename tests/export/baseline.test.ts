@@ -24,6 +24,12 @@ const ALLOWED_GENERATED_AT_COMMITS = [
   'cd2dbb72cf2478963d03f476a6c3a1e7767ed7b4',
   '9b9944eda07b958c162b24ef1fb5126c991e79d7',
   'ab2be166971d2889196afc282bb18514a529c851',
+  // telescope 上蓋放大量預設改值（短向 13.5→3、長向 18.5→15）——尺寸參數變更必然
+  // 改變預設參數的匯出輸出。僅 telescope-* 三組九檔重生，其餘盒型與 synthetic
+  // 基線逐 byte 不動（AC-T6 零回歸的直接證據）。
+  // ⚠ 此值為重生當下的 HEAD；重生內容來自尚未 commit 的工作樹，真正落 commit 後
+  //   需以新 commit 再跑一次 BASELINE_WRITE=1 並替換本項。
+  '4c81b95ef29791f145e3a98f61b0056aba37a225',
 ] as const;
 
 if (WRITE && process.env.CI) {

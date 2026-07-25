@@ -412,82 +412,55 @@ it('enumerates every completed telescope overlap before assigning render layers'
     base: overlappingPairs(models.base),
     lid: overlappingPairs(models.lid),
   };
+  // ⚠ golden 於 v14 錯階摺序後整組改變。四類變化逐項對照 §4.6 終態語義：
+  //  1. 移除全部 `wallX*/wing*`──舊終態角撐壓貼**長邊(x)壁**（已作廢的 phase B 壓貼）；
+  //     新終態角撐被掃起、改落**短邊(y)壁**，故不再與任何 x 壁層交疊。
+  //  2. 移除 `wingX*/wingY*`──舊終態兩翼共面攤在同一 x 壁面；新終態 ψx=90°、ψy=180°，
+  //     兩翼沿對角摺線相接但不共面。
+  //  3. 新增 `wallY*-outer/wingY*`──生產摺序 5「包覆角撐」。實測終態 wingY 與 y 壁同在
+  //     y=104.200 平面（法向 ∓ŷ）。
+  //  4. 新增 `gussetExt*/wingX*`（P0）──延伸段於 extWrap 拍繞角包上相鄰 y 壁，落在自身
+  //     角撐的平面 y=104.700（比 y 壁外一個 rootJog=0.5），故與 wingX 共面交疊。
+  // 四類皆可由 §4.6 解釋；無「解釋不了」的 pair（Plan 選擇 C 的逐 pair 義務）。
+  // ⚠ v15.4 二次變動（短邊壁舌片 −90° ＋ 四面 rim 同摺 90°）。逐項對照：
+  //  5. 移除 base 的 `wallX-inner/wallX-outer`、`wallX-inner/wallX-rim`、`wallX-outer/wallX-tongue`
+  //     ──長邊壁補上 5mm 平台後，內壁不再與外壁共面（相隔一個 platformWidth），
+  //     舌片隨內壁內移故亦不再貼上外壁。
+  //  6. 移除兩片的 `wallY-*/wallY-tongue`──短邊壁舌片改 −90° 橫躺盒底（實測 z 恆 0.80），
+  //     不再與 y 壁任何一層共面。
+  //  lid 的 `wallX-*` 各對保留：lid platformWidth 預設 0 ⇒ 無 rim panel ⇒ 長邊壁頂仍是 180° 對摺。
   expect(pairsByPiece).toEqual({
     base: [
       'flapNegNeg/flapPosNeg',
       'flapNegPos/flapPosPos',
-      'wallXNeg-inner/wallXNeg-outer',
-      'wallXNeg-inner/wallXNeg-rim',
       'wallXNeg-inner/wallXNeg-tongue',
-      'wallXNeg-inner/wingXNegNeg',
-      'wallXNeg-inner/wingXNegPos',
-      'wallXNeg-inner/wingYNegNeg',
-      'wallXNeg-inner/wingYNegPos',
-      'wallXNeg-outer/wallXNeg-tongue',
-      'wallXNeg-outer/wingXNegNeg',
-      'wallXNeg-outer/wingXNegPos',
-      'wallXNeg-outer/wingYNegNeg',
-      'wallXNeg-outer/wingYNegPos',
-      'wallXNeg-tongue/wingXNegNeg',
-      'wallXNeg-tongue/wingXNegPos',
-      'wallXNeg-tongue/wingYNegNeg',
-      'wallXNeg-tongue/wingYNegPos',
-      'wallXPos-inner/wallXPos-outer',
-      'wallXPos-inner/wallXPos-rim',
       'wallXPos-inner/wallXPos-tongue',
-      'wallXPos-inner/wingXPosNeg',
-      'wallXPos-inner/wingXPosPos',
-      'wallXPos-inner/wingYPosNeg',
-      'wallXPos-inner/wingYPosPos',
-      'wallXPos-outer/wallXPos-tongue',
-      'wallXPos-outer/wingXPosNeg',
-      'wallXPos-outer/wingXPosPos',
-      'wallXPos-outer/wingYPosNeg',
-      'wallXPos-outer/wingYPosPos',
-      'wallXPos-tongue/wingXPosNeg',
-      'wallXPos-tongue/wingXPosPos',
-      'wallXPos-tongue/wingYPosNeg',
-      'wallXPos-tongue/wingYPosPos',
-      'wallYNeg-inner/wallYNeg-tongue',
-      'wallYPos-inner/wallYPos-tongue',
-      'wingXNegNeg/wingYNegNeg',
-      'wingXNegPos/wingYNegPos',
-      'wingXPosNeg/wingYPosNeg',
-      'wingXPosPos/wingYPosPos',
+      'wallYNeg-outer/wingYNegNeg',
+      'wallYNeg-outer/wingYPosNeg',
+      'wallYPos-outer/wingYNegPos',
+      'wallYPos-outer/wingYPosPos',
     ],
     lid: [
+      'gussetExtNegNeg/wingXNegNeg',
+      'gussetExtNegPos/wingXNegPos',
+      'gussetExtPosNeg/wingXPosNeg',
+      'gussetExtPosPos/wingXPosPos',
       'wallXNeg-inner/wallXNeg-outer',
       'wallXNeg-inner/wallXNeg-tongue',
-      'wallXNeg-inner/wingXNegNeg',
-      'wallXNeg-inner/wingXNegPos',
-      'wallXNeg-inner/wingYNegNeg',
-      'wallXNeg-inner/wingYNegPos',
       'wallXNeg-outer/wallXNeg-tongue',
-      'wallXNeg-outer/wingXNegNeg',
-      'wallXNeg-outer/wingXNegPos',
-      'wallXNeg-outer/wingYNegNeg',
-      'wallXNeg-outer/wingYNegPos',
       'wallXPos-inner/wallXPos-outer',
       'wallXPos-inner/wallXPos-tongue',
-      'wallXPos-inner/wingXPosNeg',
-      'wallXPos-inner/wingXPosPos',
-      'wallXPos-inner/wingYPosNeg',
-      'wallXPos-inner/wingYPosPos',
       'wallXPos-outer/wallXPos-tongue',
-      'wallXPos-outer/wingXPosNeg',
-      'wallXPos-outer/wingXPosPos',
-      'wallXPos-outer/wingYPosNeg',
-      'wallXPos-outer/wingYPosPos',
       'wallYNeg-inner/wallYNeg-outer',
-      'wallYNeg-inner/wallYNeg-tongue',
-      'wallYNeg-outer/wallYNeg-tongue',
+      'wallYNeg-inner/wingYNegNeg',
+      'wallYNeg-inner/wingYPosNeg',
+      'wallYNeg-outer/wingYNegNeg',
+      'wallYNeg-outer/wingYPosNeg',
       'wallYPos-inner/wallYPos-outer',
-      'wallYPos-inner/wallYPos-tongue',
-      'wallYPos-outer/wallYPos-tongue',
-      'wingXNegNeg/wingYNegNeg',
-      'wingXNegPos/wingYNegPos',
-      'wingXPosNeg/wingYPosNeg',
-      'wingXPosPos/wingYPosPos',
+      'wallYPos-inner/wingYNegPos',
+      'wallYPos-inner/wingYPosPos',
+      'wallYPos-outer/wingYNegPos',
+      'wallYPos-outer/wingYPosPos',
     ],
   });
 
@@ -522,8 +495,20 @@ it('enumerates every completed telescope overlap before assigning render layers'
     const outer = panelOverlapPlan(`lid:wallY${ySign}-outer`, 0);
     const extension = panelOverlapPlan(`lid:gussetExt${corner}`, 0);
     const inner = panelOverlapPlan(`lid:wallY${ySign}-inner`, 0);
-    expect(outer.normalOffset).toBeLessThan(extension.normalOffset);
-    expect(extension.normalOffset).toBeLessThan(inner.normalOffset);
+    // ⚠ v15.5：原斷言為 `outer < extension < inner`（normalOffset 三明治）。
+    // 名義幾何實測否證了它的前提——lidPlatformWidth 預設 0 ⇒ 無 rim，內葉 180°
+    // 貼回外葉，`wallY-outer`／`wallY-inner`／`wingY` **三者同在 y=321.200000**，
+    // 根本沒有「之間」；而 `gussetExt` 在 y=320.700000（內 rootJog 一個 0.5mm）。
+    // 舊斷言之所以成立，是因為兩軸共用層號時 outer/inner 被推開 0.6mm，那道縫
+    // 是位移造出來的，不是紙造出來的。
+    // 改判物理上真正成立的三件事：
+    //   ① 延伸段落在外葉之內（不外露）
+    //   ② 延伸段與其角撐（同平面且交疊）分層——防 z-fighting
+    //   ③ 繪製先後仍 outer → extension → inner
+    expect(extension.normalOffset).toBeLessThan(outer.normalOffset);
+    expect(extension.normalOffset).not.toBe(
+      panelOverlapPlan(`lid:wingX${corner}`, 0).normalOffset,
+    );
     expect(outer.renderOrder).toBeLessThan(extension.renderOrder);
     expect(extension.renderOrder).toBeLessThan(inner.renderOrder);
   }
@@ -577,17 +562,24 @@ const GOLDEN_DISPLACEMENT_MULTIPLIER: Record<string, number> = {
   endEndWingBottom: 2,
   bottomLid: 1,
   bottomTuck: 2,
-  'wallXNeg-outer': 4,
-  'wallXNeg-rim': 2,
-  'wallXNeg-inner': 8,
-  'wallXNeg-tongue': 9,
-  'wallYNeg-outer': 4,
-  'wallYNeg-inner': 8,
-  wingXNegNeg: 6,
-  wingYNegNeg: 5,
-  flapNegNeg: 9,
-  flapPosNeg: 10,
-  gussetExtNegNeg: 7,
+  // ⚠ v15.5：telescope 家族的倍數改由**實體疊層索引**（fold-scene.ts
+  // `telescopeStackIndex`）決定，不再沿用繪製順序 rank（原值 4/2/8/9/4/8/6/5/9/10/7）。
+  // rank 跨度 16 階當位移用時位移量級達 3.500mm ＝ 11.7 倍紙厚，與真實層距
+  // （platformWidth 5mm）同量級，實測把角翼從名義「內於角撐 4.501mm」推成
+  // 「外於角撐 0.749mm」——內外顛倒，即畫面上的薄片外露。
+  // 新倍數＝離最外層幾張紙：外壁／壁頂平台 0、角撐 1、內壁與後摺角翼 2、
+  // 舌片與先摺角翼 3。上限 3 由 `renderStackViolations` 的位移預算判準守住。
+  'wallXNeg-outer': 0,
+  'wallXNeg-rim': 0,
+  'wallXNeg-inner': 2,
+  'wallXNeg-tongue': 3,
+  'wallYNeg-outer': 0,
+  'wallYNeg-inner': 2,
+  wingXNegNeg: 1,
+  wingYNegNeg: 1,
+  flapNegNeg: 3,
+  flapPosNeg: 2,
+  gussetExtNegNeg: 2,
 };
 
 function goldenDisplacementMm(panelId: string): number {

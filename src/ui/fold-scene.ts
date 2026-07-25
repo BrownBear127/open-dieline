@@ -768,7 +768,9 @@ function normalizedFaceNormal(first: Vec3, second: Vec3, third: Vec3): Vec3 | nu
   };
 }
 
-function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
+/** 面法向＝首個非退化三角形的法向。層位移方向由它決定，故閘門必須用**同一把尺**
+ * 取向，不得自寫一份（自寫版會量到平行宇宙——實測踩過一次）。 */
+export function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
   for (let firstIndex = 0; firstIndex < vertices.length - 2; firstIndex += 1) {
     for (let secondIndex = firstIndex + 1; secondIndex < vertices.length - 1; secondIndex += 1) {
       for (let thirdIndex = secondIndex + 1; thirdIndex < vertices.length; thirdIndex += 1) {
@@ -903,7 +905,27 @@ export function panelSurfacePlan(
   };
 }
 
-function telescopePanelLayer(panelId: string): number | null {
+/**
+ * 組裝終態的**跨片**內外關係，只作用於繪製順序與深度偏壓。
+ * 不得加進 normalOffset——那是片內紙張疊層的實體位移（layerOffset 量級），
+ * 跨片放大會把幾何真的移開。摺疊期三片在空間上不重疊，靜態偏壓無副作用。
+ */
+const TELESCOPE_PIECE_DRAW_BIAS: Record<string, number> = {
+  liner: -32,
+  base: 0,
+  lid: 32,
+};
+
+/**
+ * **繪製順序 rank**（只進 renderOrder 與 polygonOffsetUnits 的正負號）。
+ * 這是個排序用的序數，跨度可以很大——它不表達距離，也**不得**被拿去當位移。
+ * 位移請用 {@link telescopeStackIndex}。
+ */
+function telescopeDrawRank(panelId: string): number | null {
+  // 盤底與內襯面板取基準層 0（與舊 fallback 同值·行為不變），目的是讓
+  // telescope 的**每一個** panel 都走 telescope 分支，跨片偏壓才不會漏片。
+  if (panelId === 'floor' || panelId === 'linerPad') return 0;
+  if (/^linerLeg/.test(panelId)) return 0;
   if (/^wingX(?:Neg|Pos){2}$/.test(panelId)) return -6;
   if (/^wingY(?:Neg|Pos){2}$/.test(panelId)) return -5;
   if (/^wall[XY](?:Neg|Pos)-outer$/.test(panelId)) return -4;
@@ -918,20 +940,66 @@ function telescopePanelLayer(panelId: string): number | null {
   return null;
 }
 
+/**
+ * **實體疊層索引**（只進 normalOffset）。單位＝一張紙；負值＝往盒內。
+ *
+ * 與 {@link telescopeDrawRank} 分家的理由：rank 是序數（跨度 16 階），當它同時
+ * 被當成實體位移，位移量級（±3.5mm＝11.7 倍紙厚）就與真實層距（platformWidth
+ * 5mm）同量級，足以把本該收在裡面的角翼推到外壁之外。實測名義 −4.501mm 的
+ * 內外關係被推成渲染 +0.749mm——內外顛倒，畫面上即薄片外露。
+ *
+ * 層位由**實體結構**決定（§4.6 段序），不是由繪製先後決定：
+ *   0  外壁／壁頂平台／盤底／內襯    最外一張紙，基準面
+ *  −1  角撐 wing                     貼在外壁內側
+ *  −2  內壁／後摺角翼 flapPos／延伸段 gussetExt
+ *  −3  舌片／先摺角翼 flapNeg        最內
+ *
+ * 分層只需在**名義上共面且真的交疊**的片之間成立（交疊清單見
+ * fold-overlap-diagnosis 的 golden，實測而非推測）。名義即分屬不同平面的片
+ * 可共用同一層號——例如 lid 的 `gussetExt`（y=320.700）與 `wallY-inner`
+ * （y=321.200）同為 −2，兩者相距 rootJog=0.5mm 且不交疊。
+ *
+ * 上限 3 層＝真實壁的疊層數（外＋撐＋內），由 `renderStackViolations` 的位移
+ * 預算判準守住；名義幾何本來就分得開的兩片，其內外順序由同閘門的反轉判準守住。
+ */
+function telescopeStackIndex(panelId: string): number {
+  if (/^wall[XY](?:Neg|Pos)-(?:outer|rim)$/.test(panelId)) return 0;
+  if (/^wing[XY](?:Neg|Pos){2}$/.test(panelId)) return -1;
+  if (/^wall[XY](?:Neg|Pos)-inner$/.test(panelId)) return -2;
+  if (/^flapPos(?:Neg|Pos)$/.test(panelId)) return -2;
+  // 延伸段在 extWrap 拍最後才繞角包上相鄰 y 壁 ⇒ 疊在自身角撐（−1）內側。
+  if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return -2;
+  if (/^wall[XY](?:Neg|Pos)-tongue$/.test(panelId)) return -3;
+  // 同壁兩翼錯階互卡（§4.6）：flapNeg 先摺 ⇒ 被 flapPos 包在裡面。
+  if (/^flapNeg(?:Neg|Pos)$/.test(panelId)) return -3;
+  return 0;
+}
+
 /** Keeps physical closure layers separate without changing their flat polygons. */
 export function panelOverlapPlan(scopedPanelId: string, thickness: number): PanelOverlapPlan {
-  const panelId = scopedPanelId.includes(':')
-    ? scopedPanelId.slice(scopedPanelId.indexOf(':') + 1)
-    : scopedPanelId;
+  const separator = scopedPanelId.indexOf(':');
+  const pieceId = separator === -1 ? '' : scopedPanelId.slice(0, separator);
+  const panelId = separator === -1
+    ? scopedPanelId
+    : scopedPanelId.slice(separator + 1);
   // A full board thickness changes the physical layer; the extra gap prevents the two
   // touching solid faces from remaining coplanar. Zero-thickness card keeps the same gap.
   const layerOffset = Math.max(0, thickness) + SURFACE_GAP_MM;
-  const telescopeLayer = telescopePanelLayer(panelId);
-  if (telescopeLayer !== null) {
+  const drawRank = telescopeDrawRank(panelId);
+  if (drawRank !== null) {
+    // 片內 rank 決定繪製先後；跨片偏壓只進繪製軸——否則組裝後下盒的高 rank 面板
+    // （內壁 8／角翼 9-10）會用深度偏壓贏過上蓋底板（0），俯視穿透上蓋。
+    const drawLayer = drawRank + (TELESCOPE_PIECE_DRAW_BIAS[pieceId] ?? 0);
     return {
-      normalOffset: telescopeLayer * layerOffset,
-      polygonOffsetUnits: -telescopeLayer,
-      renderOrder: telescopeLayer,
+      // 深度偏壓**只該打破共面平手**，不該表達層級：rank 跨度 16（−6..10）直接當
+      // 偏壓會讓盒內面板（tongue 9／角翼 10）穿透相距數 mm 的外壁（−4）。層距本身
+      // 已由 normalOffset 實體拉開、先後由 renderOrder 決定，故偏壓限幅到 ±1
+      // ——夠解共面 z-fighting，不足以打穿真實深度。
+      polygonOffsetUnits: -Math.sign(drawRank),
+      // ⚠ 這裡吃的是**實體疊層索引**不是 rank：兩者曾共用同一組數字，使位移量級
+      // 與真實層距同量級而顛倒內外（薄片外露）。三軸各自的職責見 Spec §4.7。
+      normalOffset: telescopeStackIndex(panelId) * layerOffset,
+      renderOrder: drawLayer,
     };
   }
 
