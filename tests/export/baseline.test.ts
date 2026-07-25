@@ -23,6 +23,11 @@ const WRITE = process.env.BASELINE_WRITE === '1';
 const ALLOWED_GENERATED_AT_COMMITS = [
   'cd2dbb72cf2478963d03f476a6c3a1e7767ed7b4',
   '9b9944eda07b958c162b24ef1fb5126c991e79d7',
+  'ab2be166971d2889196afc282bb18514a529c851',
+  // telescope 上蓋放大量預設改值（兩軸 13.5/18.5 → 3）——尺寸參數變更必然改變預設
+  // 參數的匯出輸出。僅 telescope-* 三組九檔重生，其餘盒型與 synthetic 基線逐 byte
+  // 不動（AC-T6 零回歸的直接證據）。
+  '16c3aced180ce7074e80dbb1ed2b585077411245',
 ] as const;
 
 if (WRITE && process.env.CI) {
@@ -53,26 +58,43 @@ function syntheticAllTypes(): GenerateResult {
 
 const CASES: Array<{ name: string; make: () => GenerateResult }> = [
   { name: 'rte-default', make: () => reverseTuckEnd.generate(resolveParams(reverseTuckEnd)) },
-  { name: 'telescope-default', make: () => telescope.generate(resolveParams(telescope)) },
+  // Historical A2 fixtures stay liner-on so the geometry/export baseline remains byte-identical
+  // while the application default changes independently to opt-in.
+  {
+    name: 'telescope-default',
+    make: () => telescope.generate(resolveParams(
+      telescope,
+      { linerEnabled: true },
+    )),
+  },
   { name: 'synthetic-all-types', make: syntheticAllTypes },
   {
     name: 'telescope-lid',
     make: () => {
-      const full = telescope.generate(resolveParams(telescope));
+      const full = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'lid')!);
     },
   },
   {
     name: 'telescope-base',
     make: () => {
-      const full = telescope.generate(resolveParams(telescope));
+      const full = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'base')!);
     },
   },
   {
     name: 'telescope-liner',
     make: () => {
-      const full = telescope.generate(resolveParams(telescope));
+      const full = telescope.generate(resolveParams(
+        telescope,
+        { linerEnabled: true },
+      ));
       return scopeResultToPiece(full, full.pieces!.find((p) => p.id === 'liner')!);
     },
   },
@@ -111,6 +133,18 @@ describe('A2 匯出基線 byte-identical', () => {
 
   it('manifest generatedAtCommit is an approved baseline commit', () => {
     expect(ALLOWED_GENERATED_AT_COMMITS).toContain(manifest.generatedAtCommit);
+  });
+
+  it('manifest 涵蓋且僅涵蓋 CASES 會產出的檔案', () => {
+    // 白名單只檢查 `generatedAtCommit` 這個字串在清單裡，**不綁定哪些檔案該變**——
+    // 該欄位可以被手改（實測 `b5d89c9` 就只改了字串與註解、九個基線檔一字未動），
+    // 於是「宣告的 commit」與「檔案實際生成於哪個 commit」可以無聲脫節。
+    // 這條至少釘住集合：manifest 的鍵必須恰好等於 CASES × 三種格式，
+    // 少一個＝有 case 沒被基線守著，多一個＝留了沒人生成的殘檔。
+    const expected = CASES
+      .flatMap(({ name }) => [`${name}.svg`, `${name}.manufacturing.svg`, `${name}.dxf`])
+      .sort();
+    expect(Object.keys(manifest.files).sort()).toEqual(expected);
   });
 
   for (const c of CASES) {

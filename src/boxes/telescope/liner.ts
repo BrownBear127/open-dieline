@@ -143,9 +143,12 @@ function buildPadEdgeAndFlap(axis: Axis, sign: Sign, side: string, rootHalf: num
   const outerA = toXY(axis, tipAlong, -lenHalf + flapDepth);
   const outerB = toXY(axis, tipAlong, lenHalf - flapDepth);
   const cut = new PathBuilder().moveTo(p1.x, p1.y).lineTo(outerA.x, outerA.y).lineTo(outerB.x, outerB.y).lineTo(p2.x, p2.y).segments();
+  const legId = axis === 'x'
+    ? `linerLegX${sign < 0 ? 'Neg' : 'Pos'}`
+    : `linerLegY${sign < 0 ? 'Neg' : 'Pos'}`;
 
   return [
-    { type: 'crease', tags: ['linerPad', side], segments: crease },
+    { type: 'crease', tags: ['linerPad', side, `fold:linerPad>${legId}`], segments: crease },
     { type: 'cut', tags: ['linerFlap', side], segments: cut },
   ];
 }

@@ -125,8 +125,9 @@ function mockCanvasContext(): void {
 }
 
 function meshPositions(panelId: string): { x: number; y: number; z: number }[] {
-  const mesh = capturedMeshes.find(({ name }) => name === `fold-panel:${panelId}`);
-  expect(mesh, `找不到 fold-panel:${panelId} mesh`).toBeDefined();
+  const meshName = `fold-panel:single:${panelId}`;
+  const mesh = capturedMeshes.find(({ name }) => name === meshName);
+  expect(mesh, `找不到 ${meshName} mesh`).toBeDefined();
   const attribute = mesh!.geometry.getAttribute('position');
   const points: { x: number; y: number; z: number }[] = [];
   for (let index = 0; index < attribute.count; index += 1) {

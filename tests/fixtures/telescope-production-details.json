@@ -1435,6 +1435,37 @@
         }
       ],
       "topRightCorner_note": "Fix 1（2026-07-11 補量·review H1）：topRight 角獨立量測（非 topLeft 鏡射／旋轉推導）——raw gid 對應 topLeft 對應角色：LINE12↔LINE27(outer)；LINE64/60/61/62/63↔LINE108/109/110/111/112(platformRelief，依序)；LINE59/24/18/14/16/20/22↔LINE113/94/88/84/86/90/92(innerWallApproach，依序)。對照 topLeft：fullChain＋innerWallApproach 兩組（LINE12/59/24/18/14/16/20/22，連同已知的10° cut 與其餘 outer 段）在 (a,b) 座標下與 topLeft 幾乎精確相符（多數 <0.001mm），唯 platformRelief子鏈的『平台端 zigzag』（LINE64/60/61/62/63）在相鄰角落有真實結構差異，非量測誤差——最明顯：LINE64（LINE108 角色）b 範圍 [-4.5014,72.9968]（長 77.4982mm）比 topLeft LINE108 的 [-4.5014,52.9978]（長 57.4992mm）多出整整 20mm；對稱地 LINE59（LINE113 角色）b 範圍 [-5.461,52.9978]（長 58.4588mm，四捨五入 58.46）比 topLeft LINE113 的 [-5.461,72.9968]（長 78.4578mm，四捨五入 78.46）少 20mm——這正是 spec/fixture _meta.verification 提到的『78.46 vs 58.46』手性不對稱來源，經獨立連通性比對（相鄰端點 <0.01mm 匹配，含兩組結構相同的 ~10.27mm 內部斷點）確認拓撲自洽，非隨機量測噪音。萃取腳本：raw_elements.json 逐 gid 讀取（權威 08_emit_fixture.py 的同一資料源，未重跑該腳本——本次只新增欄位，不動既有 topLeft 數據），對算方法與 08_emit_fixture.py 的 gid_chain() 一致。"
+    },
+    "cornerFlapCreases": {
+      "lines": {
+        "topLeft": {
+          "gid": "LINE224",
+          "p1_mm": [547.3841, 203.6374],
+          "p2_mm": [508.1834, 203.6374],
+          "length_mm": 39.2007
+        },
+        "bottomLeft": {
+          "gid": "LINE223",
+          "p1_mm": [547.3841, 373.6375],
+          "p2_mm": [508.1834, 373.6375],
+          "length_mm": 39.2007
+        },
+        "topRight": {
+          "gid": "LINE198",
+          "p1_mm": [800.3822, 203.6374],
+          "p2_mm": [839.5829, 203.6374],
+          "length_mm": 39.2007
+        },
+        "bottomRight": {
+          "gid": "LINE199",
+          "p1_mm": [800.3822, 373.6375],
+          "p2_mm": [839.5829, 373.6375],
+          "length_mm": 39.2007
+        }
+      },
+      "inset_from_panelEdge_mm": 4.5014,
+      "along_d_range": [64.4984, 103.6991],
+      "note": "兩端點＝aGussetPeriphery 鏈既有頂點（LINE108 端點／LINE84-86 斷點）。"
     }
   },
   "lid": {
@@ -2102,6 +2133,37 @@
       ],
       "sideInset_mm": 2.0003,
       "existing_core_note": "R1.5(GUSSET_B_TIP_RADIUS)＋R5(GUSSET_B_RELIEF_RADIUS) 已在 tray.ts 建模，不重複列入本 fixture；本節僅收 P 有、現行程式無的周邊 R2＋2mm 側邊內縮。"
+    },
+    "gussetWebSplit": {
+      "xWebs": {
+        "topLeft": {
+          "inner": { "gid": "LINE244", "p1_mm": [174.371, 197.1393], "p2_mm": [129.3707, 197.1393], "length_mm": 45.0003 },
+          "outer": { "gid": "LINE243", "p1_mm": [129.3707, 197.1393], "p2_mm": [100.6722, 197.1393], "length_mm": 28.6985 }
+        },
+        "bottomLeft": {
+          "inner": { "gid": "LINE232", "p1_mm": [174.371, 413.1381], "p2_mm": [129.3707, 413.1381], "length_mm": 45.0003 },
+          "outer": { "gid": "LINE231", "p1_mm": [129.3707, 413.1381], "p2_mm": [100.6722, 413.1381], "length_mm": 28.6985 }
+        },
+        "bottomRight": {
+          "inner": { "gid": "LINE238", "p1_mm": [325.3705, 413.1381], "p2_mm": [370.3708, 413.1381], "length_mm": 45.0003 },
+          "outer": { "gid": "LINE237", "p1_mm": [370.3708, 413.1381], "p2_mm": [399.0728, 413.1381], "length_mm": 28.702 }
+        },
+        "topRight": {
+          "inner": { "gid": "LINE248", "p1_mm": [325.3705, 197.1393], "p2_mm": [370.3708, 197.1393], "length_mm": 45.0003 },
+          "outer": { "gid": "LINE247", "p1_mm": [370.3708, 197.1393], "p2_mm": [399.0728, 197.1393], "length_mm": 28.702 }
+        }
+      },
+      "yWebsUnsplit": {
+        "topLeft": { "gid": "LINE240", "p1_mm": [174.371, 197.1393], "p2_mm": [174.371, 152.0613], "length_mm": 45.078 },
+        "bottomLeft": { "gid": "LINE227", "p1_mm": [174.371, 413.1381], "p2_mm": [174.371, 458.2125], "length_mm": 45.0744 },
+        "bottomRight": { "gid": "LINE234", "p1_mm": [325.3705, 413.1381], "p2_mm": [325.3705, 458.2125], "length_mm": 45.0744 },
+        "topRight": { "gid": "LINE245", "p1_mm": [325.3705, 197.1393], "p2_mm": [325.3705, 152.0613], "length_mm": 45.078 }
+      },
+      "split_at_mm": 45,
+      "total_reach_mm": 73.699,
+      "generator_reach_mm": 72.822,
+      "generator_shortfall_mm": 0.877,
+      "note": "x-web 於壁高線拆成內外兩段；generator reach 72.822 比生產 total reach 73.699 短 0.877mm，屬鏈端取整家族，本 slice 不追。y-web 維持單段。"
     }
   },
   "anchorCrossCheck": [

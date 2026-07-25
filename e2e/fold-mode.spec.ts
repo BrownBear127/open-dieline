@@ -256,6 +256,65 @@ test('fold mode mounts its canvas and transfers the single pressed mode state', 
   expect(pressed).toEqual([false, false, true]);
 });
 
+test('telescope preview renders prefixed pieces at flat, folded, and assembled slider positions', async ({ page }) => {
+  await gotoReady(page);
+  await page.locator('#box-select').selectOption('telescope');
+  await setInitialFoldProgress(page, 0);
+  await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
+
+  const canvas = page.locator('.fold-canvas');
+  const range = page.locator('.foldbar input[type="range"]');
+  await expect(canvas).toBeVisible();
+  await expect(range).toBeVisible();
+  await expect.poll(
+    () => page.evaluate(
+      () => typeof (window as unknown as Record<string, unknown>).__p3SetPanelVisible,
+    ),
+    { message: 'telescope panel visibility hook must be ready' },
+  ).toBe('function');
+  const panelHookResults = await page.evaluate(() => {
+    const hook = (window as unknown as Record<string, unknown>).__p3SetPanelVisible;
+    if (typeof hook !== 'function') throw new Error('__p3SetPanelVisible unavailable');
+    return [
+      hook('base:floor', true),
+      hook('lid:floor', true),
+      hook('liner:linerPad', true),
+    ];
+  });
+  // liner 預設關閉：default 場景不含 liner piece，hook 必須回報缺席。
+  expect(panelHookResults).toEqual([true, true, false]);
+
+  const artworkGroup = page.getByRole('group', {
+    name: dict['fold.art.label'].en,
+    exact: true,
+  });
+  for (const label of [
+    dict['fold.art.sample'].en,
+    dict['fold.art.template'].en,
+    dict['fold.art.upload'].en,
+    dict['fold.art.edit'].en,
+  ]) {
+    await expect(artworkGroup.getByRole('button', { name: label, exact: true }))
+      .toBeDisabled();
+  }
+
+  await setCameraOrbit(page, 35, 25);
+  const frames: Buffer[] = [];
+  for (const progress of ['0', '0.5', '1']) {
+    await range.fill(progress);
+    await expect(range).toHaveValue(progress);
+    frames.push(await stableShot(canvas));
+  }
+
+  for (const [left, right] of [[frames[0]!, frames[1]!], [frames[1]!, frames[2]!]]) {
+    const diff = await pixelDiff(page, left, right);
+    expect(
+      diff.diffPx / diff.totalPx,
+      'adjacent telescope slider positions must have a visible geometry difference',
+    ).toBeGreaterThan(0.002);
+  }
+});
+
 test('fold controls use the vocabulary declarations and render the real range thumb', async ({ page }) => {
   await enterFold(page);
 

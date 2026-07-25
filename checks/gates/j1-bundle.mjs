@@ -57,7 +57,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
 // gzip 數字失真——本 gate 自跑一次正式 `vite build`（dist/）再量。
 // GATE_SKIP_BUILD 時跳過（該 flag 僅配 GATE_ONLY 給純 source gate 的 probe 提速用）。
 const MAIN_BUNDLE_BUDGET = 130_000;
-const TOTAL_BUDGET = 315_000;
+/**
+ * JS gzip 總量上限。2026-07-25 由 315,000 調高至 318,000。
+ *
+ * 推導：兩個預算守的不是同一件事。`MAIN_BUNDLE_BUDGET` 守**每個訪客都要下載**的主
+ * bundle，維持 130,000 不動；總量則含只有打開 3D 預覽才會抓的 `fold-scene` chunk
+ * （gzip 約 145KB·three.js 佔大宗），付這段的人正好是用到它的人。
+ *
+ * 調高的觸發點：摺盒預覽的相機距離改為隨時間排程（修「動畫前半段被畫面切掉、
+ * 幕二抬升時上蓋離開畫面」），實作成本約 152B 落在該懶載 chunk，而當時總量餘裕
+ * 只剩 **13B**——亦即預算已頂到天花板，任何後續改動都會撞。微調實作只省得回 41B，
+ * 再壓就要為了湊程式碼預算去改使用者文案，方向不對。
+ *
+ * 本次調整**只放寬總量、不放寬主 bundle**，棘輪作用保留：新餘裕約 2.8KB，
+ * 下次再撞時仍應先問「這段該不該進主 bundle」而不是直接加碼。
+ */
+const TOTAL_BUDGET = 318_000;
 
 export async function run({ root: gateRoot }) {
   if (process.env.GATE_SKIP_BUILD) {

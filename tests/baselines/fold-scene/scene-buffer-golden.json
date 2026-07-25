@@ -1,0 +1,111 @@
+{
+  "floatPrecisionDecimals": 6,
+  "paperRecipe": "kraft",
+  "scenarios": {
+    "rte|t=0|thickness=0": {
+      "meshCount": 13,
+      "position": "15e0a604d7e4b915f85967392e2b1253b2607b250fe9be6553d7580a980bf105",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "f5ffc670f8e46d7787668fa4a8cb628285ce49233f117f01c22958f5d7cc6630",
+      "materialGroups": "5fa5a3e5f822066ba285caaeb2cdc2051de65e5c8d0c8af75e53944bd4caf4ec"
+    },
+    "rte|t=0.5|thickness=0": {
+      "meshCount": 13,
+      "position": "9d2206e5c2e7d01a11dd08fe1a5cd0a6f0c3a8d12dceefffb065074cfb6b7ade",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "224c65dd932dcbe9fb8eb1769b05fca55d7f9a6b30401bd0e927b114ff1bb1f8",
+      "materialGroups": "8950a3b4b232c3f8ffbb7f2126c0b111d2d551379f71cb7f2a1a73b4cbaba130"
+    },
+    "rte|t=1|thickness=0": {
+      "meshCount": 13,
+      "position": "789948c80dc50c4970db23a23c2cf57d629ef0a8221478857b72c36c9928bb9e",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "e38b0fa4b342f1ff5129a0d620d8a2a3cb9bcee02e4e8192118ea684e6824e8d",
+      "materialGroups": "6f5fd6c65f126efa306542530e9b83d6a05cb9d5a067a0f4bd4a42e46a9095be"
+    },
+    "rte|t=0|thickness=0.3": {
+      "meshCount": 13,
+      "position": "e3bd70bfd1b3bf8568b051751a8253c7cc9346d39155db6d48e86cb28f428ba1",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "872acec7a238881f453c825e0d5b98b25bbef2efb6f5fc7abcc6fd9925006b9c",
+      "materialGroups": "90980d21dbe8d31787f1852195b19053f85050140f6c8ff22540b69eeb35ba37"
+    },
+    "rte|t=0.5|thickness=0.3": {
+      "meshCount": 13,
+      "position": "750d3f60dd61c1d776d7c8f6931faa265dc31aae3c99d45f1ab577fa3e3606eb",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "7b85e4619fbf7f8e4dd4cda42399695746663391d71a80f92c2199279167a3cd",
+      "materialGroups": "b61f946723f1b1503272822d6a18abaa69c5ca31d93fe517a38c244468b2f60e"
+    },
+    "rte|t=1|thickness=0.3": {
+      "meshCount": 13,
+      "position": "0aa7bcefe1e859d709b523709bedb8897e461a112dfde608a64e2e8abacc4fd7",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "28ef91cd7c5eb1bd2318c6fae3db14172ddbe3a9f26e0b7e37e8e103bbcbee16",
+      "materialGroups": "41308afe81c4899151a459b4de52980f5ed6c87d9f9e912e3d1406e1e680ae60"
+    },
+    "ttsl|t=0|thickness=0": {
+      "meshCount": 13,
+      "position": "9a30a08dd2e43872a0d2ac642b7347697d7282c741f52eb58adb66852797466d",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "a7086675c89afe536e936111873023f770093b1e6bf6667fbe8b3db88c50bd6b",
+      "materialGroups": "36f1758c42407fb39d299a655fb41533a396bd4fb5243b94d7ff3a34852e1193"
+    },
+    "ttsl|t=0.5|thickness=0": {
+      "meshCount": 13,
+      "position": "c73310631cb4210287aa71259b335eb6e68e315807e51d740f2e02af5a75ec54",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "1444b57aa50bcfb02fd6b6565c84e0c31841fb48da3eacf3f8329730954cfcd8",
+      "materialGroups": "7cfe973c458613e0f6c644bf2538a6b4be8b38c6cd7e726f00ac8adbd6da3a5f"
+    },
+    "ttsl|t=1|thickness=0": {
+      "meshCount": 13,
+      "position": "d7658fd7544e6ba47472754d44c137a1e2442a27ae458f840a875869deb3a54b",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "32ec2c3014971aee8e560a9bca6aff411be9792944065c7e44a27540d8fdd078",
+      "materialGroups": "5e33f93aa970d5a0bddb2878a53083c164d980ff721da7d8fecc6797efccdce3"
+    },
+    "ttsl|t=0|thickness=0.3": {
+      "meshCount": 13,
+      "position": "5300d9abdde5b5c4860a1e1d3043c1e1f3182a4bfa7a9a9b675348e8cb21c6c0",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "436152ae4c850af8b6f05b3b2a85e12d83f3a8da8d869180eca2fdf0239183df",
+      "materialGroups": "b00f17ba2352a6ef07ca89d3a65918f0fb0ab4b6fba338e38e3b2ce81853a0f5"
+    },
+    "ttsl|t=0.5|thickness=0.3": {
+      "meshCount": 13,
+      "position": "33b3a40f07f3b2ea303f6d1de51aa86f8931f4bbe13cd19cdf66c3598b1829a9",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "f6c5a445c40f5492242deba8d00c4ccf563554ab1fecee7b595a54872469d8bc",
+      "materialGroups": "151467f846e32e02bbe8b97ec6ca5517f4dd922248d9b61bf8d5597f5a03ff85"
+    },
+    "ttsl|t=1|thickness=0.3": {
+      "meshCount": 13,
+      "position": "ccd956fead6a5913d3bd6e93f1eb94a3ccd1fa460093dbf0c267cfb6aef9f10f",
+      "index": "ae43d72bba1a4b0d361b152b3db20bc8cbb5d29cfb8f3e9c08a4288029e20087",
+      "uv": "5c34f3c9b7ed311991ee0d45b1ad0651b8cfd19a2b79ce1d217dfee2696f11a3",
+      "materialGroups": "9ee0e383f48d15656761fd34dcf95095d104389fd9f45d39e27de74e1342b018"
+    },
+    "ttb|t=0|thickness=0": {
+      "meshCount": 12,
+      "position": "03378008ea42563e668858202e3912a8252612a1ec025ffef0a7ceabe3286d67",
+      "index": "e8e67f77c7df82f43ac7fa176356d1fa181fdbf259807be5a382b5858c839821",
+      "uv": "0099c5df69c76cd53acb141e10ab1b1527a3baab4d41d90d9932fe6f24a3336f",
+      "materialGroups": "c68c22c304c5d5eb7eb5084bb09fa7dd501c95eae1ede3057fff996558f2a869"
+    },
+    "ttb|t=0.5|thickness=0": {
+      "meshCount": 12,
+      "position": "3ebb603a2bf127e619c37cb173bd246fda6c7d0fa78bb9fdd0c380f8676edffd",
+      "index": "e8e67f77c7df82f43ac7fa176356d1fa181fdbf259807be5a382b5858c839821",
+      "uv": "52ef8cdbd74946d474800c0be0fe32d6da54f58f0ce1bed9feb22f26c4242101",
+      "materialGroups": "7bda564c887a313798d98d260520ebc85019234ef176156ff6acf884bdc87f44"
+    },
+    "ttb|t=1|thickness=0": {
+      "meshCount": 12,
+      "position": "dbea9e4079a3e1e6ca052f7550081bb0e9ee5efc5d06b7c02e999f066223e617",
+      "index": "e8e67f77c7df82f43ac7fa176356d1fa181fdbf259807be5a382b5858c839821",
+      "uv": "55b26f6b01bab22b8e367a8a2d363fd82c7a7cdbdaa257c3b5c5047934338843",
+      "materialGroups": "b21d27a3ee5679301e60c263a70ded449989bf8f6dd8647107ea9fdeaa56499a"
+    }
+  }
+}

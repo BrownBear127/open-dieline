@@ -5,10 +5,12 @@ import { expect, it } from 'vitest';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { triangularTube } from '@/boxes/triangular-tube';
 import { tuckTopSnapLock } from '@/boxes/tuck-top-snap-lock';
+import { telescope } from '@/boxes/telescope';
 import { resolveParams } from '@/core/registry';
 import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import { buildTtbFoldModel } from '@/fold/models/triangular-tube';
 import { buildTtslFoldModel } from '@/fold/models/tuck-top-snap-lock';
+import { buildTelescopeSceneSpec } from '@/fold/models/telescope';
 import { worldGeometry, type Vec3 } from '@/fold/pose3d';
 import { foldPose } from '@/fold/schedule';
 import type { FoldModel } from '@/fold/types';
@@ -219,6 +221,14 @@ it('enumerates both dust overlaps for each unsliced lid when tuckLock is disable
  * panelOverlapPlan 任何分支認得時的預設值（見 fold-scene.ts:886 頂端註解）。 */
 const FALLBACK_OVERLAP_PLAN = { normalOffset: 0, polygonOffsetUnits: 0, renderOrder: 0 };
 
+function telescopePieceModel(pieceId: string): FoldModel {
+  const params = resolveParams(telescope, {});
+  const piece = buildTelescopeSceneSpec(params).pieces
+    .find((candidate) => candidate.pieceId === pieceId);
+  if (!piece) throw new Error(`找不到 telescope piece ${pieceId}`);
+  return piece.buildModel(params);
+}
+
 it('assigns non-fallback, correctly ordered overlap plans to every ttsl panel that geometrically overlaps another', () => {
   const model = buildTtslFoldModel(resolveParams(tuckTopSnapLock, { thickness: 0 }));
 
@@ -393,6 +403,122 @@ it('assigns non-fallback, correctly ordered overlap plans to every ttb panel tha
   }
 });
 
+it('enumerates every completed telescope overlap before assigning render layers', () => {
+  const models = {
+    base: telescopePieceModel('base'),
+    lid: telescopePieceModel('lid'),
+  };
+  const pairsByPiece = {
+    base: overlappingPairs(models.base),
+    lid: overlappingPairs(models.lid),
+  };
+  // ⚠ golden 於 v14 錯階摺序後整組改變。四類變化逐項對照 §4.6 終態語義：
+  //  1. 移除全部 `wallX*/wing*`──舊終態角撐壓貼**長邊(x)壁**（已作廢的 phase B 壓貼）；
+  //     新終態角撐被掃起、改落**短邊(y)壁**，故不再與任何 x 壁層交疊。
+  //  2. 移除 `wingX*/wingY*`──舊終態兩翼共面攤在同一 x 壁面；新終態 ψx=90°、ψy=180°，
+  //     兩翼沿對角摺線相接但不共面。
+  //  3. 新增 `wallY*-outer/wingY*`──生產摺序 5「包覆角撐」。實測終態 wingY 與 y 壁同在
+  //     y=104.200 平面（法向 ∓ŷ）。
+  //  4. 新增 `gussetExt*/wingX*`（P0）──延伸段於 extWrap 拍繞角包上相鄰 y 壁，落在自身
+  //     角撐的平面 y=104.700（比 y 壁外一個 rootJog=0.5），故與 wingX 共面交疊。
+  // 四類皆可由 §4.6 解釋；無「解釋不了」的 pair（Plan 選擇 C 的逐 pair 義務）。
+  // ⚠ v15.4 二次變動（短邊壁舌片 −90° ＋ 四面 rim 同摺 90°）。逐項對照：
+  //  5. 移除 base 的 `wallX-inner/wallX-outer`、`wallX-inner/wallX-rim`、`wallX-outer/wallX-tongue`
+  //     ──長邊壁補上 5mm 平台後，內壁不再與外壁共面（相隔一個 platformWidth），
+  //     舌片隨內壁內移故亦不再貼上外壁。
+  //  6. 移除兩片的 `wallY-*/wallY-tongue`──短邊壁舌片改 −90° 橫躺盒底（實測 z 恆 0.80），
+  //     不再與 y 壁任何一層共面。
+  //  lid 的 `wallX-inner/wallX-outer` 保留：lid platformWidth 預設 0 ⇒ 無 rim ⇒ 兩葉 180° 對摺共面。
+  // ⚠ v15.8 三次變動（x 壁舌片由 180° 改 −90°·四面同構）。逐項對照：
+  //  7. 移除兩片的 `wallX-inner/wallX-tongue` 與 lid 的 `wallX-outer/wallX-tongue`
+  //     ──x 舌片不再貼回內壁，離開壁面平面故不再共面交疊。
+  //  8. 新增 base 的 `wallX-tongue/wallY-tongue` ×4──四片舌片現在同高躺在盒底
+  //     （實測 z 恆 0.80），角落區互相交疊。
+  //     lid 不出現對應 pair：其角落窗口僅 6.0×4.3mm（base 為 11.0×10.5mm），
+  //     完全落在舌片輪廓的切角內，包絡框相交但多邊形不相交。
+  expect(pairsByPiece).toEqual({
+    base: [
+      'flapNegNeg/flapPosNeg',
+      'flapNegPos/flapPosPos',
+      'wallXNeg-tongue/wallYNeg-tongue',
+      'wallXNeg-tongue/wallYPos-tongue',
+      'wallXPos-tongue/wallYNeg-tongue',
+      'wallXPos-tongue/wallYPos-tongue',
+      'wallYNeg-outer/wingYNegNeg',
+      'wallYNeg-outer/wingYPosNeg',
+      'wallYPos-outer/wingYNegPos',
+      'wallYPos-outer/wingYPosPos',
+    ],
+    lid: [
+      'gussetExtNegNeg/wingXNegNeg',
+      'gussetExtNegPos/wingXNegPos',
+      'gussetExtPosNeg/wingXPosNeg',
+      'gussetExtPosPos/wingXPosPos',
+      'wallXNeg-inner/wallXNeg-outer',
+      'wallXPos-inner/wallXPos-outer',
+      'wallYNeg-inner/wallYNeg-outer',
+      'wallYNeg-inner/wingYNegNeg',
+      'wallYNeg-inner/wingYPosNeg',
+      'wallYNeg-outer/wingYNegNeg',
+      'wallYNeg-outer/wingYPosNeg',
+      'wallYPos-inner/wallYPos-outer',
+      'wallYPos-inner/wingYNegPos',
+      'wallYPos-inner/wingYPosPos',
+      'wallYPos-outer/wingYNegPos',
+      'wallYPos-outer/wingYPosPos',
+    ],
+  });
+
+  for (const [pieceId, pairs] of Object.entries(pairsByPiece)) {
+    for (const pair of pairs) {
+      const [firstId, secondId] = pair.split('/') as [string, string];
+      const firstPlan = panelOverlapPlan(`${pieceId}:${firstId}`, 0);
+      const secondPlan = panelOverlapPlan(`${pieceId}:${secondId}`, 0);
+      expect(firstPlan, `${pieceId}:${firstId}`).not.toEqual(FALLBACK_OVERLAP_PLAN);
+      expect(secondPlan, `${pieceId}:${secondId}`).not.toEqual(FALLBACK_OVERLAP_PLAN);
+      expect(firstPlan, `${pieceId}:${pair}`).not.toEqual(secondPlan);
+    }
+  }
+
+  for (const ySign of ['Neg', 'Pos']) {
+    const outer = panelOverlapPlan(`base:wallY${ySign}-outer`, 0);
+    const xNeg = panelOverlapPlan(`base:flapNeg${ySign}`, 0);
+    const xPos = panelOverlapPlan(`base:flapPos${ySign}`, 0);
+    const inner = panelOverlapPlan(`base:wallY${ySign}-inner`, 0);
+    expect(outer).not.toEqual(xNeg);
+    expect(inner).not.toEqual(xNeg);
+    expect(outer).not.toEqual(xPos);
+    expect(inner).not.toEqual(xPos);
+    expect(xNeg.normalOffset).toBeLessThan(xPos.normalOffset);
+    expect(xNeg.renderOrder).toBeLessThan(xPos.renderOrder);
+    expect(outer).not.toEqual(inner);
+    expect(outer.renderOrder).not.toBe(inner.renderOrder);
+  }
+
+  for (const corner of ['NegNeg', 'NegPos', 'PosNeg', 'PosPos']) {
+    const ySign = corner.endsWith('Neg') ? 'Neg' : 'Pos';
+    const outer = panelOverlapPlan(`lid:wallY${ySign}-outer`, 0);
+    const extension = panelOverlapPlan(`lid:gussetExt${corner}`, 0);
+    const inner = panelOverlapPlan(`lid:wallY${ySign}-inner`, 0);
+    // ⚠ v15.5：原斷言為 `outer < extension < inner`（normalOffset 三明治）。
+    // 名義幾何實測否證了它的前提——lidPlatformWidth 預設 0 ⇒ 無 rim，內葉 180°
+    // 貼回外葉，`wallY-outer`／`wallY-inner`／`wingY` **三者同在 y=321.200000**，
+    // 根本沒有「之間」；而 `gussetExt` 在 y=320.700000（內 rootJog 一個 0.5mm）。
+    // 舊斷言之所以成立，是因為兩軸共用層號時 outer/inner 被推開 0.6mm，那道縫
+    // 是位移造出來的，不是紙造出來的。
+    // 改判物理上真正成立的三件事：
+    //   ① 延伸段落在外葉之內（不外露）
+    //   ② 延伸段與其角撐（同平面且交疊）分層——防 z-fighting
+    //   ③ 繪製先後仍 outer → extension → inner
+    expect(extension.normalOffset).toBeLessThan(outer.normalOffset);
+    expect(extension.normalOffset).not.toBe(
+      panelOverlapPlan(`lid:wingX${corner}`, 0).normalOffset,
+    );
+    expect(outer.renderOrder).toBeLessThan(extension.renderOrder);
+    expect(extension.renderOrder).toBeLessThan(inner.renderOrder);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // render 位移：驗證 `panelRenderVertices`
 // （fold-scene.ts:988）在實際渲染頂點上的位移等於 overlapPlan 宣告的 normalOffset。
@@ -441,6 +567,24 @@ const GOLDEN_DISPLACEMENT_MULTIPLIER: Record<string, number> = {
   endEndWingBottom: 2,
   bottomLid: 1,
   bottomTuck: 2,
+  // ⚠ v15.5：telescope 家族的倍數改由**實體疊層索引**（fold-scene.ts
+  // `telescopeStackIndex`）決定，不再沿用繪製順序 rank（原值 4/2/8/9/4/8/6/5/9/10/7）。
+  // rank 跨度 16 階當位移用時位移量級達 3.500mm ＝ 11.7 倍紙厚，與真實層距
+  // （platformWidth 5mm）同量級，實測把角翼從名義「內於角撐 4.501mm」推成
+  // 「外於角撐 0.749mm」——內外顛倒，即畫面上的薄片外露。
+  // 新倍數＝離最外層幾張紙：外壁／壁頂平台 0、角撐 1、內壁與後摺角翼 2、
+  // 舌片與先摺角翼 3。上限 3 由 `renderStackViolations` 的位移預算判準守住。
+  'wallXNeg-outer': 0,
+  'wallXNeg-rim': 0,
+  'wallXNeg-inner': 2,
+  'wallXNeg-tongue': 2,
+  'wallYNeg-outer': 0,
+  'wallYNeg-inner': 2,
+  wingXNegNeg: 1,
+  wingYNegNeg: 1,
+  flapNegNeg: 3,
+  flapPosNeg: 2,
+  gussetExtNegNeg: 2,
 };
 
 function goldenDisplacementMm(panelId: string): number {
@@ -527,6 +671,37 @@ it('ttsl: t=1 底部咬合四片＋頂部 topLid/topTuck/topDustP2/topDustP4/glu
 
   for (const panelId of targets) {
     expectRenderDisplacementMatchesGolden(model, panelId, pose, geometry, faces);
+  }
+});
+
+it('telescope: 手填 displacement golden 覆蓋反摺、互卡、y 壁 extension 三明治與 jog 家族', () => {
+  const base = telescopePieceModel('base');
+  const lid = telescopePieceModel('lid');
+  for (const [model, targets] of [
+    [base, [
+      'wallXNeg-outer',
+      'wallXNeg-rim',
+      'wallXNeg-inner',
+      'wallXNeg-tongue',
+      'wingXNegNeg',
+      'wingYNegNeg',
+      'flapNegNeg',
+      'flapPosNeg',
+    ]],
+    [lid, ['wallYNeg-outer', 'gussetExtNegNeg', 'wallYNeg-inner']],
+  ] as const) {
+    const pose = foldPose(1, model);
+    const geometry = worldGeometry(model, pose);
+    const faces = exteriorFaceMap(model);
+    for (const panelId of targets) {
+      expectRenderDisplacementMatchesGolden(
+        model,
+        panelId,
+        pose,
+        geometry,
+        faces,
+      );
+    }
   }
 });
 
@@ -647,5 +822,87 @@ it('RTE 對照組：位移公式全盒型共用', () => {
 
   for (const panelId of ['topTuck', 'glue', 'topLid', 'bottomTuck']) {
     expectRenderDisplacementMatchesGolden(model, panelId, pose, geometry, faces);
+  }
+});
+
+/**
+ * AC-T9b：三軸職責斷言（單元級·不需渲染）。
+ *
+ * 這三條是 Spec §6 AC-T9 sabotage ① 唯一的證人——移除跨片繪製偏壓時，
+ * T9a（像素）**不會**紅（正式遮擋機制本身仍正確，畫面可能照樣乾淨），
+ * Spec 自己就寫過「以 T9a 當此式的證人會得到假綠」。獨立 review 實測：
+ * 把 `TELESCOPE_PIECE_DRAW_BIAS` 三個值全歸零，全套測試零失敗。
+ */
+function telescopePiecePanelIds(): Map<string, string[]> {
+  const params = resolveParams(telescope, { linerEnabled: true });
+  const ids = new Map<string, string[]>();
+  for (const piece of buildTelescopeSceneSpec(params).pieces) {
+    ids.set(piece.pieceId, piece.buildModel(params).panels.map(({ id }) => id));
+  }
+  return ids;
+}
+
+it('AC-T9b：normalOffset 只吃片內層號——同 panel id 跨 piece 必相等', () => {
+  const byPiece = telescopePiecePanelIds();
+  const seen = new Map<string, { pieceId: string; offset: number }>();
+  let compared = 0;
+  for (const [pieceId, panelIds] of byPiece) {
+    for (const panelId of panelIds) {
+      const { normalOffset } = panelOverlapPlan(`${pieceId}:${panelId}`, 0.3);
+      const previous = seen.get(panelId);
+      if (previous === undefined) {
+        seen.set(panelId, { pieceId, offset: normalOffset });
+        continue;
+      }
+      compared += 1;
+      expect(
+        normalOffset,
+        `${panelId}：${previous.pieceId} 與 ${pieceId} 的實體疊層位移必須相同`
+        + '（跨片差異只准走 renderOrder，進 normalOffset 會把幾何真的移開）',
+      ).toBe(previous.offset);
+    }
+  }
+  // 非空證明：panel id 若改名到沒有任何一個跨片重複，上面的迴圈會一次都不比就通過。
+  // 注意 liner 的 id（linerPad／linerLeg*）與 base／lid 完全不相交，所以能比的是
+  // base↔lid 那一組——判準得是「實際比過幾對」，不是「三片共用幾個 id」（那恆為 0）。
+  expect(compared, '跨片一致性必須實際比對過至少一組同名 panel').toBeGreaterThan(0);
+});
+
+it('AC-T9b：renderOrder 跨片嚴格分離——liner < base < lid 三個區間不重疊', () => {
+  const byPiece = telescopePiecePanelIds();
+  const ranges = new Map<string, { min: number; max: number }>();
+  for (const [pieceId, panelIds] of byPiece) {
+    const orders = panelIds.map(
+      (panelId) => panelOverlapPlan(`${pieceId}:${panelId}`, 0.3).renderOrder,
+    );
+    expect(orders.length, `${pieceId} 無 panel`).toBeGreaterThan(0);
+    ranges.set(pieceId, { min: Math.min(...orders), max: Math.max(...orders) });
+  }
+  const order = ['liner', 'base', 'lid'];
+  for (const pieceId of order) {
+    expect(ranges.get(pieceId), `缺少 ${pieceId}（liner 需 linerEnabled）`).toBeDefined();
+  }
+  for (let index = 1; index < order.length; index += 1) {
+    const lower = ranges.get(order[index - 1]!)!;
+    const upper = ranges.get(order[index]!)!;
+    expect(
+      lower.max,
+      `${order[index - 1]} 的 renderOrder 上界 ${lower.max} 必須低於 `
+      + `${order[index]} 的下界 ${upper.min}——區間一旦重疊，下盒面板就可能`
+      + '在組裝終態用繪製順序贏過上蓋',
+    ).toBeLessThan(upper.min);
+  }
+});
+
+it('AC-T9b：|polygonOffsetUnits| ≤ 1——深度偏壓只准一個量子', () => {
+  const byPiece = telescopePiecePanelIds();
+  for (const [pieceId, panelIds] of byPiece) {
+    for (const panelId of panelIds) {
+      const { polygonOffsetUnits } = panelOverlapPlan(`${pieceId}:${panelId}`, 0.3);
+      expect(
+        Math.abs(polygonOffsetUnits),
+        `${pieceId}:${panelId} 的 polygonOffsetUnits=${polygonOffsetUnits}`,
+      ).toBeLessThanOrEqual(1);
+    }
   }
 });

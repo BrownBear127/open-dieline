@@ -24,6 +24,8 @@ export interface FoldPanel {
   hingeLine?: FoldHingeLine;
   hingeSourceCreaseIds?: string[];
   foldAngle: number;          // rad·符號=繞 hinge 軸（a→b 方向）右手定則
+  /** 以 easing 後的單一 step 局部進度直接求角度；多相位仍維持一 panel 一 step。 */
+  angleFn?: (stepLocalT: number) => number;
   // 沿摺合後面板法向的視覺偏移·僅允許 leaf 面板（validate 強制）·M0 幾何語義=
   // liftOffset×(|angle|/|foldAngle|) 線性漸入（M1 動畫層若改 step 尾 20% 曲線需同步修此註解與 pose3d）。
   liftOffset?: number;

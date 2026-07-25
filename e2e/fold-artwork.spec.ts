@@ -75,7 +75,17 @@ function computeCameraFrame() {
       z: (folded.minZ + folded.maxZ) / 2,
     },
     fitDiagonal: Math.max(diagonal(flat), diagonal(folded)),
+    focusDiagonal: diagonal(folded),
   };
+}
+
+/** 相機到 target 的距離，比照 production 的 `cameraPlacement`：
+ *  抬升 focus×0.28、後退 focus×2 ⇒ 直線距離 focus×hypot(2, 0.28)。
+ *  本檔刻意不 import production 的實作（投影要當獨立 oracle），
+ *  但**距離規則必須跟著改**——否則投影點會落在別的地方，
+ *  取樣到紙色而不是圖稿色（實測：改成以折後外廓定距後，本測試回報主色差 0）。 */
+function fittedCameraDistance(focusDiagonal: number): number {
+  return focusDiagonal * Math.hypot(2, 0.28);
 }
 
 function cameraOrbitPosition(
@@ -545,7 +555,7 @@ function projectPanelRegion(panelId: string, width: number, height: number): Pro
   if (vertices === undefined) throw new Error(`Cannot project panel ${panelId}`);
   const camera = cameraOrbitPosition(
     frame.target,
-    frame.fitDiagonal * 2,
+    fittedCameraDistance(frame.focusDiagonal),
     CAMERA_AZIMUTH,
     CAMERA_ELEVATION,
   );
@@ -573,19 +583,31 @@ function projectPanelRegion(panelId: string, width: number, height: number): Pro
   const right = normalize(cross(forward, { x: 0, y: 1, z: 0 }));
   const up = cross(right, forward);
   const tangent = Math.tan(35 * Math.PI / 360);
-  const projected = vertices.map((vertex) => {
+  const project = (vertex: { x: number; y: number; z: number }) => {
     const point = { x: vertex.x, y: -vertex.y, z: vertex.z };
     const relative = { x: point.x - camera.x, y: point.y - camera.y, z: point.z - camera.z };
     const depth = dot(relative, forward);
     const ndcX = dot(relative, right) / (depth * tangent * (width / height));
     const ndcY = dot(relative, up) / (depth * tangent);
     return { x: (ndcX + 1) * width / 2, y: (1 - ndcY) * height / 2 };
-  });
+  };
+  const projected = vertices.map(project);
   const xs = projected.map(({ x }) => x);
   const ys = projected.map(({ y }) => y);
+  // 取樣點＝面板 3D 形心的投影，**不是**投影後頂點的平均。
+  // 後者只在弱透視下等價；相機貼近盒體後兩者相差約 15px（≈兩倍取樣半徑），
+  // 取樣圈會壓到色塊邊緣、混進紙白（實測 P2 主色差掉到 38）。
+  const centre = project(vertices.reduce(
+    (sum, vertex) => ({
+      x: sum.x + vertex.x / vertices.length,
+      y: sum.y + vertex.y / vertices.length,
+      z: sum.z + vertex.z / vertices.length,
+    }),
+    { x: 0, y: 0, z: 0 },
+  ));
   return {
-    x: xs.reduce((sum, value) => sum + value, 0) / xs.length,
-    y: ys.reduce((sum, value) => sum + value, 0) / ys.length,
+    x: centre.x,
+    y: centre.y,
     radius: Math.max(2, Math.min(10, Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 0.08)),
   };
 }

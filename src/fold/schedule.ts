@@ -19,7 +19,11 @@ export function foldPose(t: number, model: FoldModel): Map<string, number> {
     }
 
     const progress = localProgress(clampedT, step);
-    const angle = progress === 0 ? 0 : panel.foldAngle * easings[step.ease](progress);
+    const easedProgress = easings[step.ease](progress);
+    const angle = panel.angleFn === undefined
+      // 保留既有模型在 progress=0 時的逐位元 0，不讓 easing 的實作尾差滲入。
+      ? (progress === 0 ? 0 : panel.foldAngle * easedProgress)
+      : panel.angleFn(easedProgress);
     pose.set(panel.id, angle);
   }
 

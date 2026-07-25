@@ -12,7 +12,18 @@ import {
 } from 'react';
 import { dimensionKeys } from '@/core/registry';
 import type { ResolvedParams } from '@/core/types';
+import {
+  FOLD_SCENE_REGISTRY,
+  type FoldSceneRegistryEntry,
+} from '@/fold/registry';
+import {
+  resolveFoldSceneSpec,
+  type FoldSceneSpec,
+  type ResolvedSceneSpec,
+} from '@/fold/scene-spec';
 import type { FoldModel } from '@/fold/types';
+import { validateFoldModel } from '@/fold/validate';
+import type { FoldWorldUp } from '@/fold/world-orientation';
 import { t } from '@/i18n/t';
 import {
   clearInitialFoldProgress,
@@ -37,6 +48,7 @@ import {
   type EditorSession,
 } from '@/ui/editor/editor-session';
 import type { FoldRecipeName } from '@/ui/fold-paper-colors';
+import { downloadTemplate } from '@/ui/fold-template';
 import type {
   ArtworkMode,
   createFoldScene,
@@ -85,22 +97,32 @@ const FOLD_CARD_RECIPES = [
   { name: 'black', labelKey: 'fold.card.black' },
 ] as const satisfies ReadonlyArray<{ name: FoldRecipeName; labelKey: string }>;
 
-type FoldModelBuilder = (values: ResolvedParams) => FoldModel;
-
 interface FoldModelRuntime {
-  builders: Record<string, FoldModelBuilder>;
+  entries: Record<string, FoldSceneRegistryEntry>;
+  resolveSceneSpec: (spec: FoldSceneSpec, params: ResolvedParams) => ResolvedSceneSpec;
   validate: (model: FoldModel) => string[];
 }
 
 async function loadFoldModelRuntime(): Promise<FoldModelRuntime> {
-  const [registry, validation] = await Promise.all([
-    import('@/fold/registry'),
-    import('@/fold/validate'),
-  ]);
   return {
-    builders: registry.FOLD_MODEL_BUILDERS,
-    validate: validation.validateFoldModel,
+    entries: FOLD_SCENE_REGISTRY,
+    resolveSceneSpec: resolveFoldSceneSpec,
+    validate: validateFoldModel,
   };
+}
+
+function replaceResolvedScene(
+  handle: FoldSceneHandle,
+  scene: ResolvedSceneSpec,
+  thickness: number,
+  worldUp: FoldWorldUp,
+): void {
+  const onlyPiece = scene.pieces.length === 1 ? scene.pieces[0] : undefined;
+  if (onlyPiece !== undefined) {
+    handle.replaceModel(onlyPiece.model, { thickness, worldUp });
+    return;
+  }
+  handle.replaceScene(scene, { thickness, worldUp });
 }
 
 export interface FoldViewProps {
@@ -307,19 +329,40 @@ export function FoldView({
   const [loadFailed, setLoadFailed] = useState(false);
   const [previewLoadAttempt, setPreviewLoadAttempt] = useState(0);
   const [modelRuntime, setModelRuntime] = useState<FoldModelRuntime | null>(null);
-  const builder = modelRuntime?.builders[boxId];
-  // 圖稿編輯器 gate 由 registry 驅動：有 builder 才放行（兩處共用同一布林值·避免漂移）。
-  const editorSupported = builder !== undefined;
-  const modelBuild = useMemo<{ model: FoldModel | undefined; failed: boolean }>(() => {
-    if (builder === undefined) return { model: undefined, failed: false };
+  const registryEntry = modelRuntime?.entries[boxId];
+  const previewSceneSupported = registryEntry?.capabilities.previewScene === true;
+  const editorSupported = registryEntry?.capabilities.editor === true;
+  const customArtworkSupported = registryEntry?.capabilities.upload === true
+    || registryEntry?.capabilities.editor === true;
+  const modelBuild = useMemo<{
+    scene: ResolvedSceneSpec | undefined;
+    artworkModel: FoldModel | undefined;
+    failed: boolean;
+  }>(() => {
+    if (!previewSceneSupported || registryEntry?.sceneSpec === undefined) {
+      return { scene: undefined, artworkModel: undefined, failed: false };
+    }
     try {
-      return { model: builder(values), failed: false };
+      const sceneSpec = registryEntry.sceneSpec(values);
+      const scene = modelRuntime!.resolveSceneSpec(sceneSpec, values);
+      const needsArtworkModel = registryEntry.capabilities.sampleArtwork
+        || registryEntry.capabilities.template
+        || registryEntry.capabilities.upload
+        || registryEntry.capabilities.editor;
+      return {
+        scene,
+        artworkModel: needsArtworkModel && scene.pieces.length === 1
+          ? scene.pieces[0]!.model
+          : undefined,
+        failed: false,
+      };
     } catch (error) {
       console.error(error);
-      return { model: undefined, failed: true };
+      return { scene: undefined, artworkModel: undefined, failed: true };
     }
-  }, [boxId, values, builder]);
-  const model = modelBuild.model;
+  }, [values, previewSceneSupported, registryEntry, modelRuntime]);
+  const resolvedScene = modelBuild.scene;
+  const model = modelBuild.artworkModel;
   const artworkSignature = useMemo(
     () => model === undefined ? null : artworkLayoutSignature(model),
     [model],
@@ -329,10 +372,16 @@ export function FoldView({
     [model],
   );
   const validationErrors = useMemo(
-    () => model === undefined ? [] : modelRuntime?.validate(model) ?? [],
-    [model, modelRuntime],
+    () => resolvedScene === undefined
+      ? []
+      : resolvedScene.pieces.flatMap(({ pieceId, model: pieceModel }) =>
+        (modelRuntime?.validate(pieceModel) ?? [])
+          .map((error) => `${pieceId}: ${error}`)),
+    [resolvedScene, modelRuntime],
   );
-  const canCreateScene = model !== undefined && validationErrors.length === 0;
+  const canCreateScene = previewSceneSupported
+    && resolvedScene !== undefined
+    && validationErrors.length === 0;
   const staleEditor = currentEditorSession !== null
     && artworkSignature !== null
     && currentEditorSession.alignedLayoutSignature !== artworkSignature;
@@ -365,8 +414,11 @@ export function FoldView({
   const artworkSignatureRef = useRef(artworkSignature);
   artworkLayoutRef.current = artworkLayout;
   artworkSignatureRef.current = artworkSignature;
-  const modelRef = useRef(model);
-  modelRef.current = model;
+  const resolvedSceneRef = useRef(resolvedScene);
+  resolvedSceneRef.current = resolvedScene;
+  const worldUp = registryEntry?.worldUp;
+  const worldUpRef = useRef(worldUp);
+  worldUpRef.current = worldUp;
   const thickness = values.thickness as number;
   const thicknessRef = useRef(thickness);
   thicknessRef.current = thickness;
@@ -510,13 +562,11 @@ export function FoldView({
     }
   };
 
-  // 重邏輯（ArtworkLayout 抽取／SVG builder）留在 lazy chunk（main bundle 只做接線，
-  // 分包原則）。model 已在本元件算好（TEMPLATE 鈕只在 canCreateScene 為真時渲染，此時
-  // model 必已定義），連同 boxId/values 一併傳給 builder；lang 由 downloadTemplate 內部
-  // 讀 getLang()，不需在此額外傳遞。
+  // FoldView 本身是 lazy chunk；model 已在本元件算好，lang 由 downloadTemplate
+  // 內部讀 getLang()，不需在此額外傳遞。
   const handleTemplateDownload = (): void => {
     if (model === undefined) return;
-    void import('./fold-template').then(({ downloadTemplate }) => downloadTemplate({ model, boxId, values }));
+    downloadTemplate({ model, boxId, values });
   };
 
   const handleUploadClick = (): void => {
@@ -703,6 +753,23 @@ export function FoldView({
   useEffect(() => () => cancelEditorSync(), []);
 
   useEffect(() => {
+    if (registryEntry === undefined) return;
+    const { capabilities } = registryEntry;
+    const activeArtwork = artworkRef.current;
+    const artworkStillSupported = activeArtwork === 'none'
+      || (activeArtwork === 'sample' && capabilities.sampleArtwork)
+      || (activeArtwork === 'custom' && (capabilities.upload || capabilities.editor));
+    if (!artworkStillSupported) {
+      artworkRef.current = 'none';
+      setArtwork('none');
+      setSceneArtwork('none');
+      sceneRef.current?.applyArtwork('none');
+      sceneRef.current?.removeCustomSource();
+    }
+    if (!capabilities.editor) setViewMode('preview');
+  }, [registryEntry]);
+
+  useEffect(() => {
     const session = currentEditorSession;
     if (session === null) {
       observedContentRevisionRef.current = 0;
@@ -757,10 +824,15 @@ export function FoldView({
   }, [artwork, artworkSignature, currentEditorSession]);
 
   useEffect(() => {
-    if (canCreateScene && model !== undefined) {
-      sceneRef.current?.replaceModel(model, { thickness });
+    if (
+      canCreateScene
+      && resolvedScene !== undefined
+      && sceneRef.current !== null
+      && worldUp !== undefined
+    ) {
+      replaceResolvedScene(sceneRef.current, resolvedScene, thickness, worldUp);
     }
-  }, [canCreateScene, model, thickness]);
+  }, [canCreateScene, resolvedScene, thickness, worldUp]);
 
   useEffect(() => {
     if (!canCreateScene) return;
@@ -776,10 +848,26 @@ export function FoldView({
     const startScene = async (): Promise<void> => {
       let sceneFactory = createScene;
       if (sceneFactory === undefined) {
-        const webgl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+        // ⚠ 可用性探測必須用**拋棄式 canvas**，不能碰真正要用的那一塊。
+        // `getContext` 在該 canvas 已有 context 時會**忽略傳入屬性並回傳既有的**，
+        // 所以一旦在這裡先建了一個無屬性 context，`createFoldScene` 裡
+        // `new WebGLRenderer({ canvas, antialias })` 的整組選項就全部失效
+        // （實測：把 antialias 改成 false，dev server 確實送出 false，
+        // 但實際跑的 context 仍回報 antialias:true / SAMPLES:4）。
+        // 現況剛好無害（WebGL 的 antialias 預設就是 true），但任何新增選項都會靜默沒作用。
+        // 我們要問的本來也是「這個瀏覽器有沒有 WebGL」而不是「這塊 canvas 有沒有」。
+        const probeCanvas = document.createElement('canvas');
+        const webgl = probeCanvas.getContext('webgl2')
+          ?? probeCanvas.getContext('webgl');
         if (webgl === null) {
           if (!cancelled) setWebglUnavailable(true);
           return;
+        }
+        // 探測用的 context 佔一個瀏覽器 context 額度（上限約 16 個），用完立刻釋放。
+        // typeof 守衛不是防禦性冗餘：單元測試把 `getContext` 整個 stub 成 `{}`
+        // 來跳過 WebGL fallback，此處若直接呼叫會在載入 scene 前就 throw。
+        if (typeof webgl.getExtension === 'function') {
+          webgl.getExtension('WEBGL_lose_context')?.loseContext();
         }
         sceneFactory = (await (loadScene ?? defaultLoadScene)()).createFoldScene;
       }
@@ -810,11 +898,17 @@ export function FoldView({
       if (P3_TEST_HOOKS_ENABLED) clearInitialFoldProgress();
       scene = nextScene;
       sceneRef.current = nextScene;
-      const currentModel = modelRef.current;
-      if (currentModel !== undefined) {
-        nextScene.replaceModel(currentModel, { thickness: thicknessRef.current });
+      const currentScene = resolvedSceneRef.current;
+      const currentWorldUp = worldUpRef.current;
+      if (currentScene !== undefined && currentWorldUp !== undefined) {
+        replaceResolvedScene(
+          nextScene,
+          currentScene,
+          thicknessRef.current,
+          currentWorldUp,
+        );
       }
-      if (customSourceRef.current !== null) {
+      if (customArtworkSupported && customSourceRef.current !== null) {
         nextScene.installCustomSource(customSourceRef.current);
       }
       nextScene.updatePose(foldProgressRef.current);
@@ -822,10 +916,22 @@ export function FoldView({
       if (cardRecipeRef.current !== 'kraft') {
         nextScene.applyRecipe(cardRecipeRef.current);
       }
-      if (artworkRef.current !== 'none') {
-        nextScene.applyArtwork(artworkRef.current);
+      let supportedArtwork: ArtworkMode = 'none';
+      if (
+        artworkRef.current === 'sample'
+        && registryEntry?.capabilities.sampleArtwork
+      ) {
+        supportedArtwork = 'sample';
+      } else if (
+        artworkRef.current === 'custom'
+        && customArtworkSupported
+      ) {
+        supportedArtwork = 'custom';
       }
-      setSceneArtwork(artworkRef.current);
+      if (supportedArtwork !== 'none') {
+        nextScene.applyArtwork(supportedArtwork);
+      }
+      setSceneArtwork(supportedArtwork);
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver((entries) => {
@@ -851,13 +957,20 @@ export function FoldView({
         scene.dispose();
       }
     };
-  }, [canCreateScene, createScene, loadScene, previewLoadAttempt]);
+  }, [
+    canCreateScene,
+    createScene,
+    customArtworkSupported,
+    loadScene,
+    previewLoadAttempt,
+    registryEntry,
+  ]);
 
   if (loadFailed) {
     return <FoldEmpty copy={t('fold.loadFailed')} loadFailed onRetry={retryPreviewLoad} />;
   }
 
-  if (modelRuntime !== null && builder === undefined) {
+  if (modelRuntime !== null && !previewSceneSupported) {
     return (
       <section className="fold-view" ref={containerRef}>
         <FoldEmpty copy={t('fold.unsupported')} />
@@ -926,17 +1039,24 @@ export function FoldView({
             type="button"
             className={`btn tog label${artworkEnabled ? ' on' : ''}`}
             aria-pressed={artworkEnabled}
+            disabled={!registryEntry?.capabilities.sampleArtwork}
             onClick={() => selectArtwork(artworkEnabled ? 'none' : 'sample')}
           >
             {t('fold.art.sample')}
           </button>
-          <button type="button" className="btn label" onClick={handleTemplateDownload}>
+          <button
+            type="button"
+            className="btn label"
+            disabled={!registryEntry?.capabilities.template}
+            onClick={handleTemplateDownload}
+          >
             {t('fold.art.template')}
           </button>
           <button
             type="button"
             className={`btn tog label${artwork === 'custom' ? ' on' : ''}`}
             aria-pressed={artwork === 'custom'}
+            disabled={!registryEntry?.capabilities.upload}
             onClick={handleUploadClick}
           >
             {t('fold.art.upload')}

@@ -125,6 +125,16 @@ describe('extractFaces 合成拓撲', () => {
     ])).toThrow(/死端 cut.*orphan-cut.*歸屬/);
   });
 
+  it('明示忽略歧義死端時，只省略該 cut 並保留既有有限面', () => {
+    const graph = extractFaces([
+      rectangle(),
+      { polyline: [point(20, 20), point(21, 20)], pathId: 'orphan-cut', kind: 'cut' },
+    ], undefined, true);
+
+    expect(graph.faces).toHaveLength(1);
+    expect(graph.danglingCuts).toEqual([]);
+  });
+
   it('T-junction 端點相差 1e-7：snap 後成為同一節點並抽出三面', () => {
     const graph = extractFaces([
       rectangle(),

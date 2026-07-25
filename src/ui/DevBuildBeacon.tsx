@@ -50,7 +50,7 @@ export function DevBuildBeacon() {
         fontFamily: 'ui-monospace, monospace',
         fontSize: 10,
         lineHeight: 1,
-        color: '#71717a',
+        color: 'var(--ink-soft)',
         background: 'rgba(255,255,255,0.7)',
         padding: '2px 4px',
         borderRadius: 3,

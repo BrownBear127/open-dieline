@@ -55,6 +55,12 @@ interface Role {
   childId: string;
 }
 
+interface ClosureBoundary {
+  tag: string;
+  ownerAId: string;
+  ownerBId: string;
+}
+
 interface CreaseCandidate {
   a: Pt;
   b: Pt;
@@ -69,9 +75,24 @@ interface RoleGroup extends Role {
   faceB: number;
 }
 
+interface ClosureBoundaryGroup extends ClosureBoundary {
+  sourcePathIds: string[];
+  faceA: number;
+  faceB: number;
+}
+
 const ROLE_PATTERN = /^fold:([^>]+)>([^>]+)$/;
+const CLOSURE_BOUNDARY_PATTERN = /^fold-boundary:closure:([^>]+)>([^>]+)$/;
 const GEOMETRY_TOLERANCE_MM = 1e-6;
 const MAX_UNASSIGNED_FACE_AREA_MM2 = 0.5;
+
+export type FoldOnlyInactiveSegments = ReadonlyMap<string, readonly number[]>;
+
+export interface PanelizeOptions {
+  roleFragmentToleranceMm?: number;
+  maxUnassignedFaceAreaMm2?: number;
+  ignoreAmbiguousDanglingCuts?: boolean;
+}
 
 function hasNearbyPoint(points: Pt[], target: Pt, tolerance: number): boolean {
   return points.some((point) => Math.hypot(point.x - target.x, point.y - target.y) <= tolerance);
@@ -165,64 +186,131 @@ function parseRole(tag: string): Role {
   return { tag, parentId: match[1]!, childId: match[2]! };
 }
 
-function assertInactiveIndexes(path: DielinePath): Set<number> {
-  const inactive = new Set(path.inactiveSegments ?? []);
+function parseClosureBoundary(tag: string): ClosureBoundary {
+  const match = CLOSURE_BOUNDARY_PATTERN.exec(tag);
+  if (!match || match[1] === match[2]) {
+    throw new PanelizeError(`無效 fold closure boundary tag「${tag}」`);
+  }
+  return { tag, ownerAId: match[1]!, ownerBId: match[2]! };
+}
+
+function validatedIndexes(path: DielinePath, indexes: readonly number[], source: string): Set<number> {
+  const inactive = new Set(indexes);
   if (
-    inactive.size !== (path.inactiveSegments?.length ?? 0)
+    inactive.size !== indexes.length
     || [...inactive].some((index) => !Number.isInteger(index) || index < 0 || index >= path.segments.length)
   ) {
-    throw new PanelizeError(`path「${path.id}」的 inactiveSegments 含重複或越界索引`);
+    throw new PanelizeError(`path「${path.id}」的 ${source} 含重複或越界索引`);
   }
   return inactive;
 }
 
-function activeGeometry(result: GenerateResult, tolMm: number): {
+function assertInactiveIndexes(
+  path: DielinePath,
+  foldOnlyInactive: FoldOnlyInactiveSegments,
+): Set<number> {
+  const inactive = validatedIndexes(path, path.inactiveSegments ?? [], 'inactiveSegments');
+  const foldOnly = validatedIndexes(
+    path,
+    foldOnlyInactive.get(path.id) ?? [],
+    'foldOnlyInactive',
+  );
+  return new Set([...inactive, ...foldOnly]);
+}
+
+function activeGeometry(
+  result: GenerateResult,
+  tolMm: number,
+  foldOnlyInactive: FoldOnlyInactiveSegments,
+): {
   inputs: PlanarSegmentInput[];
   rolesByPathId: Map<string, Role>;
+  closureBoundariesByPathId: Map<string, ClosureBoundary>;
   creaseCandidatesByPathId: Map<string, CreaseCandidate[]>;
 } {
   const inputs: PlanarSegmentInput[] = [];
   const rolesByPathId = new Map<string, Role>();
+  const closureBoundariesByPathId = new Map<string, ClosureBoundary>();
   const creaseCandidatesByPathId = new Map<string, CreaseCandidate[]>();
   const pathIds = new Set<string>();
 
   for (const path of result.paths) {
     if (pathIds.has(path.id)) throw new PanelizeError(`path id「${path.id}」重複`);
     pathIds.add(path.id);
-    if (path.type !== 'cut' && path.type !== 'crease') continue;
+  }
+  const unknownFoldOnlyPaths = [...foldOnlyInactive.keys()].filter((pathId) => !pathIds.has(pathId));
+  if (unknownFoldOnlyPaths.length > 0) {
+    throw new PanelizeError(`foldOnlyInactive 含未知 path id：${unknownFoldOnlyPaths.join(',')}`);
+  }
 
-    const inactive = assertInactiveIndexes(path);
+  for (const path of result.paths) {
+    const semanticTags = path.tags?.filter((tag) =>
+      ROLE_PATTERN.test(tag) || CLOSURE_BOUNDARY_PATTERN.test(tag)) ?? [];
+    const isSemanticFold = semanticTags.length > 0;
+    if (path.type !== 'cut' && path.type !== 'crease' && !(path.type === 'halfcut' && isSemanticFold)) {
+      continue;
+    }
+
+    const inactive = assertInactiveIndexes(path, foldOnlyInactive);
     const activeEntries = path.segments
       .map((segment, index) => ({ segment, index }))
       .filter(({ index }) => !inactive.has(index));
     if (activeEntries.length === 0) continue;
 
-    if (path.type === 'crease') {
-      const roleTags = path.tags?.filter((tag) => tag.startsWith('fold:')) ?? [];
-      if (roleTags.length === 0) throw new PanelizeError(`未標記 crease「${path.id}」仍含 active segment`);
-      if (roleTags.length !== 1) throw new PanelizeError(`crease「${path.id}」必須恰有一個 fold role tag`);
-      rolesByPathId.set(path.id, parseRole(roleTags[0]!));
+    if (path.type === 'crease' && semanticTags.length === 0) {
+      throw new PanelizeError(`未標記 crease「${path.id}」仍含 active segment`);
+    }
+    if (path.type === 'halfcut' && semanticTags.length === 0) continue;
+    const semanticsFollowOriginalSegments = semanticTags.length === path.segments.length;
+    if (
+      isSemanticFold
+      && semanticTags.length !== 1
+      && !semanticsFollowOriginalSegments
+      && semanticTags.length !== activeEntries.length
+    ) {
+      throw new PanelizeError(
+        `fold path「${path.id}」的 semantic tag 數必須為 1、原始 segment 數或 active segment 數`,
+      );
     }
 
-    const candidates: CreaseCandidate[] = [];
-    for (const { segment } of activeEntries) {
+    for (const [activeIndex, { segment, index }] of activeEntries.entries()) {
+      let semanticTag = semanticTags[activeIndex];
+      if (semanticTags.length === 1) {
+        [semanticTag] = semanticTags;
+      } else if (semanticsFollowOriginalSegments) {
+        semanticTag = semanticTags[index];
+      }
+      const segmentPathId = semanticTags.length > 1
+        ? `${path.id}::segment:${index}`
+        : path.id;
+      const kind = path.type === 'cut' ? 'cut' : 'crease';
       const polyline = flattenSegment(segment, tolMm);
-      inputs.push({ polyline, pathId: path.id, kind: path.type });
-      if (path.type !== 'crease') continue;
+      inputs.push({ polyline, pathId: segmentPathId, kind });
+      if (!semanticTag) continue;
+      if (ROLE_PATTERN.test(semanticTag)) {
+        rolesByPathId.set(segmentPathId, parseRole(semanticTag));
+      } else {
+        closureBoundariesByPathId.set(segmentPathId, parseClosureBoundary(semanticTag));
+      }
+      if (!ROLE_PATTERN.test(semanticTag)) continue;
       if (segment.kind !== 'line') {
-        throw new PanelizeError(`hinge crease「${path.id}」必須是直線 segment`);
+        throw new PanelizeError(`hinge crease「${segmentPathId}」必須是直線 segment`);
       }
       const a = cleanPoint({ x: segment.x1, y: segment.y1 });
       const b = cleanPoint({ x: segment.x2, y: segment.y2 });
       const length = Math.hypot(b.x - a.x, b.y - a.y);
-      if (length > GEOMETRY_TOLERANCE_MM) candidates.push({ a, b, length, pathId: path.id });
+      if (length > GEOMETRY_TOLERANCE_MM) {
+        const candidates = creaseCandidatesByPathId.get(segmentPathId) ?? [];
+        candidates.push({ a, b, length, pathId: segmentPathId });
+        creaseCandidatesByPathId.set(segmentPathId, candidates);
+      }
     }
-    if (path.type === 'crease') creaseCandidatesByPathId.set(path.id, candidates);
   }
 
   return {
     inputs: completeUncutCreaseGaps(inputs),
     rolesByPathId,
+    closureBoundariesByPathId,
     creaseCandidatesByPathId,
   };
 }
@@ -328,6 +416,7 @@ function groupRoles(
   graph: FaceGraph,
   rolesByPathId: Map<string, Role>,
   candidatesByPathId: Map<string, CreaseCandidate[]>,
+  roleFragmentToleranceMm: number,
 ): RoleGroup[] {
   const grouped = new Map<string, { role: Role; pathIds: Set<string>; candidates: CreaseCandidate[] }>();
   for (const [pathId, role] of rolesByPathId) {
@@ -338,8 +427,21 @@ function groupRoles(
   }
 
   return [...grouped.values()].map(({ role, pathIds, candidates }) => {
-    const matchingAdjacencies = graph.adjacency.filter(({ sharedEdges }) =>
+    const allMatchingAdjacencies = graph.adjacency.filter(({ sharedEdges }) =>
       sharedEdges.some(({ kind, pathId }) => kind === 'crease' && pathIds.has(pathId)));
+    const adjacencyLength = (adjacency: FaceGraph['adjacency'][number]): number =>
+      adjacency.sharedEdges
+        .filter(({ kind, pathId }) => kind === 'crease' && pathIds.has(pathId))
+        .reduce((total, { a, b }) => total + Math.hypot(b.x - a.x, b.y - a.y), 0);
+    const sortedAdjacencies = [...allMatchingAdjacencies]
+      .sort((a, b) => adjacencyLength(b) - adjacencyLength(a));
+    const ignoredLength = sortedAdjacencies
+      .slice(1)
+      .reduce((total, adjacency) => total + adjacencyLength(adjacency), 0);
+    const matchingAdjacencies = sortedAdjacencies.length > 1
+      && ignoredLength <= roleFragmentToleranceMm
+      ? sortedAdjacencies.slice(0, 1)
+      : sortedAdjacencies;
     const pairKeys = new Set(matchingAdjacencies.map(({ faceA, faceB }) => `${faceA}:${faceB}`));
     const seenPathIds = new Set(matchingAdjacencies.flatMap(({ sharedEdges }) => sharedEdges
       .filter(({ kind, pathId }) => kind === 'crease' && pathIds.has(pathId))
@@ -349,7 +451,14 @@ function groupRoles(
       throw new PanelizeError(`fold group「${role.tag}」的 crease 未形成兩面共邊：${missing.join(',')}`);
     }
     if (pairKeys.size !== 1) {
-      throw new PanelizeError(`fold group「${role.tag}」必須恰對應一組相鄰面，實際為 ${pairKeys.size} 組`);
+      throw new PanelizeError(
+        `fold group「${role.tag}」必須恰對應一組相鄰面，實際為 ${pairKeys.size} 組`
+        + `（${matchingAdjacencies.map(({ faceA, faceB, sharedEdges }) =>
+          `${faceA}:${faceB}=${sharedEdges
+            .filter(({ pathId }) => pathIds.has(pathId))
+            .map(({ a, b }) => `(${a.x},${a.y})→(${b.x},${b.y})`)
+            .join('+')}`).join(',')}）`,
+      );
     }
     const adjacency = matchingAdjacencies[0]!;
     const snappedCandidates = adjacency.sharedEdges
@@ -365,6 +474,51 @@ function groupRoles(
       ...role,
       sourcePathIds: [...pathIds].sort(),
       candidates: snappedCandidates,
+      faceA: adjacency.faceA,
+      faceB: adjacency.faceB,
+    };
+  }).sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
+function groupClosureBoundaries(
+  graph: FaceGraph,
+  boundariesByPathId: Map<string, ClosureBoundary>,
+): ClosureBoundaryGroup[] {
+  const grouped = new Map<string, {
+    boundary: ClosureBoundary;
+    pathIds: Set<string>;
+  }>();
+  for (const [pathId, boundary] of boundariesByPathId) {
+    const entry = grouped.get(boundary.tag) ?? {
+      boundary,
+      pathIds: new Set<string>(),
+    };
+    entry.pathIds.add(pathId);
+    grouped.set(boundary.tag, entry);
+  }
+
+  return [...grouped.values()].map(({ boundary, pathIds }) => {
+    const matchingAdjacencies = graph.adjacency.filter(({ sharedEdges }) =>
+      sharedEdges.some(({ kind, pathId }) => kind === 'crease' && pathIds.has(pathId)));
+    const pairKeys = new Set(matchingAdjacencies.map(({ faceA, faceB }) => `${faceA}:${faceB}`));
+    const seenPathIds = new Set(matchingAdjacencies.flatMap(({ sharedEdges }) => sharedEdges
+      .filter(({ kind, pathId }) => kind === 'crease' && pathIds.has(pathId))
+      .map(({ pathId }) => pathId)));
+    if (!sameSet(seenPathIds, pathIds)) {
+      const missing = [...pathIds].filter((pathId) => !seenPathIds.has(pathId));
+      throw new PanelizeError(
+        `closure boundary「${boundary.tag}」未形成兩面共邊：${missing.join(',')}`,
+      );
+    }
+    if (pairKeys.size !== 1) {
+      throw new PanelizeError(
+        `closure boundary「${boundary.tag}」必須恰對應一組相鄰面，實際為 ${pairKeys.size} 組`,
+      );
+    }
+    const adjacency = matchingAdjacencies[0]!;
+    return {
+      ...boundary,
+      sourcePathIds: [...pathIds].sort(),
       faceA: adjacency.faceA,
       faceB: adjacency.faceB,
     };
@@ -404,41 +558,66 @@ function faceAreaAndCentroid(outline: Pt[]): { area: number; centroid: Pt } {
   };
 }
 
-function assignFaces(graph: FaceGraph, groups: RoleGroup[], panelIds: Set<string>): Map<number, string> {
-  const roleFaces = new Set(groups.flatMap(({ faceA, faceB }) => [faceA, faceB]));
+function assignFaces(
+  graph: FaceGraph,
+  groups: RoleGroup[],
+  panelIds: Set<string>,
+  maxUnassignedFaceAreaMm2: number,
+): Map<number, string> {
+  const allConstraints = groups.map((group) => ({
+    tag: group.tag,
+    firstId: group.parentId,
+    secondId: group.childId,
+    faceA: group.faceA,
+    faceB: group.faceB,
+  }));
+  const roleFaces = new Set(allConstraints.flatMap(({ faceA, faceB }) => [faceA, faceB]));
   const oversizedUnassignedFaces = graph.faces
     .map(({ outline }, face) => ({ face, ...faceAreaAndCentroid(outline) }))
-    .filter(({ face, area }) => !roleFaces.has(face) && area >= MAX_UNASSIGNED_FACE_AREA_MM2);
+    .filter(({ face, area }) => !roleFaces.has(face) && area >= maxUnassignedFaceAreaMm2);
   if (oversizedUnassignedFaces.length > 0) {
-    throw new PanelizeError(`非 role 未歸屬面超過 ${MAX_UNASSIGNED_FACE_AREA_MM2}mm²：${oversizedUnassignedFaces
+    throw new PanelizeError(`非 role 未歸屬面超過 ${maxUnassignedFaceAreaMm2}mm²：${oversizedUnassignedFaces
       .map(({ face, area, centroid }) =>
         `face ${face} 面積=${area.toFixed(6)}mm²，質心=(${centroid.x.toFixed(6)}, ${centroid.y.toFixed(6)})`)
       .join('; ')}`);
   }
   const candidates = new Map([...roleFaces].map((face) => [face, new Set(panelIds)]));
-  for (const group of groups) {
-    const allowed = new Set([group.parentId, group.childId]);
-    intersectCandidates(candidates.get(group.faceA)!, allowed);
-    intersectCandidates(candidates.get(group.faceB)!, allowed);
+  for (const constraint of allConstraints) {
+    const allowed = new Set([constraint.firstId, constraint.secondId]);
+    intersectCandidates(candidates.get(constraint.faceA)!, allowed);
+    intersectCandidates(candidates.get(constraint.faceB)!, allowed);
   }
 
   let changed = true;
   while (changed) {
     changed = false;
-    for (const group of groups) {
-      const first = candidates.get(group.faceA)!;
-      const second = candidates.get(group.faceB)!;
+    for (const constraint of allConstraints) {
+      const first = candidates.get(constraint.faceA)!;
+      const second = candidates.get(constraint.faceB)!;
       if (first.size === 0 || second.size === 0) {
-        throw new PanelizeError(`fold group「${group.tag}」的 tag 約束互相衝突`);
+        throw new PanelizeError(
+          `fold boundary「${constraint.tag}」的 tag 約束互相衝突`
+          + `（faces=${constraint.faceA}:${constraint.faceB},`
+          + ` candidates=[${[...first].join(',')}]/[${[...second].join(',')}],`
+          + ` owners=${constraint.firstId}/${constraint.secondId},`
+          + ` faceAConstraints=${allConstraints
+            .filter(({ faceA, faceB }) =>
+              faceA === constraint.faceA || faceB === constraint.faceA)
+            .map(({ tag }) => tag).join('+')},`
+          + ` faceBConstraints=${allConstraints
+            .filter(({ faceA, faceB }) =>
+              faceA === constraint.faceB || faceB === constraint.faceB)
+            .map(({ tag }) => tag).join('+')}）`,
+        );
       }
       if (first.size === 1) {
         const known = [...first][0]!;
-        const other = known === group.parentId ? group.childId : group.parentId;
+        const other = known === constraint.firstId ? constraint.secondId : constraint.firstId;
         changed = intersectCandidates(second, new Set([other])) || changed;
       }
       if (second.size === 1) {
         const known = [...second][0]!;
-        const other = known === group.parentId ? group.childId : group.parentId;
+        const other = known === constraint.firstId ? constraint.secondId : constraint.firstId;
         changed = intersectCandidates(first, new Set([other])) || changed;
       }
     }
@@ -455,13 +634,39 @@ function assignFaces(graph: FaceGraph, groups: RoleGroup[], panelIds: Set<string
   if (new Set(assignment.values()).size !== panelIds.size || assignment.size !== panelIds.size) {
     throw new PanelizeError('tag 傳播未形成 face 與 panel id 的一對一對應');
   }
-  for (const group of groups) {
-    const actual = new Set([assignment.get(group.faceA)!, assignment.get(group.faceB)!]);
-    if (!sameSet(actual, new Set([group.parentId, group.childId]))) {
-      throw new PanelizeError(`fold group「${group.tag}」的面配對與 role 不一致`);
+  for (const constraint of allConstraints) {
+    const actual = new Set([
+      assignment.get(constraint.faceA)!,
+      assignment.get(constraint.faceB)!,
+    ]);
+    if (!sameSet(actual, new Set([constraint.firstId, constraint.secondId]))) {
+      throw new PanelizeError(`fold boundary「${constraint.tag}」的面配對與 role 不一致`);
     }
   }
   return assignment;
+}
+
+function validateClosureAssignments(
+  boundaries: ClosureBoundaryGroup[],
+  assignment: Map<number, string>,
+): void {
+  for (const boundary of boundaries) {
+    const owners = new Set([
+      assignment.get(boundary.faceA),
+      assignment.get(boundary.faceB),
+    ]);
+    if (
+      owners.has(undefined)
+      || !sameSet(
+        owners as Set<string>,
+        new Set([boundary.ownerAId, boundary.ownerBId]),
+      )
+    ) {
+      throw new PanelizeError(
+        `closure boundary「${boundary.tag}」的面配對與 owner 不一致`,
+      );
+    }
+  }
 }
 
 function canonicalPolygon(polygon: Pt[]): Pt[] {
@@ -581,14 +786,44 @@ export function panelizeFoldModel(
   angles: PanelAngleSpec[],
   steps: FoldStep[],
   tolMm = ARC_TOLERANCE_MM,
+  foldOnlyInactive: FoldOnlyInactiveSegments = new Map(),
+  options: PanelizeOptions = {},
 ): FoldModel {
-  const { inputs, rolesByPathId, creaseCandidatesByPathId } = activeGeometry(result, tolMm);
+  const {
+    roleFragmentToleranceMm = 0,
+    maxUnassignedFaceAreaMm2 = MAX_UNASSIGNED_FACE_AREA_MM2,
+    ignoreAmbiguousDanglingCuts = false,
+  } = options;
+  if (!Number.isFinite(roleFragmentToleranceMm) || roleFragmentToleranceMm < 0) {
+    throw new PanelizeError('roleFragmentToleranceMm 必須是非負有限數');
+  }
+  if (!Number.isFinite(maxUnassignedFaceAreaMm2) || maxUnassignedFaceAreaMm2 <= 0) {
+    throw new PanelizeError('maxUnassignedFaceAreaMm2 必須是正有限數');
+  }
+  const {
+    inputs,
+    rolesByPathId,
+    closureBoundariesByPathId,
+    creaseCandidatesByPathId,
+  } = activeGeometry(result, tolMm, foldOnlyInactive);
   const ids = expectedPanelIds(rolesByPathId.values(), rootId);
   const anglesById = validateAngles(angles, ids, rootId);
   const parentByChild = validateRoleTree(rolesByPathId.values(), ids, rootId);
-  const graph = extractFaces(inputs);
-  const groups = groupRoles(graph, rolesByPathId, creaseCandidatesByPathId);
-  const faceAssignments = assignFaces(graph, groups, ids);
+  const graph = extractFaces(inputs, undefined, ignoreAmbiguousDanglingCuts);
+  const groups = groupRoles(
+    graph,
+    rolesByPathId,
+    creaseCandidatesByPathId,
+    roleFragmentToleranceMm,
+  );
+  const closureBoundaries = groupClosureBoundaries(graph, closureBoundariesByPathId);
+  const faceAssignments = assignFaces(
+    graph,
+    groups,
+    ids,
+    maxUnassignedFaceAreaMm2,
+  );
+  validateClosureAssignments(closureBoundaries, faceAssignments);
   const faceByPanelId = new Map([...faceAssignments].map(([face, panelId]) => [panelId, face]));
   const groupByChildId = new Map(groups.map((group) => [group.childId, group]));
 

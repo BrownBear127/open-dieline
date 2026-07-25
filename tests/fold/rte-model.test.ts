@@ -5,7 +5,7 @@ import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
 import { resolveParams } from '@/core/registry';
 import { InvalidBoxParamsError } from '@/fold/derive/panelize';
 import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
-import { FOLD_MODEL_BUILDERS } from '@/fold/registry';
+import { FOLD_SCENE_REGISTRY } from '@/fold/registry';
 import { foldPose } from '@/fold/schedule';
 import type { FoldModel, FoldPanel } from '@/fold/types';
 import { validateFoldModel } from '@/fold/validate';
@@ -80,7 +80,12 @@ describe('RTE FoldModel derived geometry', () => {
 describe('RTE FoldModel integration contracts', () => {
   it('passes validation and remains registered', () => {
     expect(validateFoldModel(model())).toEqual([]);
-    expect(FOLD_MODEL_BUILDERS.rte).toBe(buildRteFoldModel);
+    const entry = FOLD_SCENE_REGISTRY.rte!;
+    const params = resolveParams(reverseTuckEnd, {});
+    expect(entry.capabilities.previewScene).toBe(true);
+    expect(entry.sceneSpec!(params).pieces[0]!.buildModel(params)).toEqual(
+      buildRteFoldModel(params),
+    );
   });
 
   it('uses the single-lid fold schedule with tuck-before-lid ordering', () => {

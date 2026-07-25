@@ -70,6 +70,8 @@ const GUSSET_B_RELIEF_RADIUS = 5.0;
  * 推導（生產檔孤值），依 spec「與壁高聯動」以 H 比例參數化。
  */
 const GUSSET_B_EXIT_RATIO = 16.298 / 45;
+/** B 款 x-web 拆段的浮點守衛；量級與幾何交叉判定 CROSS_EPS 一致。 */
+const GUSSET_WEB_SPLIT_EPS = 1e-7;
 
 // ─────────────────────────────────────────────────────────────────────────
 // A 款細節常數（Slice 5 F4／F6-A：U-notch＋halfcut 分段＋平台角撐周邊複合 relief 鏈）
@@ -139,6 +141,12 @@ interface ABLine {
 }
 
 /**
+ * A 款鉤葉根部未被 snap 的固定 nominal a 錨；運動學 allowance 與 generator
+ * 共用此常數，變更時不會讓 zSpanFormula 靜默漂移。
+ */
+export const A_GUSSET_FIXED_NOMINAL_A_MM = 103.699;
+
+/**
  * 外緣：10° cut 樞紐（LINE27，topLeft 模板）。
  *
  * T0 原始鏈另含 LINE57/58（角落→45° 對角線 tip 附近的兩段）與 LINE202（outerWall
@@ -173,9 +181,9 @@ const A_GUSSET_PLATFORM_RELIEF_TL: ABLine[] = [
 const A_GUSSET_INNER_WALL_APPROACH_TL: ABLine[] = [
   { p1: { a: 121.2003, b: 72.9968 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 138.2007, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -2.5012 }, p2: { a: 103.699, b: -4.5014 }, type: 'cut' },
-  { p1: { a: 103.699, b: -4.5014 }, p2: { a: 103.699, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -2.5012 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 121.2003, b: -21.5018 }, type: 'cut' },
   { p1: { a: 121.2003, b: -21.5018 }, p2: { a: 123.2006, b: -21.5018 }, type: 'cut' },
 ];
@@ -209,9 +217,9 @@ const A_GUSSET_PLATFORM_RELIEF_TR: ABLine[] = [
 const A_GUSSET_INNER_WALL_APPROACH_TR: ABLine[] = [
   { p1: { a: 121.2003, b: 52.9978 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 138.2007, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
-  { p1: { a: 103.699, b: -2.5012 }, p2: { a: 103.699, b: -4.5014 }, type: 'cut' },
-  { p1: { a: 103.699, b: -4.5014 }, p2: { a: 103.699, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, p2: { a: 121.2003, b: -5.461 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -2.5012 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, type: 'cut' },
+  { p1: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 }, p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -5.461 }, type: 'cut' },
   { p1: { a: 121.2003, b: -5.461 }, p2: { a: 121.2003, b: -21.5018 }, type: 'cut' },
   { p1: { a: 121.2003, b: -21.5018 }, p2: { a: 123.2006, b: -21.5018 }, type: 'cut' },
 ];
@@ -222,6 +230,22 @@ const A_GUSSET_INNER_WALL_APPROACH_TR: ABLine[] = [
 const A_GUSSET_CHAIN_TL: ABLine[] = [...A_GUSSET_OUTER_TL, ...A_GUSSET_PLATFORM_RELIEF_TL, ...A_GUSSET_INNER_WALL_APPROACH_TL];
 const A_GUSSET_CHAIN_TR: ABLine[] = [...A_GUSSET_OUTER_TR, ...A_GUSSET_PLATFORM_RELIEF_TR, ...A_GUSSET_INNER_WALL_APPROACH_TR];
 
+/**
+ * A 款四角角翼摺線：兩端取自同手性 aGussetPeriphery 模板頂點。64.4984 經
+ * snapALongAnchor 對齊現場 platformEnd；103.699 是 cut 鏈共用的固定 nominal，
+ * 使 crease 與 cut 鏈精確接合。
+ */
+const A_CORNER_FLAP_CREASE_TL: ABLine = {
+  p1: { a: 64.4984, b: -4.5014 },
+  p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 },
+  type: 'crease',
+};
+const A_CORNER_FLAP_CREASE_TR: ABLine = {
+  p1: { a: 64.4984, b: -4.5014 },
+  p2: { a: A_GUSSET_FIXED_NOMINAL_A_MM, b: -4.5014 },
+  type: 'crease',
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // 內部型別
 // ─────────────────────────────────────────────────────────────────────────
@@ -231,6 +255,63 @@ type Sign = 1 | -1;
 type Point = { x: number; y: number };
 /** 角撐內部使用的「離角落」座標：a＝沿 x 軸向外距離、b＝沿 y 軸向外距離（恆正）。 */
 type AB = { a: number; b: number };
+type WallLayer = 'outer' | 'rim' | 'inner' | 'tongue';
+
+function signName(sign: Sign): 'Neg' | 'Pos' {
+  return sign < 0 ? 'Neg' : 'Pos';
+}
+
+function wallStem(side: string): string {
+  const stems: Record<string, string> = {
+    left: 'wallXNeg',
+    right: 'wallXPos',
+    front: 'wallYNeg',
+    back: 'wallYPos',
+  };
+  const stem = stems[side];
+  if (stem === undefined) throw new Error(`未知 telescope wall side「${side}」`);
+  return stem;
+}
+
+function wallPanel(side: string, layer: WallLayer): string {
+  return `${wallStem(side)}-${layer}`;
+}
+
+function cornerToken(label: string): string {
+  const tokens: Record<string, string> = {
+    'left-front': 'NegNeg',
+    'left-back': 'NegPos',
+    'right-front': 'PosNeg',
+    'right-back': 'PosPos',
+  };
+  const token = tokens[label];
+  if (token === undefined) throw new Error(`未知 telescope corner「${label}」`);
+  return token;
+}
+
+function cornerForYWall(side: string, xSign: Sign): string {
+  if (side !== 'front' && side !== 'back') {
+    throw new Error(`y-wall corner 只接受 front/back，實際為「${side}」`);
+  }
+  return `${signName(xSign)}${side === 'front' ? 'Neg' : 'Pos'}`;
+}
+
+function wallSideForCorner(axis: Axis, label: string): string {
+  if (axis === 'x') return label.startsWith('left-') ? 'left' : 'right';
+  return label.endsWith('-front') ? 'front' : 'back';
+}
+
+function foldRole(parentId: string, childId: string): string {
+  return `fold:${parentId}>${childId}`;
+}
+
+function closureBoundary(firstOwnerId: string, secondOwnerId: string): string {
+  return `fold-boundary:closure:${firstOwnerId}>${secondOwnerId}`;
+}
+
+function wingPanel(axis: Axis, corner: string): string {
+  return `wing${axis.toUpperCase()}${corner}`;
+}
 
 /** 尚未指定 id 的路徑描述——generateTray 統一在最後指派 id 並套用 offsetX/offsetY 平移。 */
 interface PathDescriptor {
@@ -371,11 +452,12 @@ function buildWallRoot(
   side: string,
   independentJogEntity: boolean,
 ): PathDescriptor {
+  const rootRole = foldRole('floor', wallPanel(side, 'outer'));
   if (!hasDoubleRoot || rootJog <= 0) {
     const p1 = toXY(axis, geom.rootAlong, -perpHalf);
     const p2 = toXY(axis, geom.rootAlong, perpHalf);
     const b = new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
-    return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
+    return { type: 'crease', tags: ['wallRoot', side, rootRole], segments: b.segments() };
   }
 
   const nomNeg = toXY(axis, geom.rootAlong, -perpHalf);
@@ -395,7 +477,14 @@ function buildWallRoot(
     // 同線型共線重疊（Finding 1 修正：舊版在此多畫了 nomNeg→offNeg／offPos→nomPos）。
     b.moveTo(offNeg.x, offNeg.y).lineTo(offPos.x, offPos.y);
   }
-  return { type: 'crease', tags: ['wallRoot', side], segments: b.segments() };
+  const semantics = independentJogEntity
+    ? [
+      rootRole,
+      closureBoundary('floor', wingPanel('y', cornerForYWall(side, -1))),
+      closureBoundary('floor', wingPanel('y', cornerForYWall(side, 1))),
+    ]
+    : [rootRole];
+  return { type: 'crease', tags: ['wallRoot', side, ...semantics], segments: b.segments() };
 }
 
 /**
@@ -444,7 +533,13 @@ function buildWallTop(axis: Axis, geom: WallGeom, perpHalf: number, platformWidt
     const e2 = toXY(axis, geom.topEndAlong, half);
     b.moveTo(s2.x, s2.y).lineTo(e2.x, e2.y);
   }
-  return { type: 'crease', tags: ['wallTop', side], segments: b.segments() };
+  const semantics = platformWidth > 0
+    ? [
+      foldRole(wallPanel(side, 'outer'), wallPanel(side, 'rim')),
+      foldRole(wallPanel(side, 'rim'), wallPanel(side, 'inner')),
+    ]
+    : [foldRole(wallPanel(side, 'outer'), wallPanel(side, 'inner'))];
+  return { type: 'crease', tags: ['wallTop', side, ...semantics], segments: b.segments() };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -555,13 +650,14 @@ function buildBTongueTopology(axis: Axis, geom: WallGeom, perpHalf: number, hasD
   const along = geom.tongueFoldAlong;
 
   const paths: PathDescriptor[] = [];
+  const role = foldRole(wallPanel(side, 'inner'), wallPanel(side, 'tongue'));
   if (endLen > 0) {
     const c1 = toXY(axis, along, -innerHalf);
     const c2 = toXY(axis, along, -innerHalf + endLen);
     const c3 = toXY(axis, along, innerHalf - endLen);
     const c4 = toXY(axis, along, innerHalf);
     const crease = new PathBuilder().moveTo(c1.x, c1.y).lineTo(c2.x, c2.y).moveTo(c3.x, c3.y).lineTo(c4.x, c4.y).segments();
-    paths.push({ type: 'crease', tags: ['tongueFold', side], segments: crease });
+    paths.push({ type: 'crease', tags: ['tongueFold', side, role], segments: crease });
   }
 
   const halfStart = -innerHalf + endLen;
@@ -570,7 +666,7 @@ function buildBTongueTopology(axis: Axis, geom: WallGeom, perpHalf: number, hasD
     const h1 = toXY(axis, along, halfStart);
     const h2 = toXY(axis, along, halfEnd);
     const halfcut = new PathBuilder().moveTo(h1.x, h1.y).lineTo(h2.x, h2.y).segments();
-    paths.push({ type: 'halfcut', tags: ['tongueFold', side], segments: halfcut });
+    paths.push({ type: 'halfcut', tags: ['tongueFold', side, role], segments: halfcut });
   }
 
   if (hasDoubleRoot && endLen >= V_RELIEF_MIN_END) {
@@ -663,7 +759,15 @@ function buildAHalfcutSegments(axis: Axis, along: number, perpHalf: number, chai
     const p2 = toXY(axis, along, boundaries[i + 1]!);
     b.moveTo(p1.x, p1.y).lineTo(p2.x, p2.y);
   }
-  return { type: 'halfcut', tags: ['tongueFold', side], segments: b.segments() };
+  return {
+    type: 'halfcut',
+    tags: [
+      'tongueFold',
+      side,
+      foldRole(wallPanel(side, 'inner'), wallPanel(side, 'tongue')),
+    ],
+    segments: b.segments(),
+  };
 }
 
 /**
@@ -830,17 +934,37 @@ function buildGussetA(
   const diagCut = new PathBuilder().moveTo(cornerX, cornerY).lineTo(mid.x, mid.y).segments();
   const diagCrease = new PathBuilder().moveTo(mid.x, mid.y).lineTo(tip.x, tip.y).segments();
   const outerCut = new PathBuilder().moveTo(v4.x, v4.y).lineTo(tip.x, tip.y).lineTo(v3.x, v3.y).segments();
+  const corner = cornerToken(side);
+  const xWall = wallSideForCorner('x', side);
+  const yWall = wallSideForCorner('y', side);
 
   return [
-    { type: 'crease', tags: ['gussetFold', side], segments: folds },
+    {
+      type: 'crease',
+      tags: [
+        'gussetFold',
+        side,
+        foldRole(wallPanel(xWall, 'outer'), wingPanel('x', corner)),
+        foldRole(wallPanel(yWall, 'outer'), wingPanel('y', corner)),
+      ],
+      segments: folds,
+    },
     { type: 'cut', tags: ['gusset', side], segments: diagCut },
-    { type: 'crease', tags: ['gusset', side], segments: diagCrease },
+    {
+      type: 'crease',
+      tags: [
+        'gusset',
+        side,
+        closureBoundary(wingPanel('x', corner), wingPanel('y', corner)),
+      ],
+      segments: diagCrease,
+    },
     { type: 'cut', tags: ['gusset', side], segments: outerCut },
   ];
 }
 
 /** 薄壁角撐的骨架點（(a,b) 離角座標）；純數學，供 buildGussetB 映射與測試對照。 */
-interface BGussetFrame {
+export interface BGussetFrame {
   mid: AB;
   tip: AB;
   p1: AB;
@@ -863,7 +987,7 @@ interface BGussetFrame {
  *   與外腿以 R5 圓角相接（轉角 125°，切點 p3/p4 由切線長 R·tan(轉角/2) 推出）；
  *   在 b＝EXIT_RATIO×H 處轉垂直 cut（p5→p6）落到牆根線。
  */
-function bGussetFrame(height: number, thickness: number): BGussetFrame {
+export function bGussetFrame(height: number, thickness: number): BGussetFrame {
   const reach = height - thickness;
   const r15 = GUSSET_B_TIP_RADIUS;
   const r5 = GUSSET_B_RELIEF_RADIUS;
@@ -904,7 +1028,15 @@ function sweepFor(inDir: Point, outDir: Point): 0 | 1 {
  * ＋terminal cut（tip→y 軸錨點）＋讓位槽連續 cut 鏈（tip→p1→[R1.5]→p2→p3→[R5]→p4→p5→p6）。
  * 生產檔的 2mm 側邊內縮（鏈端實際落在內縮線上）未復刻——鏈端取整到軸線（殘差 ≤0.074mm）。
  */
-function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, height: number, thickness: number, side: string): PathDescriptor[] {
+function buildGussetB(
+  cornerX: number,
+  cornerY: number,
+  sx: Sign,
+  sy: Sign,
+  height: number,
+  thickness: number,
+  side: string,
+): PathDescriptor[] {
   const f = bGussetFrame(height, thickness);
   const m = (p: AB): Point => ({ x: cornerX + sx * p.a, y: cornerY + sy * p.b });
   const sinT = Math.sin(GUSSET_B_LEG_TILT_RAD);
@@ -921,9 +1053,18 @@ function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, heig
   const p6 = m(f.p6);
   const yEnd = m(f.yEnd);
 
-  const folds = new PathBuilder()
-    .moveTo(cornerX, cornerY)
-    .lineTo(p6.x, p6.y) // x 軸 web 摺線：角落→p6（出口垂直 cut 落點）
+  const foldsBuilder = new PathBuilder().moveTo(cornerX, cornerY);
+  const splitXWeb = f.p6.a > height + GUSSET_WEB_SPLIT_EPS;
+  if (splitXWeb) {
+    const wallTop = { x: cornerX + sx * height, y: cornerY };
+    foldsBuilder
+      .lineTo(wallTop.x, wallTop.y) // x 軸 web 內段：角落→壁高線
+      .moveTo(wallTop.x, wallTop.y)
+      .lineTo(p6.x, p6.y); // x 軸 web 外段：壁高線→出口垂直 cut 落點
+  } else {
+    foldsBuilder.lineTo(p6.x, p6.y); // 不足以形成正長外段時維持單段
+  }
+  const folds = foldsBuilder
     .moveTo(cornerX, cornerY)
     .lineTo(yEnd.x, yEnd.y) // y 軸 web 摺線：角落→H
     .segments();
@@ -944,10 +1085,29 @@ function buildGussetB(cornerX: number, cornerY: number, sx: Sign, sy: Sign, heig
     .lineTo(p6.x, p6.y)
     .segments();
 
+  const corner = cornerToken(side);
+  const xWall = wallSideForCorner('x', side);
+  const yWall = wallSideForCorner('y', side);
+  const foldSemantics = [
+    foldRole(wallPanel(xWall, 'outer'), wingPanel('x', corner)),
+    ...(splitXWeb
+      ? [foldRole(wallPanel(xWall, 'inner'), `gussetExt${corner}`)]
+      : []),
+    foldRole(wallPanel(yWall, 'outer'), wingPanel('y', corner)),
+  ];
+
   return [
-    { type: 'crease', tags: ['gussetFold', side], segments: folds },
+    { type: 'crease', tags: ['gussetFold', side, ...foldSemantics], segments: folds },
     { type: 'cut', tags: ['gusset', side], segments: diagCut },
-    { type: 'crease', tags: ['gusset', side], segments: diagCrease },
+    {
+      type: 'crease',
+      tags: [
+        'gusset',
+        side,
+        closureBoundary(wingPanel('x', corner), wingPanel('y', corner)),
+      ],
+      segments: diagCrease,
+    },
     { type: 'cut', tags: ['gusset', side], segments: terminalCut },
     { type: 'cut', tags: ['gusset', side], segments: slot },
   ];
@@ -1030,6 +1190,27 @@ function buildAGussetChain(cornerX: number, cornerY: number, sx: Sign, sy: Sign,
     byType.set(type, segs);
   }
   return [...byType.entries()].map(([type, segments]) => ({ type, tags: ['aGussetPeriphery', side], segments }));
+}
+
+function buildACornerFlapCrease(
+  cornerX: number,
+  cornerY: number,
+  sx: Sign,
+  sy: Sign,
+  anchors: LongWallAnchors,
+  template: ABLine,
+  side: string,
+): PathDescriptor {
+  const { p1, p2 } = resolveAGussetChainPoints(cornerX, cornerY, sx, sy, anchors, [template])[0]!;
+  return {
+    type: 'crease',
+    tags: [
+      'cornerFlapFold',
+      side,
+      foldRole(wallPanel(wallSideForCorner('x', side), 'inner'), `flap${cornerToken(side)}`),
+    ],
+    segments: new PathBuilder().moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).segments(),
+  };
 }
 
 /**
@@ -1259,6 +1440,7 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
   // 會生成的 notch 中心列，供 aGussetChainFits 判斷放不放得下；不可容納時整鏈省略＋
   // index.ts 對應 warning（同一門檻獨立重算，見該檔 gussetChainFits）。
   const chainFits = useThickStyle ? aGussetChainFits(panelW, longWallNotchPlan(panelW).centers, longAnchors) : true;
+  const cornerFlapCreases: PathDescriptor[] = [];
 
   for (const { sx, sy, label } of CORNERS) {
     const cornerX = sx * halfL;
@@ -1277,6 +1459,8 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
       if (chainFits) {
         const template = sx === sy ? A_GUSSET_CHAIN_TL : A_GUSSET_CHAIN_TR;
         descriptors.push(...buildAGussetChain(cornerX, cornerY, sx, sy, longAnchors, template, label));
+        const creaseTemplate = sx === sy ? A_CORNER_FLAP_CREASE_TL : A_CORNER_FLAP_CREASE_TR;
+        cornerFlapCreases.push(buildACornerFlapCrease(cornerX, cornerY, sx, sy, longAnchors, creaseTemplate, label));
       }
       descriptors.push(buildAPlatformCornerRelief(cornerX, cornerY, sx, sy, platformWidth, shortDistOuter, shortDistPlatformEnd, label));
     } else {
@@ -1288,6 +1472,8 @@ export function generateTray(opts: TrayOpts): { paths: DielinePath[]; texts: Die
       descriptors.push(buildBGussetPeriphery(cornerX, cornerY, sx, sy, longAnchors.distTongueFold, halfW, innerWallReduction, label));
     }
   }
+  // path id 順序保持穩定；cornerFlap descriptor 固定附加在尾端。
+  descriptors.push(...cornerFlapCreases);
 
   const paths: DielinePath[] = descriptors
     .filter((d) => d.segments.length > 0)

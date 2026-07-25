@@ -101,14 +101,14 @@ const params: BoxParamDef[] = [
     key: 'lidMarginX',
     label: { zh: '上蓋放大量（短向）', en: 'Lid oversize (short axis)' },
     unit: 'mm',
-    default: 13.5,
-    min: 5,
-    max: 60,
+    default: 3,
+    min: 1,
+    max: 10,
     step: 0.5,
     group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
-      zh: '上蓋面板短向（對應 baseWidth／x 向先摺壁）相對下盒的等邊放大量——決定上蓋短向能套住下盒多深。Slice 5 F1：原單一 lidMargin 拆兩軸，取消 y 向測試豁免後兩軸皆為可獨立覆蓋的一般參數（無 derivedDefault）。（2026-07-09 T7 gate 重定義：內襯不再錨定上蓋，此參數與內襯幾何無關——見 linerFlapDepth。）',
-      en: 'Equal per-side lid oversize on the short axis, corresponding to baseWidth and the x-axis first-fold walls; determines the lid-to-base fit on the short axis. Slice 5 F1 split the former lidMargin into two independently overridable axes with no derivedDefault and removed the y-axis test exemption. Since the 2026-07-09 T7 gate redefinition, the liner is no longer anchored to the lid, so this parameter does not affect liner geometry; see linerFlapDepth.',
+      zh: '上蓋短向（對應 baseWidth）相對下盒的等邊放大量，決定短向套合的鬆緊。與長向各自獨立設定。',
+      en: 'Equal per-side lid oversize on the short axis (matching baseWidth); sets how tightly the lid fits over the base on that axis. Independent of the long axis.',
     },
     highlightTags: ['lidMarginX'],
   },
@@ -116,14 +116,14 @@ const params: BoxParamDef[] = [
     key: 'lidMarginY',
     label: { zh: '上蓋放大量（長向）', en: 'Lid oversize (long axis)' },
     unit: 'mm',
-    default: 18.5,
-    min: 5,
-    max: 60,
+    default: 3,
+    min: 1,
+    max: 10,
     step: 0.5,
     group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
-      zh: '上蓋面板長向（對應 baseLength／y 向後摺壁）相對下盒的等邊放大量。與 lidMarginX 各自獨立（Slice 5 F1：生產刀模長短向放大量本不相等 13.5≠18.5，拆分後才能逐線復刻；取消 y 向測試豁免）。',
-      en: 'Equal per-side lid oversize on the long axis, corresponding to baseLength and the y-axis second-fold walls. Independent of lidMarginX: Slice 5 F1 separated the unequal production-dieline oversizes (13.5≠18.5) for line-by-line reproduction and removed the y-axis test exemption.',
+      zh: '上蓋長向（對應 baseLength）相對下盒的等邊放大量，決定長向套合的鬆緊。與短向各自獨立設定，兩軸不必相等。',
+      en: 'Equal per-side lid oversize on the long axis (matching baseLength); sets how tightly the lid fits over the base on that axis. Independent of the short axis, and the two need not match.',
     },
     highlightTags: ['lidMarginY'],
   },
@@ -236,8 +236,8 @@ const params: BoxParamDef[] = [
     key: 'linerEnabled',
     label: { zh: '內襯墊片', en: 'Liner pad' },
     unit: 'bool',
-    default: true,
-    group: { id: 'liner', zh: '內襯', en: 'Liner' },
+    default: false,
+    group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
       zh: '是否產生內襯墊片（2026-07-09 T7 gate 反饋重定義：平台式腳架墊片，放進下盒貼底、把物品墊高）。關閉時只輸出上蓋／下盒兩片，套合與定位需另外自理（如緊配或腰封）。',
       en: 'Liner-pad generation; under the 2026-07-09 T7 gate redefinition, produces a platform liner seated against the base with downward legs that raise the contents. When disabled, only the lid and base pieces are generated; fit and positioning require a separate solution, such as a friction fit or belly band.',
@@ -1048,6 +1048,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'notch-reduced',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F4／spec §縮放與降級表：A 款（platformWidth>0）側壁雙 U-notch 若中心距/開口不足以並存兩個（2×比例中心距−30<5，或有一個超出壁內），先退化為單一置中 notch。只警告不擋，讓使用者知道細節已降級（tray.ts longWallNotchPlan 的同一門檻，這裡獨立重算供 UI 警告用）。',
     },
@@ -1065,6 +1066,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'notch-omitted',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F4／spec §縮放與降級表：A 款（platformWidth>0）U-notch（側壁單一置中或上下壁）若壁長不足 30+2×5=40mm，該 notch 全省（結構主體仍合法，只是不再有這個功能性讓位槽）。只警告不擋。',
     },
@@ -1082,6 +1084,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'platform-corner-omitted',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F6-A／spec §縮放與降級表：A 款平台端 R2.5 圓角需 platformWidth≥2.5mm 才有意義，否則降級為直角轉接（platform-corner-omitted）。只警告不擋。',
     },
@@ -1102,6 +1105,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'gusset-relief-omitted',
+    severity: 'warning',
     description: {
       zh: 'Fix 2·2026-07-11 review H2／spec §縮放與降級規律「放不下就省略＋警告」：A 款角撐周邊複合 relief 鏈（aGussetPeriphery）尺寸固定 nominal 不隨壁高縮放（Fix 3 取代先前的無條件縮放安全網），壁長過短（與 U-notch 或壁界衝突）或壁高極端偏離校準值（鏈自身因錨點校正而扭曲自撞）時整鏈省略，只警告不擋。與 notch-reduced/notch-omitted 各自獨立判斷（鏈可能省略但 notch 仍可容納，反之亦然）。',
     },
@@ -1119,6 +1123,7 @@ const invariants: BoxInvariant[] = [
   },
   {
     id: 'tongue-crease-shrunk',
+    severity: 'warning',
     description: {
       zh: 'Slice 5 F5／spec §縮放與降級表：B 款（platformWidth=0）舌根端段縮減分支 2——扣除 V relief／角撐周邊保留區後的可用舌摺線長度 reservedSpan 若 10≤reservedSpan<2×E+10（E＝該壁端段 nominal 45/35），端段縮至 (reservedSpan−10)/2。只警告不擋。',
     },

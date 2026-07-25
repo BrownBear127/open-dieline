@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedParams } from '@/core/types';
 import { reverseTuckEnd } from '@/boxes/reverse-tuck-end';
+import { telescope } from '@/boxes/telescope';
 import { triangularTube } from '@/boxes/triangular-tube';
 import { tuckTopSnapLock } from '@/boxes/tuck-top-snap-lock';
 import { setLang } from '@/i18n/lang';
@@ -16,6 +17,9 @@ import type { FoldSceneHandle, FoldSceneOptions, createFoldScene } from '@/ui/fo
 
 const RTE_VALUES = Object.fromEntries(
   reverseTuckEnd.params.map((param) => [param.key, param.default]),
+) as ResolvedParams;
+const TELESCOPE_VALUES = Object.fromEntries(
+  telescope.params.map((param) => [param.key, param.default]),
 ) as ResolvedParams;
 
 const TTSL_VALUES = Object.fromEntries(
@@ -39,6 +43,7 @@ function createFakeScene(): FakeScene {
     const handle: FoldSceneHandle = {
       updatePose: vi.fn(),
       replaceModel: vi.fn(),
+      replaceScene: vi.fn(),
       setAutoRotate: vi.fn(),
       applyRecipe: vi.fn(),
       applyArtwork: vi.fn(),
@@ -218,6 +223,7 @@ describe('FoldView scene lifecycle', () => {
     expect(fake.handles[0]!.replaceModel).toHaveBeenCalledOnce();
     expect(vi.mocked(fake.handles[0]!.replaceModel).mock.calls[0]![1]).toEqual({
       thickness: RTE_VALUES.thickness,
+      worldUp: 'tube',
     });
     expect(fake.handles[0]!.updatePose).toHaveBeenCalledExactlyOnceWith(1);
   });
@@ -375,7 +381,7 @@ describe('FoldView visible failure states', () => {
     setLang(lang);
     const fake = createFakeScene();
     const { container } = render(
-      <FoldView boxId="telescope" values={{}} createScene={fake.createScene} />,
+      <FoldView boxId="__unsupported-box" values={{}} createScene={fake.createScene} />,
     );
 
     expect(await screen.findByText(copy)).toHaveClass('mono');
@@ -513,12 +519,13 @@ describe('FoldView editor gate (registry driven)', () => {
     expect(editButton).not.toBeDisabled();
   });
 
-  it('keeps EDIT disabled for a box with no registered model builder (gate is registry-driven, not fully open)', async () => {
+  it('keeps EDIT disabled while creating the registered telescope preview', async () => {
     const fake = createFakeScene();
-    render(<FoldView boxId="telescope" values={{}} createScene={fake.createScene} />);
+    render(<FoldView boxId="telescope" values={TELESCOPE_VALUES} createScene={fake.createScene} />);
 
     const editButton = await screen.findByRole('button', { name: t('fold.art.edit') });
     expect(editButton).toBeDisabled();
-    expect(fake.createScene).not.toHaveBeenCalled();
+    await waitFor(() => expect(fake.createScene).toHaveBeenCalledOnce());
+    expect(fake.handles[0]!.replaceScene).toHaveBeenCalledOnce();
   });
 });

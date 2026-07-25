@@ -30,8 +30,20 @@ import {
   panelWorldTransform,
   worldGeometry,
 } from '../fold/pose3d';
+import { evaluateResolvedScenePiecePose } from '../fold/scene-pose';
+import type {
+  ResolvedScenePiece,
+  ResolvedSceneSpec,
+} from '../fold/scene-spec';
 import { foldPose } from '../fold/schedule';
 import type { FoldModel } from '../fold/types';
+import {
+  modelYToThree,
+  modelVertexToThree,
+  modelVertexToWorld,
+  SCENE_TO_WORLD_QUATERNIONS,
+  type FoldWorldUp,
+} from '../fold/world-orientation';
 import {
   PAPER_RECIPE_BASE_COLORS,
   type FoldRecipeName,
@@ -57,7 +69,13 @@ const CARD_METALNESS = 0;
 const CAMERA_FOV_DEGREES = 35;
 const CAMERA_FIT_DISTANCE_FACTOR = 2;
 const CAMERA_ELEVATION_FACTOR = 0.28;
-const CAMERA_NEAR_FACTOR = 0.001;
+// near 面取焦點對角線的比例。0.001 會讓 near/far 比達到 1:42000——實測相機距離
+// ~2008 單位時，24-bit 深度緩衝的可分辨步階約 **1.02 單位**（場景即 mm 尺度，
+// 亦即 1mm）。上蓋底板只高於下盒壁頂 1.35mm，比值 1.3× 就在精度邊緣；
+// 同時 `polygonOffsetUnits: ±1` 正好是 ±1 個步階（±1mm），足以翻盤。
+// 0.005 使步階降到約 0.2 單位（比值 6.7×），且仍只有 controls.minDistance
+// （focusDiagonal × 0.2）的 1/40，最近視距下不會近端裁切。
+const CAMERA_NEAR_FACTOR = 0.005;
 const CAMERA_FAR_FACTOR = 10;
 const MIN_SCENE_SCALE = 1;
 const MAX_PIXEL_RATIO = 2;
@@ -65,7 +83,6 @@ const SHADOW_TEXTURE_SIZE = 256;
 const SHADOW_PADDING_FACTOR = 1.18;
 const SHADOW_MIN_SPAN_FACTOR = 0.35;
 const SHADOW_LIFT_OFFSET_FACTOR = 0.003;
-const DIELINE_TO_THREE_Y = -1;
 const PAPER_TEXTURE_SIZE = 512;
 const PAPER_PATTERN_UNITS = 5;
 const ROUGHNESS_COORDINATE_SCALE = 1.5;
@@ -708,8 +725,7 @@ export const FOLD_RECIPES: Record<FoldRecipeName, FoldRecipe> = {
 export const FOLD_DEFAULT_RECIPE: 'kraft' = 'kraft';
 
 function mapDielineY(y: number): number {
-  if (y === 0) return 0;
-  return y * DIELINE_TO_THREE_Y;
+  return modelYToThree(y);
 }
 
 function writeThreeVertex(
@@ -733,7 +749,7 @@ function writePosition(
 }
 
 function toThreeVertex(vertex: Vec3): Vec3 {
-  return { x: vertex.x, y: mapDielineY(vertex.y), z: vertex.z };
+  return modelVertexToThree(vertex);
 }
 
 function normalizedFaceNormal(first: Vec3, second: Vec3, third: Vec3): Vec3 | null {
@@ -758,7 +774,9 @@ function normalizedFaceNormal(first: Vec3, second: Vec3, third: Vec3): Vec3 | nu
   };
 }
 
-function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
+/** 面法向＝首個非退化三角形的法向。層位移方向由它決定，故閘門必須用**同一把尺**
+ * 取向，不得自寫一份（自寫版會量到平行宇宙——實測踩過一次）。 */
+export function firstFaceNormal(vertices: Vec3[]): Vec3 | null {
   for (let firstIndex = 0; firstIndex < vertices.length - 2; firstIndex += 1) {
     for (let secondIndex = firstIndex + 1; secondIndex < vertices.length - 1; secondIndex += 1) {
       for (let thirdIndex = secondIndex + 1; thirdIndex < vertices.length; thirdIndex += 1) {
@@ -893,11 +911,108 @@ export function panelSurfacePlan(
   };
 }
 
+/**
+ * 組裝終態的**跨片**內外關係，只作用於繪製順序與深度偏壓。
+ * 不得加進 normalOffset——那是片內紙張疊層的實體位移（layerOffset 量級），
+ * 跨片放大會把幾何真的移開。摺疊期三片在空間上不重疊，靜態偏壓無副作用。
+ */
+const TELESCOPE_PIECE_DRAW_BIAS: Record<string, number> = {
+  liner: -32,
+  base: 0,
+  lid: 32,
+};
+
+/**
+ * **繪製順序 rank**（只進 renderOrder 與 polygonOffsetUnits 的正負號）。
+ * 這是個排序用的序數，跨度可以很大——它不表達距離，也**不得**被拿去當位移。
+ * 位移請用 {@link telescopeStackIndex}。
+ */
+function telescopeDrawRank(panelId: string): number | null {
+  // 盤底與內襯面板取基準層 0（與舊 fallback 同值·行為不變），目的是讓
+  // telescope 的**每一個** panel 都走 telescope 分支，跨片偏壓才不會漏片。
+  if (panelId === 'floor' || panelId === 'linerPad') return 0;
+  if (/^linerLeg/.test(panelId)) return 0;
+  if (/^wingX(?:Neg|Pos){2}$/.test(panelId)) return -6;
+  if (/^wingY(?:Neg|Pos){2}$/.test(panelId)) return -5;
+  if (/^wall[XY](?:Neg|Pos)-outer$/.test(panelId)) return -4;
+  if (/^wall[XY](?:Neg|Pos)-rim$/.test(panelId)) return -2;
+  if (/^flapNeg(?:Neg|Pos)$/.test(panelId)) return 9;
+  if (/^flapPos(?:Neg|Pos)$/.test(panelId)) return 10;
+  // P0 extension 的 C-ext 終態在相鄰 y 壁上；-4 < 7 < 8 明確形成
+  // wallY outer / extension / wallY inner 三明治（piece 前綴由呼叫端保留）。
+  if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return 7;
+  if (/^wall[XY](?:Neg|Pos)-inner$/.test(panelId)) return 8;
+  // x/y 舌片在盒底角落互相交疊，繪製先後不留給 Three.js 的內部排序決定。
+  if (/^wallX(?:Neg|Pos)-tongue$/.test(panelId)) return 9;
+  if (/^wallY(?:Neg|Pos)-tongue$/.test(panelId)) return 11;
+  return null;
+}
+
+/**
+ * **實體疊層索引**（只進 normalOffset）。單位＝一張紙；負值＝往盒內。
+ *
+ * 與 {@link telescopeDrawRank} 分家的理由：rank 是序數（跨度 16 階），當它同時
+ * 被當成實體位移，位移量級（±3.5mm＝11.7 倍紙厚）就與真實層距（platformWidth
+ * 5mm）同量級，足以把本該收在裡面的角翼推到外壁之外。實測名義 −4.501mm 的
+ * 內外關係被推成渲染 +0.749mm——內外顛倒，畫面上即薄片外露。
+ *
+ * 層位由**實體結構**決定（§4.6 段序），不是由繪製先後決定：
+ *   0  外壁／壁頂平台／盤底／內襯    最外一張紙，基準面
+ *  −1  角撐 wing                     貼在外壁內側
+ *  −2  內壁／後摺角翼 flapPos／延伸段 gussetExt
+ *  −3  y 舌片／先摺角翼 flapNeg      最內
+ * （x 舌片與 y 舌片同高躺在盒底、角落互相交疊，須分層：x 壁先摺、y 壁最後落下
+ *  ⇒ y 舌片壓在 x 舌片之上，故 x 取 −2、y 取 −3。）
+ *
+ * 分層只需在**名義上共面且真的交疊**的片之間成立（交疊清單見
+ * fold-overlap-diagnosis 的 golden，實測而非推測）。名義即分屬不同平面的片
+ * 可共用同一層號——例如 lid 的 `gussetExt`（y=320.700）與 `wallY-inner`
+ * （y=321.200）同為 −2，兩者相距 rootJog=0.5mm 且不交疊。
+ *
+ * 上限 3 層＝真實壁的疊層數（外＋撐＋內），由 `renderStackViolations` 的位移
+ * 預算判準守住；名義幾何本來就分得開的兩片，其內外順序由同閘門的反轉判準守住。
+ */
+function telescopeStackIndex(panelId: string): number {
+  if (/^wall[XY](?:Neg|Pos)-(?:outer|rim)$/.test(panelId)) return 0;
+  if (/^wing[XY](?:Neg|Pos){2}$/.test(panelId)) return -1;
+  if (/^wall[XY](?:Neg|Pos)-inner$/.test(panelId)) return -2;
+  if (/^flapPos(?:Neg|Pos)$/.test(panelId)) return -2;
+  // 延伸段在 extWrap 拍最後才繞角包上相鄰 y 壁 ⇒ 疊在自身角撐（−1）內側。
+  if (/^gussetExt(?:Neg|Pos){2}$/.test(panelId)) return -2;
+  if (/^wallX(?:Neg|Pos)-tongue$/.test(panelId)) return -2;
+  if (/^wallY(?:Neg|Pos)-tongue$/.test(panelId)) return -3;
+  // 同壁兩翼錯階互卡（§4.6）：flapNeg 先摺 ⇒ 被 flapPos 包在裡面。
+  if (/^flapNeg(?:Neg|Pos)$/.test(panelId)) return -3;
+  return 0;
+}
+
 /** Keeps physical closure layers separate without changing their flat polygons. */
-export function panelOverlapPlan(panelId: string, thickness: number): PanelOverlapPlan {
+export function panelOverlapPlan(scopedPanelId: string, thickness: number): PanelOverlapPlan {
+  const separator = scopedPanelId.indexOf(':');
+  const pieceId = separator === -1 ? '' : scopedPanelId.slice(0, separator);
+  const panelId = separator === -1
+    ? scopedPanelId
+    : scopedPanelId.slice(separator + 1);
   // A full board thickness changes the physical layer; the extra gap prevents the two
   // touching solid faces from remaining coplanar. Zero-thickness card keeps the same gap.
   const layerOffset = Math.max(0, thickness) + SURFACE_GAP_MM;
+  const drawRank = telescopeDrawRank(panelId);
+  if (drawRank !== null) {
+    // 片內 rank 決定繪製先後；跨片偏壓只進繪製軸——否則組裝後下盒的高 rank 面板
+    // （內壁 8／角翼 9-10）會用深度偏壓贏過上蓋底板（0），俯視穿透上蓋。
+    const drawLayer = drawRank + (TELESCOPE_PIECE_DRAW_BIAS[pieceId] ?? 0);
+    return {
+      // 深度偏壓**只該打破共面平手**，不該表達層級：rank 跨度 16（−6..10）直接當
+      // 偏壓會讓盒內面板（tongue 9／角翼 10）穿透相距數 mm 的外壁（−4）。層距本身
+      // 已由 normalOffset 實體拉開、先後由 renderOrder 決定，故偏壓限幅到 ±1
+      // ——夠解共面 z-fighting，不足以打穿真實深度。
+      polygonOffsetUnits: -Math.sign(drawRank),
+      // ⚠ 這裡吃的是**實體疊層索引**不是 rank：兩者曾共用同一組數字，使位移量級
+      // 與真實層距同量級而顛倒內外（薄片外露）。三軸各自的職責見 Spec §4.7。
+      normalOffset: telescopeStackIndex(panelId) * layerOffset,
+      renderOrder: drawLayer,
+    };
+  }
 
   const isTuck = panelId === 'topTuck' || panelId === 'bottomTuck';
   if (isTuck) {
@@ -1148,14 +1263,18 @@ function seamLinePositions(
   seam: NonNullable<FoldModel['seams']>[number],
   poseContext: PanelRenderPoseContext,
   surfaceDirection: -1 | 1,
+  assemblyDelta?: Transform,
 ): Float32Array {
   const panel = poseContext.model.panels.find(({ id }) => id === seam.ownerPanelId);
   if (!panel) throw new Error(`Unknown seam owner panel "${seam.ownerPanelId}"`);
   const normal = firstFaceNormal(renderedPanelVertices(panel, poseContext));
   if (!normal) throw new Error(`Cannot determine seam normal for panel "${panel.id}"`);
-  const points = expandPolylineSegments(
+  const localPoints = expandPolylineSegments(
     seam.points.map((point) => panelRenderPoint(panel.id, point, poseContext)),
   );
+  const points = assemblyDelta === undefined
+    ? localPoints
+    : localPoints.map((point) => applyTransform(assemblyDelta, point));
   const positions = new Float32Array(points.length * 3);
   const offset = SEAM_SURFACE_OFFSET_MM * surfaceDirection;
 
@@ -1208,7 +1327,8 @@ export interface CustomArtworkSource {
 
 export interface FoldSceneHandle {
   updatePose(t: number): void;
-  replaceModel(model: FoldModel, opts?: { thickness?: number }): void;
+  replaceModel(model: FoldModel, opts?: FoldSceneReplaceOptions): void;
+  replaceScene(scene: ResolvedSceneSpec, opts?: FoldSceneReplaceOptions): void;
   setAutoRotate(on: boolean): void;
   applyRecipe(name: FoldRecipeName): void;
   applyArtwork(mode: ArtworkMode): void;
@@ -1216,6 +1336,11 @@ export interface FoldSceneHandle {
   removeCustomSource(): void;
   resize(width: number, height: number): void;
   dispose(): void;
+}
+
+export interface FoldSceneReplaceOptions {
+  thickness?: number;
+  worldUp?: FoldWorldUp;
 }
 
 export interface GeometryBounds {
@@ -1522,30 +1647,31 @@ function disposeContactShadow(shadow: ContactShadow): void {
 
 function boundsForGeometry(
   geometryByPanel: ReadonlyMap<string, Vec3[]>,
+  worldUp: FoldWorldUp,
 ): GeometryBounds | null {
   let bounds: GeometryBounds | null = null;
 
   for (const vertices of geometryByPanel.values()) {
     for (const vertex of vertices) {
-      const y = mapDielineY(vertex.y);
+      const world = modelVertexToWorld(vertex, worldUp);
       if (!bounds) {
         bounds = {
-          minX: vertex.x,
-          maxX: vertex.x,
-          minY: y,
-          maxY: y,
-          minZ: vertex.z,
-          maxZ: vertex.z,
+          minX: world.x,
+          maxX: world.x,
+          minY: world.y,
+          maxY: world.y,
+          minZ: world.z,
+          maxZ: world.z,
         };
         continue;
       }
 
-      bounds.minX = Math.min(bounds.minX, vertex.x);
-      bounds.maxX = Math.max(bounds.maxX, vertex.x);
-      bounds.minY = Math.min(bounds.minY, y);
-      bounds.maxY = Math.max(bounds.maxY, y);
-      bounds.minZ = Math.min(bounds.minZ, vertex.z);
-      bounds.maxZ = Math.max(bounds.maxZ, vertex.z);
+      bounds.minX = Math.min(bounds.minX, world.x);
+      bounds.maxX = Math.max(bounds.maxX, world.x);
+      bounds.minY = Math.min(bounds.minY, world.y);
+      bounds.maxY = Math.max(bounds.maxY, world.y);
+      bounds.minZ = Math.min(bounds.minZ, world.z);
+      bounds.maxZ = Math.max(bounds.maxZ, world.z);
     }
   }
 
@@ -1593,6 +1719,71 @@ export interface CameraFrame {
   fitDiagonal: number;
   /** 聚焦對角線＝盒體外廓——near／minDistance 以此定，近縮放不被大紙鎖死。 */
   focusDiagonal: number;
+  /**
+   * 逐時刻的場景外廓對角線（sweep 迴圈順手記下，無額外幾何成本）。
+   * 相機距離改由它驅動：**框住當下真正在畫面裡的東西**，而不是在兩個端點之間 lerp。
+   * 端點 lerp 在中途 sweep 峰值處仍會切到——實測幕二抬升時上蓋離地
+   * `baseRim + lidHeight + clearance`，那一刻的外廓比兩端都大。
+   */
+  distanceTrack: Array<{ time: number; diagonal: number }>;
+}
+
+
+
+export interface CameraPlacement {
+  position: Vec3;
+  /** 相機到 target 的直線距離。 */
+  distance: number;
+  near: number;
+  far: number;
+  minDistance: number;
+  maxDistance: number;
+}
+
+/** 由取景外廓算相機擺位（`fitCamera` 的純函式核心）。
+ *
+ * **距離隨時間排程**（`distanceTrack` 的後綴最大值），不是固定值：
+ * - t=1 取折後盒體外廓 ⇒ 成品填滿畫面。拿攤平 sweep 外廓定距會把成品畫成畫面線性
+ *   尺度的約 12%（telescope 實測 fit/focus = 4.23×），而預覽一開啟就是 t=1
+ *   的成品（`DEFAULT_FOLD_PROGRESS`）。
+ * - 動畫中則取當下真正在畫面裡的東西 ⇒ 全程不出框。**只固定在 focusDiagonal 會切掉
+ *   整個前半段**（兩片還攤在旁邊·跨距約 1000mm）並讓幕二抬升的上蓋整個離開畫面
+ *   ——那是只驗 t=0／t=1 兩端看不出來的，全段序並排才會現形。
+ * 抬升與距離同比例縮放，俯角因此不變。
+ *
+ * `far` 與 `maxDistance` 仍取 fitDiagonal——拖回攤平時使用者縮遠仍看得完整張紙，
+ * 只是不再自動剛好裝滿。`near`／`minDistance` 的來源本來就是 focusDiagonal，不動。
+ */
+export function cameraPlacement(frame: CameraFrame, time = 1): CameraPlacement {
+  const fitDiagonal = Math.max(frame.fitDiagonal, MIN_SCENE_SCALE);
+  const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
+  // 由 distanceTrack 取該時刻的取景外廓（樣本間線性內插）。閘門透過本函式的
+  // `time` 參數驗排程形狀，不另開一個匯出口。
+  let lower = frame.distanceTrack[0];
+  let scheduled = lower?.diagonal ?? focusDiagonal;
+  for (const upper of frame.distanceTrack) {
+    if (upper.time < time) { lower = upper; continue; }
+    const span = upper.time - lower!.time;
+    scheduled = span > 0
+      ? lower!.diagonal + (upper.diagonal - lower!.diagonal) * ((time - lower!.time) / span)
+      : upper.diagonal;
+    break;
+  }
+  const frameDiagonal = Math.max(scheduled, focusDiagonal);
+  const elevation = frameDiagonal * CAMERA_ELEVATION_FACTOR;
+  const depth = frameDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
+  return {
+    position: {
+      x: frame.target.x,
+      y: frame.target.y + elevation,
+      z: frame.target.z + depth,
+    },
+    distance: Math.hypot(elevation, depth),
+    near: Math.max(focusDiagonal * CAMERA_NEAR_FACTOR, 0.01),
+    far: Math.max(fitDiagonal * CAMERA_FAR_FACTOR, 100),
+    minDistance: focusDiagonal * 0.2,
+    maxDistance: fitDiagonal * 6,
+  };
 }
 
 export function cameraOrbitPosition(
@@ -1612,30 +1803,174 @@ export function cameraOrbitPosition(
   };
 }
 
-/**
- * 相機框架與「當下 pose」解耦：軸心永遠是盒體中心，不隨 replaceModel 當下的
- * t 漂移（舊行為在 scene 初始 t=0 時把軸心定在攤平大紙中心，自轉變成繞行）。
- */
-export function computeCameraFrame(model: FoldModel): CameraFrame | null {
-  const foldedBounds = boundsForGeometry(worldGeometry(model, foldPose(1, model)));
-  const flatBounds = boundsForGeometry(worldGeometry(model, foldPose(0, model)));
-  if (!foldedBounds || !flatBounds) return null;
+const TRAY_OPENING_ELEVATION_DEG = 75;
+const TRAY_ASSEMBLY_ELEVATION_DEG = 30;
 
-  const focusDiagonal = boundsDiagonal(foldedBounds);
-  const foldedCenter = {
-    x: (foldedBounds.minX + foldedBounds.maxX) / 2,
-    y: (foldedBounds.minY + foldedBounds.maxY) / 2,
-    z: (foldedBounds.minZ + foldedBounds.maxZ) / 2,
+function smoothstepUnit(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function trayAssemblyStart(scene: ResolvedSceneSpec): number {
+  const starts = scene.pieces
+    .map(({ assemblyTrack }) => assemblyTrack[0]?.time)
+    .filter((time): time is number => time !== undefined);
+  return starts.length === 0 ? 1 : Math.min(...starts);
+}
+
+export function trayCameraElevation(
+  time: number,
+  assemblyStart: number,
+): number {
+  const normalized = assemblyStart > 0 ? time / assemblyStart : 1;
+  return mix(
+    TRAY_OPENING_ELEVATION_DEG,
+    TRAY_ASSEMBLY_ELEVATION_DEG,
+    smoothstepUnit(normalized),
+  );
+}
+
+
+interface EvaluatedPieceRenderContext {
+  assemblyDelta: Transform;
+  poseContext: PanelRenderPoseContext;
+}
+
+function transformGeometryMap(
+  geometry: ReadonlyMap<string, Vec3[]>,
+  transform: Transform,
+): Map<string, Vec3[]> {
+  return new Map(
+    [...geometry].map(([panelId, vertices]) => [
+      panelId,
+      vertices.map((vertex) => applyTransform(transform, vertex)),
+    ]),
+  );
+}
+
+function evaluatePieceRenderContext(
+  piece: ResolvedScenePiece,
+  time: number,
+  thickness: number,
+  knownExteriorFaces?: ReadonlyMap<string, PhysicalPanelFace>,
+): EvaluatedPieceRenderContext {
+  const evaluated = evaluateResolvedScenePiecePose(piece, time);
+  const localContext = createPanelRenderPoseContext(
+    piece.model,
+    evaluated.foldAngles,
+    thickness,
+    knownExteriorFaces,
+  );
+  return {
+    assemblyDelta: evaluated.assemblyDelta,
+    poseContext: {
+      ...localContext,
+      worldGeometryByPanel: transformGeometryMap(
+        localContext.worldGeometryByPanel,
+        evaluated.assemblyDelta,
+      ),
+      renderedVerticesByPanel: transformGeometryMap(
+        localContext.renderedVerticesByPanel,
+        evaluated.assemblyDelta,
+      ),
+    },
   };
+}
+
+function mergeBounds(
+  aggregate: GeometryBounds | null,
+  next: GeometryBounds | null,
+): GeometryBounds | null {
+  if (next === null) return aggregate;
+  if (aggregate === null) return { ...next };
+  aggregate.minX = Math.min(aggregate.minX, next.minX);
+  aggregate.maxX = Math.max(aggregate.maxX, next.maxX);
+  aggregate.minY = Math.min(aggregate.minY, next.minY);
+  aggregate.maxY = Math.max(aggregate.maxY, next.maxY);
+  aggregate.minZ = Math.min(aggregate.minZ, next.minZ);
+  aggregate.maxZ = Math.max(aggregate.maxZ, next.maxZ);
+  return aggregate;
+}
+
+function sceneBoundsAt(
+  scene: ResolvedSceneSpec,
+  time: number,
+  thickness: number,
+  worldUp: FoldWorldUp,
+): GeometryBounds | null {
+  let bounds: GeometryBounds | null = null;
+  for (const piece of scene.pieces) {
+    const { poseContext } = evaluatePieceRenderContext(piece, time, thickness);
+    bounds = mergeBounds(
+      bounds,
+      boundsForGeometry(poseContext.renderedVerticesByPanel, worldUp),
+    );
+  }
+  return bounds;
+}
+
+const CAMERA_SWEEP_INTERVALS = 100;
+
+function cameraSweepTimes(scene: ResolvedSceneSpec): number[] {
+  const times = new Set<number>([0, 1]);
+  for (let index = 0; index <= CAMERA_SWEEP_INTERVALS; index += 1) {
+    times.add(index / CAMERA_SWEEP_INTERVALS);
+  }
+  for (const piece of scene.pieces) {
+    times.add(piece.foldWindow[0]);
+    times.add(piece.foldWindow[1]);
+    for (const keyframe of piece.assemblyTrack) times.add(keyframe.time);
+  }
+  return [...times].sort((left, right) => left - right);
+}
+
+/** 多片場景以完整時間軸 sweep 合併取景，避免組裝軌中途越出 flat/final 外廓。 */
+export function computeSceneCameraFrame(
+  scene: ResolvedSceneSpec,
+  thickness: number,
+  worldUp: FoldWorldUp = 'tube',
+): CameraFrame | null {
+  const finalBounds = sceneBoundsAt(scene, 1, thickness, worldUp);
+  if (finalBounds === null) return null;
+
+  let sweepBounds: GeometryBounds | null = null;
+  const distanceTrack: Array<{ time: number; diagonal: number }> = [];
+  for (const time of cameraSweepTimes(scene)) {
+    const timeBounds = sceneBoundsAt(scene, time, thickness, worldUp);
+    sweepBounds = mergeBounds(sweepBounds, timeBounds);
+    if (timeBounds !== null) {
+      distanceTrack.push({ time, diagonal: boundsDiagonal(timeBounds) });
+    }
+  }
+  // 取**後綴最大值**：每個時刻的取景外廓 = 從此刻到終點之間的最大外廓。
+  // 原始曲線在幕二抬升處有個凸起（上蓋離地 baseRim+lidHeight+clearance，
+  // 實測 t=0.75→0.80 由 590 漲到 691 再落回），直接照用會讓相機先退再進、看起來會晃。
+  // 後綴最大化後曲線**單調不增**：相機只會往內收、不會往外退，而且仍然全程不出框。
+  // 代價是 t≈0.60–0.75 比最小必要值寬約 16%。
+  for (let index = distanceTrack.length - 2; index >= 0; index -= 1) {
+    distanceTrack[index]!.diagonal = Math.max(
+      distanceTrack[index]!.diagonal,
+      distanceTrack[index + 1]!.diagonal,
+    );
+  }
+  if (sweepBounds === null) return null;
+
+  const finalCenter = {
+    x: (finalBounds.minX + finalBounds.maxX) / 2,
+    y: (finalBounds.minY + finalBounds.maxY) / 2,
+    z: (finalBounds.minZ + finalBounds.maxZ) / 2,
+  };
+  const focusDiagonal = boundsDiagonal(finalBounds);
   return {
     target: { x: 0, y: 0, z: 0 },
     modelOffset: {
-      x: -foldedCenter.x,
-      y: -foldedCenter.y,
-      z: -foldedCenter.z,
+      x: -finalCenter.x,
+      y: -finalCenter.y,
+      z: -finalCenter.z,
     },
-    fitDiagonal: Math.max(boundsDiagonal(flatBounds), focusDiagonal),
+    fitDiagonal: Math.max(boundsDiagonal(sweepBounds), focusDiagonal),
     focusDiagonal,
+    distanceTrack,
   };
 }
 
@@ -1669,6 +2004,7 @@ export function createFoldScene(
     0.1,
     100,
   );
+  camera.up.set(0, 1, 0);
   camera.position.set(0, 1.5, 4);
 
   const controls = new OrbitControls(camera, canvas);
@@ -1696,9 +2032,13 @@ export function createFoldScene(
   modelRoot.name = 'fold-model-root';
   scene.add(modelRoot);
 
+  const sceneRoot = new Group();
+  sceneRoot.name = 'fold-scene-root';
+  modelRoot.add(sceneRoot);
+
   const panelRoot = new Group();
   panelRoot.name = 'fold-panel-root';
-  modelRoot.add(panelRoot);
+  sceneRoot.add(panelRoot);
 
   let contactShadow = createContactShadow();
   modelRoot.add(contactShadow.mesh);
@@ -1716,15 +2056,25 @@ export function createFoldScene(
     opacity: 1,
     transparent: false,
   });
-  const seamLines: Array<{
+  type SeamLinePair = {
     negative: LineSegments<BufferGeometry, LineBasicMaterial>;
     positive: LineSegments<BufferGeometry, LineBasicMaterial>;
-  }> = [];
+  };
+  interface PieceRuntime {
+    piece: ResolvedScenePiece;
+    exteriorFaceByPanel: Map<string, PhysicalPanelFace>;
+    seamLines: SeamLinePair[];
+  }
+  const pieceRuntimes = new Map<string, PieceRuntime>();
   const panelTriangulations = new Map<string, number[]>();
-  let exteriorFaceByPanel = new Map<string, PhysicalPanelFace>();
-  let currentModel: FoldModel | null = null;
+  let currentScene: ResolvedSceneSpec | null = null;
   let currentThickness = 0;
   let currentT = 0;
+  let currentWorldUp: FoldWorldUp = 'tube';
+  let cameraElevationScheduleActive = false;
+  let cameraElevationScheduleEnd = 1;
+  /** 排程距離的取景資料；null＝無排程（單片盒型／使用者已接手）。 */
+  let scheduledCameraFrame: CameraFrame | null = null;
   let frameId: number | null = null;
   let needsRender = true;
   let contextLost = false;
@@ -1732,72 +2082,98 @@ export function createFoldScene(
   let sampleArtworkImage: HTMLImageElement | null = null;
   let sampleArtworkLoad: Promise<void> | null = null;
 
+  const panelKey = (pieceId: string, panelId: string): string =>
+    `${pieceId}:${panelId}`;
+
   const disposePanelTree = (): void => {
     for (const mesh of panelMeshes.values()) {
       mesh.geometry.dispose();
     }
     panelMeshes.clear();
-    for (const { negative, positive } of seamLines) {
-      negative.geometry.dispose();
-      positive.geometry.dispose();
+    for (const runtime of pieceRuntimes.values()) {
+      for (const { negative, positive } of runtime.seamLines) {
+        negative.geometry.dispose();
+        positive.geometry.dispose();
+      }
     }
-    seamLines.length = 0;
     panelRoot.clear();
+    pieceRuntimes.clear();
     for (const { artwork, paper } of panelMaterials.values()) {
       artwork.dispose();
       paper.dispose();
     }
     panelMaterials.clear();
     panelTriangulations.clear();
-    exteriorFaceByPanel.clear();
   };
 
   const createSeamLine = (
+    pieceId: string,
     seam: NonNullable<FoldModel['seams']>[number],
     seamIndex: number,
     surfaceDirection: -1 | 1,
     poseContext: PanelRenderPoseContext,
+    assemblyDelta: Transform,
   ): LineSegments<BufferGeometry, LineBasicMaterial> => {
+    const ownerPanelId = panelKey(pieceId, seam.ownerPanelId);
     const geometry = new BufferGeometry();
     geometry.setAttribute(
       'position',
-      new BufferAttribute(seamLinePositions(seam, poseContext, surfaceDirection), 3),
+      new BufferAttribute(
+        seamLinePositions(
+          seam,
+          poseContext,
+          surfaceDirection,
+          assemblyDelta,
+        ),
+        3,
+      ),
     );
     const line = new LineSegments(geometry, seamMaterial);
     const surface = surfaceDirection === 1 ? 'positive' : 'negative';
-    line.name = `fold-seam:${seamIndex}:${surface}`;
-    line.renderOrder = panelOverlapPlan(seam.ownerPanelId, currentThickness).renderOrder;
-    line.userData.ownerPanelId = seam.ownerPanelId;
+    line.name = `fold-seam:${pieceId}:${seamIndex}:${surface}`;
+    line.renderOrder = panelOverlapPlan(ownerPanelId, currentThickness).renderOrder;
+    line.userData.ownerPanelId = ownerPanelId;
     line.userData.sourcePathId = seam.sourcePathId;
     line.userData.surfaceDirection = surfaceDirection;
     return line;
   };
 
-  const buildPanelTree = (model: FoldModel): void => {
+  const buildPieceTree = (piece: ResolvedScenePiece): void => {
+    const { model, pieceId } = piece;
+    if (pieceRuntimes.has(pieceId)) {
+      throw new Error(`ResolvedSceneSpec piece id 重複：「${pieceId}」`);
+    }
+    const pieceRoot = new Group();
+    pieceRoot.name = `fold-piece:${pieceId}`;
+    panelRoot.add(pieceRoot);
+
     const diagnoses = diagnoseFoldedPanelFaces(model);
     const artworkFace = selectArtworkFace(model, diagnoses);
-    exteriorFaceByPanel = new Map(
+    const exteriorFaceByPanel = new Map(
       diagnoses.map(({ panelId, exteriorFace }) => [panelId, exteriorFace]),
     );
-    const pose = foldPose(currentT, model);
-    const poseContext = createPanelRenderPoseContext(
-      model,
-      pose,
+    const { assemblyDelta, poseContext } = evaluatePieceRenderContext(
+      piece,
+      currentT,
       currentThickness,
       exteriorFaceByPanel,
     );
+    const pieceTriangulations = new Map<string, number[]>();
     for (const panel of model.panels) {
-      panelTriangulations.set(panel.id, earClipIndices(panel.polygon));
+      const triangleIndices = earClipIndices(panel.polygon);
+      pieceTriangulations.set(panel.id, triangleIndices);
+      panelTriangulations.set(panelKey(pieceId, panel.id), triangleIndices);
     }
     const panelArtworkUvs = buildPanelArtworkUvs(
       model,
       currentThickness,
-      panelTriangulations,
+      pieceTriangulations,
     );
 
     for (const panel of model.panels) {
+      const scopedPanelId = panelKey(pieceId, panel.id);
       const geometry = new BufferGeometry();
-      const triangleIndices = panelTriangulations.get(panel.id)!;
+      const triangleIndices = pieceTriangulations.get(panel.id)!;
       const vertices = renderedPanelVertices(panel, poseContext);
       const positions = panelSolidPositions(vertices, triangleIndices, currentThickness);
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
@@ -1817,7 +2193,7 @@ export function createFoldScene(
       for (const group of surfacePlan.groups) {
         geometry.addGroup(group.start, group.count, group.materialIndex);
       }
-      const overlapPlan = panelOverlapPlan(panel.id, currentThickness);
+      const overlapPlan = panelOverlapPlan(scopedPanelId, currentThickness);
       const artworkMaterial = createCardMaterial(
         surfacePlan.artworkSide,
         overlapPlan.polygonOffsetUnits,
@@ -1838,22 +2214,45 @@ export function createFoldScene(
         paperBaseAlbedoTexture,
         paperBumpTexture,
       );
-      panelMaterials.set(panel.id, { artwork: artworkMaterial, paper: paperMaterial });
+      panelMaterials.set(scopedPanelId, {
+        artwork: artworkMaterial,
+        paper: paperMaterial,
+      });
 
       const mesh = new Mesh(geometry, [artworkMaterial, paperMaterial]);
-      mesh.name = `fold-panel:${panel.id}`;
+      mesh.name = `fold-panel:${scopedPanelId}`;
       mesh.renderOrder = overlapPlan.renderOrder;
-      mesh.userData.panelId = panel.id;
-      panelMeshes.set(panel.id, mesh);
-      panelRoot.add(mesh);
+      mesh.userData.panelId = scopedPanelId;
+      panelMeshes.set(scopedPanelId, mesh);
+      pieceRoot.add(mesh);
     }
 
+    const seamLines: SeamLinePair[] = [];
     for (const [seamIndex, seam] of (model.seams ?? []).entries()) {
-      const negative = createSeamLine(seam, seamIndex, -1, poseContext);
-      const positive = createSeamLine(seam, seamIndex, 1, poseContext);
+      const negative = createSeamLine(
+        pieceId,
+        seam,
+        seamIndex,
+        -1,
+        poseContext,
+        assemblyDelta,
+      );
+      const positive = createSeamLine(
+        pieceId,
+        seam,
+        seamIndex,
+        1,
+        poseContext,
+        assemblyDelta,
+      );
       seamLines.push({ negative, positive });
-      panelRoot.add(negative, positive);
+      pieceRoot.add(negative, positive);
     }
+    pieceRuntimes.set(pieceId, {
+      piece,
+      exteriorFaceByPanel,
+      seamLines,
+    });
   };
 
   const updateContactShadow = (bounds: GeometryBounds): void => {
@@ -1867,20 +2266,20 @@ export function createFoldScene(
     contactShadow.mesh.scale.set(placement.size.w, placement.size.h, 1);
   };
 
-  const updateModelPose = (): GeometryBounds | null => {
-    if (!currentModel) return null;
-
-    const pose = foldPose(currentT, currentModel);
-    const poseContext = createPanelRenderPoseContext(
-      currentModel,
-      pose,
+  const updatePiecePose = (runtime: PieceRuntime): GeometryBounds | null => {
+    const { piece, exteriorFaceByPanel } = runtime;
+    const { model, pieceId } = piece;
+    const { assemblyDelta, poseContext } = evaluatePieceRenderContext(
+      piece,
+      currentT,
       currentThickness,
       exteriorFaceByPanel,
     );
 
-    for (const panel of currentModel.panels) {
-      const mesh = panelMeshes.get(panel.id);
-      const triangleIndices = panelTriangulations.get(panel.id);
+    for (const panel of model.panels) {
+      const scopedPanelId = panelKey(pieceId, panel.id);
+      const mesh = panelMeshes.get(scopedPanelId);
+      const triangleIndices = panelTriangulations.get(scopedPanelId);
       if (!mesh || !triangleIndices) continue;
       const vertices = renderedPanelVertices(panel, poseContext);
 
@@ -1891,30 +2290,75 @@ export function createFoldScene(
       mesh.geometry.computeBoundingSphere();
     }
 
-    for (const [seamIndex, seam] of (currentModel.seams ?? []).entries()) {
-      const pair = seamLines[seamIndex];
+    for (const [seamIndex, seam] of (model.seams ?? []).entries()) {
+      const pair = runtime.seamLines[seamIndex];
       if (!pair) continue;
       for (const [surfaceDirection, line] of [
         [-1, pair.negative],
         [1, pair.positive],
       ] as const) {
         const attribute = line.geometry.getAttribute('position') as BufferAttribute;
-        attribute.copyArray(seamLinePositions(seam, poseContext, surfaceDirection));
+        attribute.copyArray(seamLinePositions(
+          seam,
+          poseContext,
+          surfaceDirection,
+          assemblyDelta,
+        ));
         attribute.needsUpdate = true;
         line.geometry.computeBoundingSphere();
       }
     }
+    return boundsForGeometry(
+      poseContext.renderedVerticesByPanel,
+      currentWorldUp,
+    );
+  };
 
-    const bounds = boundsForGeometry(poseContext.worldGeometryByPanel);
+  const updateScenePose = (): GeometryBounds | null => {
+    if (currentScene === null) return null;
+    let bounds: GeometryBounds | null = null;
+    for (const runtime of pieceRuntimes.values()) {
+      bounds = mergeBounds(bounds, updatePiecePose(runtime));
+    }
     if (bounds) updateContactShadow(bounds);
     needsRender = true;
     return bounds;
   };
 
+  const updateScheduledCamera = (): void => {
+    if (!cameraElevationScheduleActive) return;
+    const target = {
+      x: controls.target.x,
+      y: controls.target.y,
+      z: controls.target.z,
+    };
+    const deltaX = camera.position.x - target.x;
+    const deltaZ = camera.position.z - target.z;
+    const azimuth = Math.atan2(deltaX, deltaZ) * 180 / Math.PI;
+    // 距離與仰角同走排程。使用者一碰控制項 `onControlsStart` 就把
+    // `cameraElevationScheduleActive` 關掉，所以手動縮放不會被排程蓋回去。
+    const scheduled = scheduledCameraFrame === null
+      ? camera.position.distanceTo(controls.target)
+      : cameraPlacement(scheduledCameraFrame, currentT).distance;
+    const position = cameraOrbitPosition(
+      target,
+      scheduled,
+      azimuth,
+      trayCameraElevation(currentT, cameraElevationScheduleEnd),
+    );
+    camera.position.set(position.x, position.y, position.z);
+    controls.update();
+    needsRender = true;
+  };
+
   const fitCamera = (frame: CameraFrame): void => {
-    const fitDiagonal = Math.max(frame.fitDiagonal, MIN_SCENE_SCALE);
-    const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
-    const cameraDistance = fitDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
+    scheduledCameraFrame = frame;
+    // ⚠ 固定取終態取景，**不要用 `currentT`**：`currentT` 初始為 0，而 FoldView 是
+    // 先 `replaceScene`（內含本函式）才 `updatePose`，用它會讓每個盒型的初始視距
+    // 都落在攤平尺度上（實測讓 RTE 的圖稿投影 oracle 取樣到紙色）。
+    // 動畫中的距離由 `updateScheduledCamera` 負責，且只對盤式啟用——
+    // 管式盒族因此完全維持原行為。
+    const placement = cameraPlacement(frame);
 
     modelRoot.position.set(
       frame.modelOffset.x,
@@ -1923,16 +2367,17 @@ export function createFoldScene(
     );
     controls.target.set(frame.target.x, frame.target.y, frame.target.z);
     camera.position.set(
-      frame.target.x,
-      frame.target.y + fitDiagonal * CAMERA_ELEVATION_FACTOR,
-      frame.target.z + cameraDistance,
+      placement.position.x,
+      placement.position.y,
+      placement.position.z,
     );
-    camera.near = Math.max(focusDiagonal * CAMERA_NEAR_FACTOR, 0.01);
-    camera.far = Math.max(fitDiagonal * CAMERA_FAR_FACTOR, 100);
+    camera.near = placement.near;
+    camera.far = placement.far;
     camera.updateProjectionMatrix();
-    controls.minDistance = focusDiagonal * 0.2;
-    controls.maxDistance = fitDiagonal * 6;
+    controls.minDistance = placement.minDistance;
+    controls.maxDistance = placement.maxDistance;
     controls.update();
+    updateScheduledCamera();
   };
 
   const updateLightRig = (): void => {
@@ -2001,8 +2446,13 @@ export function createFoldScene(
         customArtworkSource,
       );
     }
-    if (currentModel === null || sampleArtworkImage === null) return paperBaseAlbedoTexture;
-    const flatGeometry = worldGeometry(currentModel, foldPose(0, currentModel));
+    const artworkModel = currentScene?.pieces.length === 1
+      ? currentScene.pieces[0]!.model
+      : null;
+    if (artworkModel === null || sampleArtworkImage === null) {
+      return paperBaseAlbedoTexture;
+    }
+    const flatGeometry = worldGeometry(artworkModel, foldPose(0, artworkModel));
     return createSampleArtworkTexture(
       paperBaseAlbedoTexture.image as HTMLCanvasElement,
       flatGeometry,
@@ -2110,6 +2560,9 @@ export function createFoldScene(
 
   let devSetLook: ((name: FoldRecipeName) => void) | null = null;
   let devSetCameraOrbit: ((azimuthDeg: number, elevationDeg: number) => void) | null = null;
+  let devSetPanelVisible:
+    ((panelId: string, visible: boolean) => boolean)
+    | null = null;
   if (P3_TEST_HOOKS_ENABLED) {
     devSetLook = applyRecipe;
     devSetCameraOrbit = (azimuthDeg: number, elevationDeg: number) => {
@@ -2132,7 +2585,7 @@ export function createFoldScene(
     (window as unknown as Record<string, unknown>).__p3SetCameraOrbit = devSetCameraOrbit;
     // 視覺歸因儀器：逐片顯隱＋截圖 diff 可判定「畫面上這塊像素屬於哪片 panel」
     // （殘留輪廓的 owner 認定不靠肉眼猜）。
-    (window as unknown as Record<string, unknown>).__p3SetPanelVisible = (
+    devSetPanelVisible = (
       panelId: string,
       visible: boolean,
     ): boolean => {
@@ -2142,6 +2595,8 @@ export function createFoldScene(
       markNeedsRender();
       return true;
     };
+    (window as unknown as Record<string, unknown>).__p3SetPanelVisible =
+      devSetPanelVisible;
   }
 
   const resize = (width: number, height: number): void => {
@@ -2156,6 +2611,7 @@ export function createFoldScene(
   const onControlsChange = (): void => markNeedsRender();
   const onControlsStart = (): void => {
     controls.autoRotate = false;
+    cameraElevationScheduleActive = false;
     opts.onUserInteract?.();
     markNeedsRender();
   };
@@ -2187,14 +2643,14 @@ export function createFoldScene(
     contactShadow = createContactShadow();
     modelRoot.add(contactShadow.mesh);
 
-    modelRoot.remove(panelRoot);
+    sceneRoot.remove(panelRoot);
     disposePanelTree();
     if (activeArtwork !== 'none') refreshArtworkAlbedo();
-    if (currentModel) {
-      buildPanelTree(currentModel);
-      updateModelPose();
+    if (currentScene) {
+      for (const piece of currentScene.pieces) buildPieceTree(piece);
+      updateScenePose();
     }
-    modelRoot.add(panelRoot);
+    sceneRoot.add(panelRoot);
 
     contextLost = false;
     markNeedsRender();
@@ -2203,25 +2659,62 @@ export function createFoldScene(
   canvas.addEventListener('webglcontextlost', onContextLost);
   canvas.addEventListener('webglcontextrestored', onContextRestored);
 
+  const replaceScene = (
+    nextScene: ResolvedSceneSpec,
+    replaceOpts: FoldSceneReplaceOptions = {},
+  ): void => {
+    currentScene = nextScene;
+    currentThickness = replaceOpts.thickness ?? 0;
+    currentWorldUp = replaceOpts.worldUp ?? 'tube';
+    cameraElevationScheduleActive = currentWorldUp === 'tray';
+    cameraElevationScheduleEnd = trayAssemblyStart(nextScene);
+    const orientation = SCENE_TO_WORLD_QUATERNIONS[currentWorldUp];
+    sceneRoot.quaternion.set(
+      orientation.x,
+      orientation.y,
+      orientation.z,
+      orientation.w,
+    );
+    sceneRoot.updateMatrix();
+    disposePanelTree();
+    if (activeArtwork !== 'none') refreshArtworkAlbedo();
+    try {
+      for (const piece of nextScene.pieces) buildPieceTree(piece);
+      updateScenePose();
+      const frame = computeSceneCameraFrame(
+        nextScene,
+        currentThickness,
+        currentWorldUp,
+      );
+      if (frame) fitCamera(frame);
+      markNeedsRender();
+    } catch (error) {
+      disposePanelTree();
+      currentScene = null;
+      throw error;
+    }
+  };
+
   scheduleRender();
 
   return {
     updatePose(t) {
       currentT = Number.isFinite(t) ? t : 0;
-      updateModelPose();
+      updateScenePose();
+      updateScheduledCamera();
       scheduleRender();
     },
     replaceModel(model, replaceOpts = {}) {
-      currentModel = model;
-      currentThickness = replaceOpts.thickness ?? 0;
-      disposePanelTree();
-      if (activeArtwork !== 'none') refreshArtworkAlbedo();
-      buildPanelTree(model);
-      updateModelPose();
-      const frame = computeCameraFrame(model);
-      if (frame) fitCamera(frame);
-      markNeedsRender();
+      replaceScene({
+        pieces: [{
+          pieceId: 'single',
+          model,
+          foldWindow: [0, 1],
+          assemblyTrack: [],
+        }],
+      }, replaceOpts);
     },
+    replaceScene,
     setAutoRotate(on) {
       controls.autoRotate = on;
       markNeedsRender();
@@ -2248,6 +2741,14 @@ export function createFoldScene(
       ) {
         delete (window as unknown as Record<string, unknown>).__p3SetCameraOrbit;
       }
+      if (
+        P3_TEST_HOOKS_ENABLED
+        && devSetPanelVisible
+        && (window as unknown as Record<string, unknown>).__p3SetPanelVisible
+          === devSetPanelVisible
+      ) {
+        delete (window as unknown as Record<string, unknown>).__p3SetPanelVisible;
+      }
       cancelRenderLoop();
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
@@ -2264,7 +2765,7 @@ export function createFoldScene(
       disposeContactShadow(contactShadow);
       scene.clear();
       renderer.dispose();
-      currentModel = null;
+      currentScene = null;
     },
   };
 }
