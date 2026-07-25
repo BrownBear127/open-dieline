@@ -824,3 +824,85 @@ it('RTE 對照組：位移公式全盒型共用', () => {
     expectRenderDisplacementMatchesGolden(model, panelId, pose, geometry, faces);
   }
 });
+
+/**
+ * AC-T9b：三軸職責斷言（單元級·不需渲染）。
+ *
+ * 這三條是 Spec §6 AC-T9 sabotage ① 唯一的證人——移除跨片繪製偏壓時，
+ * T9a（像素）**不會**紅（正式遮擋機制本身仍正確，畫面可能照樣乾淨），
+ * Spec 自己就寫過「以 T9a 當此式的證人會得到假綠」。獨立 review 實測：
+ * 把 `TELESCOPE_PIECE_DRAW_BIAS` 三個值全歸零，全套測試零失敗。
+ */
+function telescopePiecePanelIds(): Map<string, string[]> {
+  const params = resolveParams(telescope, { linerEnabled: true });
+  const ids = new Map<string, string[]>();
+  for (const piece of buildTelescopeSceneSpec(params).pieces) {
+    ids.set(piece.pieceId, piece.buildModel(params).panels.map(({ id }) => id));
+  }
+  return ids;
+}
+
+it('AC-T9b：normalOffset 只吃片內層號——同 panel id 跨 piece 必相等', () => {
+  const byPiece = telescopePiecePanelIds();
+  const seen = new Map<string, { pieceId: string; offset: number }>();
+  let compared = 0;
+  for (const [pieceId, panelIds] of byPiece) {
+    for (const panelId of panelIds) {
+      const { normalOffset } = panelOverlapPlan(`${pieceId}:${panelId}`, 0.3);
+      const previous = seen.get(panelId);
+      if (previous === undefined) {
+        seen.set(panelId, { pieceId, offset: normalOffset });
+        continue;
+      }
+      compared += 1;
+      expect(
+        normalOffset,
+        `${panelId}：${previous.pieceId} 與 ${pieceId} 的實體疊層位移必須相同`
+        + '（跨片差異只准走 renderOrder，進 normalOffset 會把幾何真的移開）',
+      ).toBe(previous.offset);
+    }
+  }
+  // 非空證明：panel id 若改名到沒有任何一個跨片重複，上面的迴圈會一次都不比就通過。
+  // 注意 liner 的 id（linerPad／linerLeg*）與 base／lid 完全不相交，所以能比的是
+  // base↔lid 那一組——判準得是「實際比過幾對」，不是「三片共用幾個 id」（那恆為 0）。
+  expect(compared, '跨片一致性必須實際比對過至少一組同名 panel').toBeGreaterThan(0);
+});
+
+it('AC-T9b：renderOrder 跨片嚴格分離——liner < base < lid 三個區間不重疊', () => {
+  const byPiece = telescopePiecePanelIds();
+  const ranges = new Map<string, { min: number; max: number }>();
+  for (const [pieceId, panelIds] of byPiece) {
+    const orders = panelIds.map(
+      (panelId) => panelOverlapPlan(`${pieceId}:${panelId}`, 0.3).renderOrder,
+    );
+    expect(orders.length, `${pieceId} 無 panel`).toBeGreaterThan(0);
+    ranges.set(pieceId, { min: Math.min(...orders), max: Math.max(...orders) });
+  }
+  const order = ['liner', 'base', 'lid'];
+  for (const pieceId of order) {
+    expect(ranges.get(pieceId), `缺少 ${pieceId}（liner 需 linerEnabled）`).toBeDefined();
+  }
+  for (let index = 1; index < order.length; index += 1) {
+    const lower = ranges.get(order[index - 1]!)!;
+    const upper = ranges.get(order[index]!)!;
+    expect(
+      lower.max,
+      `${order[index - 1]} 的 renderOrder 上界 ${lower.max} 必須低於 `
+      + `${order[index]} 的下界 ${upper.min}——區間一旦重疊，下盒面板就可能`
+      + '在組裝終態用繪製順序贏過上蓋',
+    ).toBeLessThan(upper.min);
+  }
+});
+
+it('AC-T9b：|polygonOffsetUnits| ≤ 1——深度偏壓只准一個量子', () => {
+  const byPiece = telescopePiecePanelIds();
+  for (const [pieceId, panelIds] of byPiece) {
+    for (const panelId of panelIds) {
+      const { polygonOffsetUnits } = panelOverlapPlan(`${pieceId}:${panelId}`, 0.3);
+      expect(
+        Math.abs(polygonOffsetUnits),
+        `${pieceId}:${panelId} 的 polygonOffsetUnits=${polygonOffsetUnits}`,
+      ).toBeLessThanOrEqual(1);
+    }
+  }
+});
