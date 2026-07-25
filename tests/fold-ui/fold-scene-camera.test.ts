@@ -161,7 +161,7 @@ describe('cameraPlacement（預設取景以折後盒體定距）', () => {
     expect(angle(small)).toBeCloseTo(Math.atan2(0.28, 2), 12);
   });
 
-  it('telescope 預設落在實測「零透出」的視距內', () => {
+  it('telescope 預設視距嚴格近於攤平取景——revert 會當場紅', () => {
     const telescopeFrame = computeSceneCameraFrame(
       resolveFoldSceneSpec(
         buildTelescopeSceneSpec(telescopeParams),
@@ -171,11 +171,13 @@ describe('cameraPlacement（預設取景以折後盒體定距）', () => {
     )!;
     const placement = cameraPlacement(telescopeFrame);
 
-    // 外部像素量測（俯視下隱藏下盒前後對拍取差集·同場景藏上蓋當正對照得 902,393px）：
-    //   相機距離 770mm → 下盒透出 655px；560mm → 1px；475mm → 0px；288mm → 0px。
-    // 成因＝上蓋底板與下盒壁頂的 1.35mm 高差投影到螢幕不足半個 MSAA 取樣間距。
-    // 這條釘的是量出來的懸崖，不是公式本身。
-    expect(placement.distance).toBeLessThanOrEqual(560);
+    // ⚠ 這裡**刻意不放一個 mm 門檻**。俯視殘餘的成因是次像素視差，它同時隨
+    // 盒體尺寸、裝置像素比與畫布大小變化——實測預設列 dsf=2 得 0px、dsf=1 得 328px，
+    // 而 600mm 盒即使在正確取景下仍有殘餘。任何「距離 ≤ N mm 就安全」的常數都會
+    // 把一個多變數現象壓成單一數字，並暗示一個我自己的資料就推翻的保證。
+    // 真正的判準是像素層的 `e2e/fold-showthrough.spec.ts`（跨三個尺寸列）。
+    // 此處只留一條無魔數的回歸絆線：取景必須仍錨在折後盒體上。
+    expect(placement.distance).toBeLessThan(telescopeFrame.fitDiagonal);
   });
 });
 
