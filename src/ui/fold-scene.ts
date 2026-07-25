@@ -1719,7 +1719,16 @@ export interface CameraFrame {
   fitDiagonal: number;
   /** 聚焦對角線＝盒體外廓——near／minDistance 以此定，近縮放不被大紙鎖死。 */
   focusDiagonal: number;
+  /**
+   * 逐時刻的場景外廓對角線（sweep 迴圈順手記下，無額外幾何成本）。
+   * 相機距離改由它驅動：**框住當下真正在畫面裡的東西**，而不是在兩個端點之間 lerp。
+   * 端點 lerp 在中途 sweep 峰值處仍會切到——實測幕二抬升時上蓋離地
+   * `baseRim + lidHeight + clearance`，那一刻的外廓比兩端都大。
+   */
+  distanceTrack: Array<{ time: number; diagonal: number }>;
 }
+
+
 
 export interface CameraPlacement {
   position: Vec3;
@@ -1733,18 +1742,34 @@ export interface CameraPlacement {
 
 /** 由取景外廓算相機擺位（`fitCamera` 的純函式核心）。
  *
- * **初始距離取「折後盒體」外廓（focusDiagonal）而非攤平 sweep 外廓（fitDiagonal）**：
- * 摺盒預覽一開啟就是 t=1 的成品（`DEFAULT_FOLD_PROGRESS`），拿攤平那一刻的外廓定距
- * 會把成品畫成畫面線性尺度的約 12%（telescope 實測 fit/focus = 4.23×）。
- * 抬升與距離同取 focusDiagonal，俯角因此不變。
+ * **距離隨時間排程**（`distanceTrack` 的後綴最大值），不是固定值：
+ * - t=1 取折後盒體外廓 ⇒ 成品填滿畫面。拿攤平 sweep 外廓定距會把成品畫成畫面線性
+ *   尺度的約 12%（telescope 實測 fit/focus = 4.23×），而預覽一開啟就是 t=1
+ *   的成品（`DEFAULT_FOLD_PROGRESS`）。
+ * - 動畫中則取當下真正在畫面裡的東西 ⇒ 全程不出框。**只固定在 focusDiagonal 會切掉
+ *   整個前半段**（兩片還攤在旁邊·跨距約 1000mm）並讓幕二抬升的上蓋整個離開畫面
+ *   ——那是只驗 t=0／t=1 兩端看不出來的，全段序並排才會現形。
+ * 抬升與距離同比例縮放，俯角因此不變。
  *
  * `far` 與 `maxDistance` 仍取 fitDiagonal——拖回攤平時使用者縮遠仍看得完整張紙，
  * 只是不再自動剛好裝滿。`near`／`minDistance` 的來源本來就是 focusDiagonal，不動。
  */
-export function cameraPlacement(frame: CameraFrame): CameraPlacement {
+export function cameraPlacement(frame: CameraFrame, time = 1): CameraPlacement {
   const fitDiagonal = Math.max(frame.fitDiagonal, MIN_SCENE_SCALE);
   const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
-  const frameDiagonal = focusDiagonal;
+  // 由 distanceTrack 取該時刻的取景外廓（樣本間線性內插）。閘門透過本函式的
+  // `time` 參數驗排程形狀，不另開一個匯出口。
+  let lower = frame.distanceTrack[0];
+  let scheduled = lower?.diagonal ?? focusDiagonal;
+  for (const upper of frame.distanceTrack) {
+    if (upper.time < time) { lower = upper; continue; }
+    const span = upper.time - lower!.time;
+    scheduled = span > 0
+      ? lower!.diagonal + (upper.diagonal - lower!.diagonal) * ((time - lower!.time) / span)
+      : upper.diagonal;
+    break;
+  }
+  const frameDiagonal = Math.max(scheduled, focusDiagonal);
   const elevation = frameDiagonal * CAMERA_ELEVATION_FACTOR;
   const depth = frameDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
   return {
@@ -1909,10 +1934,23 @@ export function computeSceneCameraFrame(
   if (finalBounds === null) return null;
 
   let sweepBounds: GeometryBounds | null = null;
+  const distanceTrack: Array<{ time: number; diagonal: number }> = [];
   for (const time of cameraSweepTimes(scene)) {
-    sweepBounds = mergeBounds(
-      sweepBounds,
-      sceneBoundsAt(scene, time, thickness, worldUp),
+    const timeBounds = sceneBoundsAt(scene, time, thickness, worldUp);
+    sweepBounds = mergeBounds(sweepBounds, timeBounds);
+    if (timeBounds !== null) {
+      distanceTrack.push({ time, diagonal: boundsDiagonal(timeBounds) });
+    }
+  }
+  // 取**後綴最大值**：每個時刻的取景外廓 = 從此刻到終點之間的最大外廓。
+  // 原始曲線在幕二抬升處有個凸起（上蓋離地 baseRim+lidHeight+clearance，
+  // 實測 t=0.75→0.80 由 590 漲到 691 再落回），直接照用會讓相機先退再進、看起來會晃。
+  // 後綴最大化後曲線**單調不增**：相機只會往內收、不會往外退，而且仍然全程不出框。
+  // 代價是 t≈0.60–0.75 比最小必要值寬約 16%。
+  for (let index = distanceTrack.length - 2; index >= 0; index -= 1) {
+    distanceTrack[index]!.diagonal = Math.max(
+      distanceTrack[index]!.diagonal,
+      distanceTrack[index + 1]!.diagonal,
     );
   }
   if (sweepBounds === null) return null;
@@ -1932,6 +1970,7 @@ export function computeSceneCameraFrame(
     },
     fitDiagonal: Math.max(boundsDiagonal(sweepBounds), focusDiagonal),
     focusDiagonal,
+    distanceTrack,
   };
 }
 
@@ -2034,6 +2073,8 @@ export function createFoldScene(
   let currentWorldUp: FoldWorldUp = 'tube';
   let cameraElevationScheduleActive = false;
   let cameraElevationScheduleEnd = 1;
+  /** 排程距離的取景資料；null＝無排程（單片盒型／使用者已接手）。 */
+  let scheduledCameraFrame: CameraFrame | null = null;
   let frameId: number | null = null;
   let needsRender = true;
   let contextLost = false;
@@ -2294,9 +2335,14 @@ export function createFoldScene(
     const deltaX = camera.position.x - target.x;
     const deltaZ = camera.position.z - target.z;
     const azimuth = Math.atan2(deltaX, deltaZ) * 180 / Math.PI;
+    // 距離與仰角同走排程。使用者一碰控制項 `onControlsStart` 就把
+    // `cameraElevationScheduleActive` 關掉，所以手動縮放不會被排程蓋回去。
+    const scheduled = scheduledCameraFrame === null
+      ? camera.position.distanceTo(controls.target)
+      : cameraPlacement(scheduledCameraFrame, currentT).distance;
     const position = cameraOrbitPosition(
       target,
-      camera.position.distanceTo(controls.target),
+      scheduled,
       azimuth,
       trayCameraElevation(currentT, cameraElevationScheduleEnd),
     );
@@ -2306,6 +2352,12 @@ export function createFoldScene(
   };
 
   const fitCamera = (frame: CameraFrame): void => {
+    scheduledCameraFrame = frame;
+    // ⚠ 固定取終態取景，**不要用 `currentT`**：`currentT` 初始為 0，而 FoldView 是
+    // 先 `replaceScene`（內含本函式）才 `updatePose`，用它會讓每個盒型的初始視距
+    // 都落在攤平尺度上（實測讓 RTE 的圖稿投影 oracle 取樣到紙色）。
+    // 動畫中的距離由 `updateScheduledCamera` 負責，且只對盤式啟用——
+    // 管式盒族因此完全維持原行為。
     const placement = cameraPlacement(frame);
 
     modelRoot.position.set(

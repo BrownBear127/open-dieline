@@ -243,3 +243,93 @@ for (const row of ROWS) {
     ).toBeLessThanOrEqual(MAX_AREA_RATIO);
   });
 }
+
+/**
+ * 全段序取景閘門（Spec §9 L4 義務的機器化版本）。
+ *
+ * 由來：把相機從「攤平 sweep 外廓」改成框住折後盒體之後，只驗了 t=0 與 t=1 兩端，
+ * 漏掉中段——實測整個第一幕（t≈0–0.55）兩片還攤在旁邊、跨距約 1000mm 而相機只框 235mm，
+ * 畫面上只看得到碎片；幕二抬升時（t≈0.78–0.88）上蓋更是整個離開畫面。
+ * 「只挑攤平／套合／閉合三個易錨點＝假 CLEAN」正是 Spec §9 點名的失敗形狀。
+ *
+ * 判準：**任何 t 都不得有模型像素觸到畫布邊界**。模型像素＝暗（max<200）或高彩度
+ * （chroma>20）——接觸陰影是淺色近中性（實測 236,232,224），不計入。
+ */
+const MODEL_PIXEL_PROBE = ([b64, sideRatio]: readonly [string, number]) => {
+  const load = (base64: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener('load', () => resolve(image), { once: true });
+    image.addEventListener('error', () => reject(new Error('PNG 解碼失敗')), { once: true });
+    image.src = `data:image/png;base64,${base64}`;
+  });
+  return load(b64).then((image) => {
+    const probe = document.createElement('canvas');
+    probe.width = image.width;
+    probe.height = image.height;
+    const context = probe.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const { data, width, height } = context.getImageData(0, 0, probe.width, probe.height);
+    // 右側工具列疊在畫布上，掃描只取左側 sideRatio 的區域
+    const limit = Math.floor(width * sideRatio);
+    const isModel = (index: number) => {
+      const r = data[index]!;
+      const g = data[index + 1]!;
+      const b = data[index + 2]!;
+      const max = Math.max(r, g, b);
+      return max < 200 || max - Math.min(r, g, b) > 20;
+    };
+    const edges: string[] = [];
+    let modelPixels = 0;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < limit; x += 1) {
+        const index = (y * width + x) * 4;
+        if (!isModel(index)) continue;
+        modelPixels += 1;
+        if (y === 0 && !edges.includes('上')) edges.push('上');
+        if (y === height - 1 && !edges.includes('下')) edges.push('下');
+        if (x === 0 && !edges.includes('左')) edges.push('左');
+      }
+    }
+    return { edges, modelPixels };
+  });
+};
+
+test('全段序取景：任何 t 都不得有模型像素被畫布邊界切掉', async ({ page }) => {
+  await gotoReady(page);
+  await page.locator('#box-select').selectOption('telescope');
+  await page.getByRole('button', { name: dict['mode.fold'].en, exact: true }).click();
+  const canvas = page.locator('.fold-canvas');
+  await expect(canvas).toBeVisible();
+  const range = page.locator('.foldbar input[type="range"]');
+
+  const scan = async (t: string) => {
+    await range.fill(t);
+    const shot = await settledShot(canvas);
+    return page.evaluate(MODEL_PIXEL_PROBE, [shot.toString('base64'), 0.72] as const);
+  };
+
+  // 覆蓋全段序（含中段每一拍），不是只取三個易錨點。
+  for (let step = 0; step <= 20; step += 1) {
+    // range input 對 `0.00` 這類尾零值會回 Malformed value，用原生數字字串。
+    const t = String(step / 20);
+    const { edges, modelPixels } = await scan(t);
+    expect(modelPixels, `t=${t} 掃不到任何模型像素＝儀器空轉`).toBeGreaterThan(1_000);
+    expect(edges, `t=${t} 內容被畫布邊界切掉：${edges.join('')}`).toEqual([]);
+  }
+
+  // 同測試內自證牙齒：手動拉近後必須偵測得到切邊，否則上面的全綠不具意義。
+  await range.fill('0.5');
+  const box = (await canvas.boundingBox())!;
+  for (let notch = 0; notch < 30; notch += 1) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, -120);
+  }
+  const zoomed = await page.evaluate(
+    MODEL_PIXEL_PROBE,
+    [(await settledShot(canvas)).toString('base64'), 0.72] as const,
+  );
+  expect(
+    zoomed.edges.length,
+    '拉近後仍偵測不到切邊＝這個偵測器沒有牙齒，全段序的通過只是它看不見',
+  ).toBeGreaterThan(0);
+});
