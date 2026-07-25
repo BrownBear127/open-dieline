@@ -848,10 +848,26 @@ export function FoldView({
     const startScene = async (): Promise<void> => {
       let sceneFactory = createScene;
       if (sceneFactory === undefined) {
-        const webgl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+        // ⚠ 可用性探測必須用**拋棄式 canvas**，不能碰真正要用的那一塊。
+        // `getContext` 在該 canvas 已有 context 時會**忽略傳入屬性並回傳既有的**，
+        // 所以一旦在這裡先建了一個無屬性 context，`createFoldScene` 裡
+        // `new WebGLRenderer({ canvas, antialias })` 的整組選項就全部失效
+        // （實測：把 antialias 改成 false，dev server 確實送出 false，
+        // 但實際跑的 context 仍回報 antialias:true / SAMPLES:4）。
+        // 現況剛好無害（WebGL 的 antialias 預設就是 true），但任何新增選項都會靜默沒作用。
+        // 我們要問的本來也是「這個瀏覽器有沒有 WebGL」而不是「這塊 canvas 有沒有」。
+        const probeCanvas = document.createElement('canvas');
+        const webgl = probeCanvas.getContext('webgl2')
+          ?? probeCanvas.getContext('webgl');
         if (webgl === null) {
           if (!cancelled) setWebglUnavailable(true);
           return;
+        }
+        // 探測用的 context 佔一個瀏覽器 context 額度（上限約 16 個），用完立刻釋放。
+        // typeof 守衛不是防禦性冗餘：單元測試把 `getContext` 整個 stub 成 `{}`
+        // 來跳過 WebGL fallback，此處若直接呼叫會在載入 scene 前就 throw。
+        if (typeof webgl.getExtension === 'function') {
+          webgl.getExtension('WEBGL_lose_context')?.loseContext();
         }
         sceneFactory = (await (loadScene ?? defaultLoadScene)()).createFoldScene;
       }
