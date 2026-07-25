@@ -1,6 +1,5 @@
 import type { ResolvedParams } from '@/core/types';
 import { evaluateScenePiecePose } from '@/fold/scene-pose';
-import { telescopeLidPlanes } from '@/fold/models/telescope';
 import type {
   FoldScenePiece,
   FoldSceneSpec,
@@ -17,6 +16,23 @@ const ORACLE_TOLERANCE_MM = 0.05;
  * 那次同步就是刻意的人為確認動作。
  */
 const SEAT_GAP_CONTRACT_MM = 0.05;
+/**
+ * 上蓋落座深度的**契約式**（AC-T4b ③／AC-T8a）。與上面同理刻意在測試側重寫、
+ * **不從 `telescopeLidSeatDrop` 匯入**——生產式一旦 import，它在
+ * 「期望值 − 實測值」裡會代數消掉，閘門對落座高度的任何改動完全無感。
+ *
+ * 實測（獨立 review 逮到）：把生產式加 5mm，`tests/fold tests/fold-ui` 1188 條全過；
+ * 退回只算 `thickness`（Spec v15.7 點名的 sabotage），該紅的 AC-T4b ③ 與 AC-T8a
+ * 也都沒紅——當時看起來紅的是同一個 `it()` 裡另一條跨片碰撞掃描，而那條只擋
+ * 「上蓋往下切進下盒」，往上浮完全不擋。
+ *
+ * 契約：接觸面是上蓋內壁反摺後的唇邊，比底板內面低一個 `innerWallReduction`；
+ * 當 `innerWallReduction < thickness` 時退化為底板內面本身。
+ * 改生產式時必須同步改這裡，那次同步就是刻意的人為確認動作。
+ */
+function seatDropContract(thickness: number, innerWallReduction: number): number {
+  return Math.max(thickness, innerWallReduction);
+}
 const VECTOR_TOLERANCE = 1e-6;
 const ASSEMBLY_SAMPLES_PER_BEAT = 12;
 
@@ -157,7 +173,7 @@ function nearlyEqual(
  * 終態期望只由具名面、params 與 generator 尺寸公式建立；此函式不讀
  * assemblyTrack 的任何 keyframe／終點。
  */
-export { SEAT_GAP_CONTRACT_MM };
+export { SEAT_GAP_CONTRACT_MM, seatDropContract };
 
 export function telescopeAssemblyOracleViolations(
   scene: FoldSceneSpec,
@@ -227,11 +243,11 @@ export function telescopeAssemblyOracleViolations(
   const innerWallReduction = typeof params.innerWallReduction === 'number'
     ? params.innerWallReduction
     : 0;
-  const { contactPlane: lidContactPlane } = telescopeLidPlanes(
-    lidSeatPlane,
-    thickness,
-    innerWallReduction,
-  );
+  // ⚠ 這裡刻意用測試側的 `seatDropContract` 而非生產的 `telescopeLidPlanes`：
+  // 實測的落座平面裡已經含著生產算出來的落座深度，期望值再從同一個生產式取一次，
+  // 兩者在相減時會消掉，閘門就對落座高度失去知覺（見 seatDropContract 的說明）。
+  const lidContactPlane = lidSeatPlane
+    - seatDropContract(thickness, innerWallReduction);
   const lidOuterWalls = [...lid]
     .filter(([panelId]) => /^wall[XY](?:Neg|Pos)-outer$/.test(panelId))
     .flatMap(([, points]) => points);
@@ -239,8 +255,11 @@ export function telescopeAssemblyOracleViolations(
   const lidHeight = params.lidHeight;
   // v15.6：期望值由 0 改為落座間隙。實體上兩面接觸（差 0），但零厚度渲染裡完全同高
   // 是深度測試的無解平手局（俯視實測 610px 下盒像素穿出上蓋）。
-  // ⚠ 這**不是放寬容差**——容差仍是 ORACLE_TOLERANCE_MM，改的是具名期望值本身，
-  // 且期望值取獨立契約常數（見 SEAT_GAP_CONTRACT_MM），不從生產常數動態推導。
+  // ⚠ 這**不是放寬容差**——容差仍是 ORACLE_TOLERANCE_MM，改的是具名期望值本身。
+  // 期望值的**兩項都**取測試側契約（`SEAT_GAP_CONTRACT_MM` 與 `seatDropContract`），
+  // 不從生產常數／生產式動態推導。v15.11 前只有間隙那項守住、落座深度那項是 import
+  // 生產式的，結果整條斷言對落座高度零知覺——修一個自指的期望值時，要稽核那個
+  // 運算式的**每一項**，不是只稽核咬過你的那一項。
   // v15.7：量測對象由 `floorInner` 改為 `contactPlane`。上蓋內壁反摺後短一個
   // innerWallReduction，其末端唇邊懸在底板下方、正好蓋住下盒壁頂——**它才是接觸面**。
   // 量錯面的症狀是唇邊切進下盒內壁 0.5mm，卻要靠把 lidMarginY 撐到 15mm 才躲得開。
@@ -253,7 +272,7 @@ export function telescopeAssemblyOracleViolations(
   if (typeof lidHeight !== 'number') {
     violations.push('③ 缺少 lidHeight');
   } else {
-    // 面別分離：③ 接觸＝面對面（lidFloorInner vs baseRim）；
+    // 面別分離：③ 接觸＝面對面（contactPlane vs baseRim·v15.7 起不再是 lidFloorInner）；
     // ③b 幾何＝平面對平面（lidRim 與 seatPlane 同屬上蓋 panel 樹）。
     nearlyEqual(
       violations,

@@ -6,10 +6,9 @@ import { resolveParams } from '@/core/registry';
 import { buildRteFoldModel } from '@/fold/models/reverse-tuck-end';
 import {
   buildTelescopeSceneSpec,
-  telescopeLidSeatDrop,
   TELESCOPE_ASSEMBLY_WINDOWS,
 } from '@/fold/models/telescope';
-import { SEAT_GAP_CONTRACT_MM } from '../helpers/telescope-assembly-oracle';
+import { SEAT_GAP_CONTRACT_MM, seatDropContract } from '../helpers/telescope-assembly-oracle';
 import { FOLD_SCENE_REGISTRY } from '@/fold/registry';
 import { resolveFoldSceneSpec, type ResolvedSceneSpec } from '@/fold/scene-spec';
 import type { FoldModel } from '@/fold/types';
@@ -295,14 +294,14 @@ describe('AC-T8 production 世界姿勢', () => {
     //   + 2 × rootJog         兩片角撐根各低於自身盒底一個 rootJog（實測 base/lid 皆 z=−0.500），
     //                         上蓋翻面後該外突朝上，故計兩次。
     // 此三項皆為正確物理結果，不得以放寬容差吸收。
-    //   + seatDrop               上蓋接觸面距其底板的深度（v15.7）
+    //   + seatDrop               上蓋接觸面距其底板的深度（v15.7·取測試側 seatDropContract）
     //   + SEAT_GAP_CONTRACT_MM   上蓋落座間隙（v15.6·拉開精確共面）
     // ⚠ 落座間隙只有 0.05mm，落在本斷言 0.1mm 的容差內——**不補進公式的話，容差會
     //   默默吸收它**，等於閘門對「落座高度變了」失去知覺。期望值必須逐項可指認。
     // ⚠ seatDrop 取代原本的裸 `thickness` 項：接觸面是上蓋內壁的唇邊（比底板低一個
     //   innerWallReduction），不是底板內面；兩者在預設值下差 0.5mm。
     const expectedHeight = (params.baseHeight as number)
-      + telescopeLidSeatDrop(thickness, params.innerWallReduction as number)
+      + seatDropContract(thickness, params.innerWallReduction as number)
       + 2 * rootJog
       + SEAT_GAP_CONTRACT_MM;
     // ⚠ v15.5：原式為 `lidSpan + 3 × thickness`（無推導的 `foldedEdgeAllowance`）。
