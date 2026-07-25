@@ -69,7 +69,13 @@ const CARD_METALNESS = 0;
 const CAMERA_FOV_DEGREES = 35;
 const CAMERA_FIT_DISTANCE_FACTOR = 2;
 const CAMERA_ELEVATION_FACTOR = 0.28;
-const CAMERA_NEAR_FACTOR = 0.001;
+// near 面取焦點對角線的比例。0.001 會讓 near/far 比達到 1:42000——實測相機距離
+// ~2008 單位時，24-bit 深度緩衝的可分辨步階約 **1.02 單位**（場景即 mm 尺度，
+// 亦即 1mm）。上蓋底板只高於下盒壁頂 1.35mm，比值 1.3× 就在精度邊緣；
+// 同時 `polygonOffsetUnits: ±1` 正好是 ±1 個步階（±1mm），足以翻盤。
+// 0.005 使步階降到約 0.2 單位（比值 6.7×），且仍只有 controls.minDistance
+// （focusDiagonal × 0.2）的 1/40，最近視距下不會近端裁切。
+const CAMERA_NEAR_FACTOR = 0.005;
 const CAMERA_FAR_FACTOR = 10;
 const MIN_SCENE_SCALE = 1;
 const MAX_PIXEL_RATIO = 2;
