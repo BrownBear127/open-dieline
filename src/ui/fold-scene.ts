@@ -1721,6 +1721,46 @@ export interface CameraFrame {
   focusDiagonal: number;
 }
 
+export interface CameraPlacement {
+  position: Vec3;
+  /** 相機到 target 的直線距離。 */
+  distance: number;
+  near: number;
+  far: number;
+  minDistance: number;
+  maxDistance: number;
+}
+
+/** 由取景外廓算相機擺位（`fitCamera` 的純函式核心）。
+ *
+ * **初始距離取「折後盒體」外廓（focusDiagonal）而非攤平 sweep 外廓（fitDiagonal）**：
+ * 摺盒預覽一開啟就是 t=1 的成品（`DEFAULT_FOLD_PROGRESS`），拿攤平那一刻的外廓定距
+ * 會把成品畫成畫面線性尺度的約 12%（telescope 實測 fit/focus = 4.23×）。
+ * 抬升與距離同取 focusDiagonal，俯角因此不變。
+ *
+ * `far` 與 `maxDistance` 仍取 fitDiagonal——拖回攤平時使用者縮遠仍看得完整張紙，
+ * 只是不再自動剛好裝滿。`near`／`minDistance` 的來源本來就是 focusDiagonal，不動。
+ */
+export function cameraPlacement(frame: CameraFrame): CameraPlacement {
+  const fitDiagonal = Math.max(frame.fitDiagonal, MIN_SCENE_SCALE);
+  const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
+  const frameDiagonal = focusDiagonal;
+  const elevation = frameDiagonal * CAMERA_ELEVATION_FACTOR;
+  const depth = frameDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
+  return {
+    position: {
+      x: frame.target.x,
+      y: frame.target.y + elevation,
+      z: frame.target.z + depth,
+    },
+    distance: Math.hypot(elevation, depth),
+    near: Math.max(focusDiagonal * CAMERA_NEAR_FACTOR, 0.01),
+    far: Math.max(fitDiagonal * CAMERA_FAR_FACTOR, 100),
+    minDistance: focusDiagonal * 0.2,
+    maxDistance: fitDiagonal * 6,
+  };
+}
+
 export function cameraOrbitPosition(
   target: Vec3,
   distance: number,
@@ -2266,9 +2306,7 @@ export function createFoldScene(
   };
 
   const fitCamera = (frame: CameraFrame): void => {
-    const fitDiagonal = Math.max(frame.fitDiagonal, MIN_SCENE_SCALE);
-    const focusDiagonal = Math.max(frame.focusDiagonal, MIN_SCENE_SCALE);
-    const cameraDistance = fitDiagonal * CAMERA_FIT_DISTANCE_FACTOR;
+    const placement = cameraPlacement(frame);
 
     modelRoot.position.set(
       frame.modelOffset.x,
@@ -2277,15 +2315,15 @@ export function createFoldScene(
     );
     controls.target.set(frame.target.x, frame.target.y, frame.target.z);
     camera.position.set(
-      frame.target.x,
-      frame.target.y + fitDiagonal * CAMERA_ELEVATION_FACTOR,
-      frame.target.z + cameraDistance,
+      placement.position.x,
+      placement.position.y,
+      placement.position.z,
     );
-    camera.near = Math.max(focusDiagonal * CAMERA_NEAR_FACTOR, 0.01);
-    camera.far = Math.max(fitDiagonal * CAMERA_FAR_FACTOR, 100);
+    camera.near = placement.near;
+    camera.far = placement.far;
     camera.updateProjectionMatrix();
-    controls.minDistance = focusDiagonal * 0.2;
-    controls.maxDistance = fitDiagonal * 6;
+    controls.minDistance = placement.minDistance;
+    controls.maxDistance = placement.maxDistance;
     controls.update();
     updateScheduledCamera();
   };

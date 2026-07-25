@@ -107,8 +107,8 @@ const params: BoxParamDef[] = [
     step: 0.5,
     group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
-      zh: '上蓋面板短向（對應 baseWidth／x 向先摺壁）相對下盒的等邊放大量——決定上蓋短向能套住下盒多深。Slice 5 F1：原單一 lidMargin 拆兩軸，取消 y 向測試豁免後兩軸皆為可獨立覆蓋的一般參數（無 derivedDefault）。（2026-07-09 T7 gate 重定義：內襯不再錨定上蓋，此參數與內襯幾何無關——見 linerFlapDepth。）',
-      en: 'Equal per-side lid oversize on the short axis, corresponding to baseWidth and the x-axis first-fold walls; determines the lid-to-base fit on the short axis. Slice 5 F1 split the former lidMargin into two independently overridable axes with no derivedDefault and removed the y-axis test exemption. Since the 2026-07-09 T7 gate redefinition, the liner is no longer anchored to the lid, so this parameter does not affect liner geometry; see linerFlapDepth.',
+      zh: '上蓋短向（對應 baseWidth）相對下盒的等邊放大量，決定短向套合的鬆緊。與長向各自獨立設定。',
+      en: 'Equal per-side lid oversize on the short axis (matching baseWidth); sets how tightly the lid fits over the base on that axis. Independent of the long axis.',
     },
     highlightTags: ['lidMarginX'],
   },
@@ -122,8 +122,8 @@ const params: BoxParamDef[] = [
     step: 0.5,
     group: { id: 'fit', zh: '套合', en: 'Fit' },
     description: {
-      zh: '上蓋面板長向（對應 baseLength／y 向後摺壁）相對下盒的等邊放大量。與 lidMarginX 各自獨立（Slice 5 F1：生產刀模長短向放大量本不相等 13.5≠18.5，拆分後才能逐線復刻；取消 y 向測試豁免）。與短向同為純套合鬆緊參數：決定上下盒要合多緊，無幾何下限。（v15.7 前一度誤以為長向有 15mm 硬底限，實為上蓋落座高度少算了內壁唇邊落差、須靠放大量水平躲開所致；落座公式修正後兩軸對稱。）',
-      en: 'Equal per-side lid oversize on the long axis, corresponding to baseLength and the y-axis second-fold walls. Independent of lidMarginX: Slice 5 F1 separated the unequal production-dieline oversizes (13.5≠18.5) for line-by-line reproduction and removed the y-axis test exemption.',
+      zh: '上蓋長向（對應 baseLength）相對下盒的等邊放大量，決定長向套合的鬆緊。與短向各自獨立設定，兩軸不必相等。',
+      en: 'Equal per-side lid oversize on the long axis (matching baseLength); sets how tightly the lid fits over the base on that axis. Independent of the short axis, and the two need not match.',
     },
     highlightTags: ['lidMarginY'],
   },

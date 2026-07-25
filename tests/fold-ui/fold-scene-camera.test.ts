@@ -6,13 +6,17 @@ import { worldGeometry } from '@/fold/pose3d';
 import { foldPose } from '@/fold/schedule';
 import {
   cameraOrbitPosition,
+  cameraPlacement,
   computeSceneCameraFrame,
   shadowPlacement,
   type GeometryBounds,
 } from '@/ui/fold-scene';
 import { resolveFoldSceneSpec } from '@/fold/scene-spec';
+import { telescope } from '@/boxes/telescope';
+import { buildTelescopeSceneSpec } from '@/fold/models/telescope';
 
 const params = resolveParams(reverseTuckEnd, {});
+const telescopeParams = resolveParams(telescope, {});
 const model = buildRteFoldModel(params);
 const L = params.L as number;
 const W = params.W as number;
@@ -114,6 +118,64 @@ describe('computeSceneCameraFrame（單片包裝·production 路徑）', () => {
     expect(frame.fitDiagonal).toBeGreaterThanOrEqual(flatDiagonal);
     expect(Math.abs(frame.focusDiagonal - boxDiagonal)).toBeLessThanOrEqual(Math.max(4 * thickness, 5));
     expect(frame.focusDiagonal).toBeLessThanOrEqual(frame.fitDiagonal);
+  });
+});
+
+describe('cameraPlacement（預設取景以折後盒體定距）', () => {
+  const frame = computeFrame()!;
+
+  it('距離只由 focusDiagonal 決定——攤平外廓變大不得把成品推遠', () => {
+    const placement = cameraPlacement(frame);
+    // 判別性：把攤平外廓加倍（例如多片並排的盒型），距離必須原地不動。
+    // 舊行為以 fitDiagonal 定距，這一條會直接把距離也加倍。
+    const widerFlat = cameraPlacement({ ...frame, fitDiagonal: frame.fitDiagonal * 2 });
+
+    expect(widerFlat.distance).toBeCloseTo(placement.distance, 10);
+    expect(placement.distance).toBeCloseTo(
+      frame.focusDiagonal * Math.hypot(2, 0.28),
+      6,
+    );
+  });
+
+  it('縮遠仍看得完整張攤平紙——far/maxDistance 續由 fitDiagonal 決定', () => {
+    const placement = cameraPlacement(frame);
+
+    // 攤平時整張紙要進得了畫面，可視距離上限必須涵蓋攤平外廓；
+    // far 也要蓋得住「相機退到最遠 ＋ 紙張本身深度」。
+    expect(placement.maxDistance).toBeGreaterThan(frame.fitDiagonal);
+    expect(placement.far).toBeGreaterThan(placement.maxDistance + frame.fitDiagonal);
+    // 近端不被大紙鎖死的原契約不變。
+    expect(placement.minDistance).toBeCloseTo(frame.focusDiagonal * 0.2, 10);
+    expect(placement.near).toBeCloseTo(frame.focusDiagonal * 0.005, 10);
+  });
+
+  it('俯角不隨盒子大小改變（距離與抬升同比例縮放）', () => {
+    const small = cameraPlacement({ ...frame, focusDiagonal: 40 });
+    const large = cameraPlacement({ ...frame, focusDiagonal: 400 });
+
+    const angle = (p: ReturnType<typeof cameraPlacement>) => Math.atan2(
+      p.position.y - frame.target.y,
+      p.position.z - frame.target.z,
+    );
+    expect(angle(small)).toBeCloseTo(angle(large), 12);
+    expect(angle(small)).toBeCloseTo(Math.atan2(0.28, 2), 12);
+  });
+
+  it('telescope 預設落在實測「零透出」的視距內', () => {
+    const telescopeFrame = computeSceneCameraFrame(
+      resolveFoldSceneSpec(
+        buildTelescopeSceneSpec(telescopeParams),
+        telescopeParams,
+      ),
+      telescopeParams.thickness as number,
+    )!;
+    const placement = cameraPlacement(telescopeFrame);
+
+    // 外部像素量測（俯視下隱藏下盒前後對拍取差集·同場景藏上蓋當正對照得 902,393px）：
+    //   相機距離 770mm → 下盒透出 655px；560mm → 1px；475mm → 0px；288mm → 0px。
+    // 成因＝上蓋底板與下盒壁頂的 1.35mm 高差投影到螢幕不足半個 MSAA 取樣間距。
+    // 這條釘的是量出來的懸崖，不是公式本身。
+    expect(placement.distance).toBeLessThanOrEqual(560);
   });
 });
 
