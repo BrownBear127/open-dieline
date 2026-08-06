@@ -3,6 +3,15 @@
 All notable changes to Open Dieline are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] — 2026-08-06
+
+### Fixed
+
+- **Auto-rotate stops the moment it's switched off** — turning the toggle off
+  used to leave a damped rotation tail, and its wall-clock length grew as the
+  frame rate dropped; the residual momentum is now drained on release, so the
+  camera halts within a frame at any frame rate.
+
 ## [1.4.0] — 2026-08-06
 
 ### Added
@@ -90,6 +99,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   Telescope boxes, drawn to real production conventions, with SVG and DXF export.
   Free for noncommercial use.
 
+[1.4.1]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.4.1
 [1.4.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.4.0
 [1.3.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.3.0
 [1.2.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.2.0
