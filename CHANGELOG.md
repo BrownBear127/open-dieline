@@ -3,6 +3,30 @@
 All notable changes to Open Dieline are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-08-06
+
+### Added
+
+- **Telescope box 3D fold preview** — the two-piece box now folds up in the
+  preview like the others: lid and base rise side by side, walls lift in a
+  staggered sequence, corner flaps wrap onto their neighbouring walls, and the
+  lid settles over the base at true material thickness. The motion is guarded
+  by kinematic gates — no self-intersection, no reverse folds, per-piece
+  envelopes — asserted down to the rendered mesh, with pixel-level checks on
+  the finished pose.
+
+### Fixed
+
+- **Telescope dieline creases** — the corner flaps now carry their fold
+  creases, and the side web is split at wall height, so the exported dieline
+  folds the way the preview shows it.
+- **Fold preview framing** — the preview opens framed on the finished box
+  instead of the flat sheet, and while the telescope folds, the camera eases
+  in from the sheet's envelope so no piece ever leaves the frame.
+- **Sharper 3D rendering** — WebGL support was probed on the preview's own
+  canvas, which locked its context before renderer options could apply;
+  probing a throwaway canvas instead restores antialiasing.
+
 ## [1.3.0] — 2026-07-23
 
 ### Fixed
@@ -20,6 +44,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Two new box types** — the Tuck-Top Snap-Lock Carton and the Triangular
+  Tube Box join the catalogue, each with a full parametric dieline, 3D fold
+  preview, and SVG/DXF export.
 - **Upload alignment guard-rail** — SVG artwork is anchored by its page frame
   when one is present, and flagged with a warning (box mismatch, stale template,
   or aspect anomaly) instead of silently mis-aligning; warnings re-evaluate live
@@ -63,6 +90,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   Telescope boxes, drawn to real production conventions, with SVG and DXF export.
   Free for noncommercial use.
 
+[1.4.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.4.0
 [1.3.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.3.0
 [1.2.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.2.0
 [1.1.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.1.0
