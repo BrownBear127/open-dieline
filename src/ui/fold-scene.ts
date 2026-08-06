@@ -2717,6 +2717,14 @@ export function createFoldScene(
     replaceScene,
     setAutoRotate(on) {
       controls.autoRotate = on;
+      if (!on) {
+        // 排空 damping 殘餘角速度：衰減按幀計，收斂牆鐘時間反比於幀率，低幀率（軟體
+        // 渲染）環境的尾巴可拖數十秒。無 damping 的 update() 會把殘餘 delta 一次套用
+        // 並歸零，讓「關閉自轉」在任何幀率下都於一幀內確定停住。
+        controls.enableDamping = false;
+        controls.update();
+        controls.enableDamping = true;
+      }
       markNeedsRender();
     },
     applyRecipe,
