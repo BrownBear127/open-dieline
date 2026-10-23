@@ -3,6 +3,15 @@
 All notable changes to Open Dieline are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **License now carries a Required Notice** — `LICENSE` opens with
+  `Required Notice: Copyright (c) 2026 BrownBear127 (https://konvolut.art)`.
+  Under the PolyForm Noncommercial terms, anyone who redistributes the
+  software must keep this line. The license terms themselves are unchanged.
+
 ## [1.4.1] — 2026-08-06
 
 ### Fixed
@@ -99,6 +108,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   Telescope boxes, drawn to real production conventions, with SVG and DXF export.
   Free for noncommercial use.
 
+[Unreleased]: https://github.com/BrownBear127/open-dieline/compare/v1.4.1...HEAD
 [1.4.1]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.4.1
 [1.4.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.4.0
 [1.3.0]: https://github.com/BrownBear127/open-dieline/releases/tag/v1.3.0
